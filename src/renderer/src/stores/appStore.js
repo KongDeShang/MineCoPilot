@@ -15,7 +15,6 @@ import {
   daysSince, dueDate, daysUntilDue, equipmentAgeYears, parseDate, addDays
 } from '../utils/dates'
 import { buildDemoDataset, auditDataset, DEFAULT_FLEET_SIZE } from '../utils/fleetData'
-import { PARTS_CATALOG } from '../utils/equipmentCatalog'
 import { evaluateHealth, evaluateTrend, computeOverdueDays as healthComputeOverdueDays,
   configureHealth, resetHealthConfig, DAILY_OUTPUT_LOSS } from '../utils/health'
 import { buildFaultStats } from '../utils/faultStats'
@@ -24,6 +23,7 @@ import { docFileStore } from '../utils/docFileStore'
 import { extractPdfText } from '../utils/pdfExtract'
 import { createNlActions } from './nlActions'
 import { createPersistence } from './persistence'
+import { createPartsDomain } from './partsDomain'
 
 // 界面文案字典（设备/工单状态、优先级、类型、维保类型样式）统一放在 utils/dictionaries.js。
 // 这里只做转发，不保留第二份实现 —— 之前那份躺在这里，一个页面都没用上。
@@ -110,6 +110,22 @@ export const useAppStore = defineStore('app', () => {
   const lastSavedAt = ref('')
   const saving = ref(false)
 
+  // ---------- 备件库存 ----------
+  // 领域逻辑在 stores/partsDomain.js：种子、按名找件、出入库、维保联动扣减、缺料预警。
+  // 必须建在 createPersistence 之前 —— 持久化层要拿 partsSeed 建期初台账、
+  // 拿 consumePartsFromText 做期初回冲，这里是 const（不提升），到那行就已求值。
+  // persistAll 反过来要等持久化层建好，所以包一层延迟取用：真正调它是在
+  // 用户改库存的时候，那时早就建好了。
+  const parts = createPartsDomain({
+    partsInventory, partTransactions,
+    persistAll: (...args) => persistAll(...args)
+  })
+  // 备件领域对外的接口原样接回 store（页面/端到端脚本刚才怎么用，现在还怎么用）
+  const {
+    getPartByName, adjustPartStock, restockPart, issuePart,
+    addPart, consumePartsFromText, lowStockParts
+  } = parts
+
   // ---------- 演示操作日志 ----------
   // 必须定义在 createPersistence 之前：它是 const（不提升），
   // 在下面那行把它交给持久化层时就已经被求值了。
@@ -130,7 +146,8 @@ export const useAppStore = defineStore('app', () => {
     equipmentList, maintenanceRecords, workOrders, healthSnapshots, knowledgeItems,
     documents, faultCases, partsInventory, partTransactions, recentLogs,
     dbReady, dbError, storageBackend, lastSavedAt, saving,
-    buildSeed, partsSeed, seedLogs: SEED_LOGS, buildDefaultKnowledge, consumePartsFromText
+    buildSeed, seedLogs: SEED_LOGS, buildDefaultKnowledge,
+    partsSeed: parts.partsSeed, consumePartsFromText: parts.consumePartsFromText
   })
   const {
     persistAll, scheduleSave, saveNow, hydrateFromDb, applySeedData
@@ -413,206 +430,6 @@ export const useAppStore = defineStore('app', () => {
     return faultCases.value
   }
 
-  // ---------- 备件库存 ----------
-
-  /**
-   * 备件台账种子：直接由 PARTS_CATALOG 派生
-   *
-   * ⚠️ 以前这里是另写一份清单（"制动片/轮胎螺栓/液压油缸密封件"），
-   * 与维保记录用的 PARTS_CATALOG（"刹车片/工程轮胎/液压油管密封圈"）各写各的，
-   * 记录里的配件只有 2 种能在库存里找到，演示时"填了配件却不扣库存"，
-   * 备件联动链路看着就是坏的。现在单一来源，件名天然对齐。
-   * 库存水位刻意留出 3 项低于安全库存，让"缺料预警"有真实内容。
-   */
-  const PART_CATEGORY = {
-    '液压油46号': '润滑系统',
-    机油滤芯: '动力系统',
-    工程轮胎: '行走系统',
-    刹车片: '行走系统',
-    高锰钢衬板: '工作装置',
-    斗齿: '工作装置',
-    液压油管密封圈: '液压系统',
-    耐水极压锂基脂: '润滑系统',
-    液压油滤芯: '液压系统',
-    空气滤芯: '动力系统',
-    液压油缸密封件: '液压系统',
-    发电机皮带: '动力系统',
-    轮胎螺栓: '行走系统'
-  }
-
-  const PART_UNIT = {
-    '液压油46号': '桶',
-    耐水极压锂基脂: '桶',
-    刹车片: '副',
-    液压油缸密封件: '套'
-  }
-
-  /**
-   * 现场常见叫法 → 台账标准名
-   *
-   * 只收"同一种东西的不同写法"。不把"机油"映射成"机油滤芯"、
-   * 不把"液压油缸密封件"映射成"液压油管密封圈"——那是两种不同零件，
-   * 硬凑匹配会让库存账目错得看不出错。对不上的配件一律如实上报"台账无此件"。
-   */
-  const PART_ALIASES = {
-    刹车摩擦片: '刹车片',
-    闸片: '刹车片',
-    制动片: '刹车片',
-    液压油密封圈: '液压油管密封圈',
-    液压油: '液压油46号',
-    液压油46: '液压油46号',
-    锂基脂: '耐水极压锂基脂',
-    润滑脂: '耐水极压锂基脂'
-  }
-
-  /**
-   * 相对安全库存的水位偏移
-   *
-   * 期初水位按"近 30 天演示维保记录的领用量"留足余量：回冲之后既要有几项
-   * 落到安全库存以下（缺料预警页才有内容），又不能有哪一项被扣到 0——
-   * 库存为 0 会让演示中的后续领用全部走"超领"分支，页面看着像坏了。
-   */
-  const STOCK_OFFSET = {
-    '液压油46号': 9,
-    机油滤芯: 6,
-    工程轮胎: 6,
-    刹车片: 2,
-    高锰钢衬板: -1,
-    斗齿: 5,
-    液压油管密封圈: -8,
-    耐水极压锂基脂: 3,
-    液压油滤芯: 5,
-    空气滤芯: 4
-  }
-
-  function partsSeed() {
-    const stamp = now()
-    return PARTS_CATALOG.map((p, i) => ({
-      id: i + 1,
-      name: p.name,
-      category: PART_CATEGORY[p.name] || '其他',
-      stock: Math.max(1, Number(p.minStock) + (STOCK_OFFSET[p.name] ?? 3)),
-      safety_stock: Number(p.minStock) || 0,
-      unit_price: Number(p.price) || 0,
-      unit: PART_UNIT[p.name] || '件',
-      updatedAt: stamp
-    }))
-  }
-
-  const nextPartId = computed(() => {
-    const maxId = partsInventory.value.reduce((max, p) => Math.max(max, Number(p.id) || 0), 0)
-    return maxId + 1
-  })
-
-  /**
-   * 按名字找备件：精确 → 别名 → 唯一包含匹配
-   *
-   * 三级都命不中时返回 null（调用方必须把"对不上"如实报出来，
-   * 而不是当作"这件没用到"悄悄跳过）。包含匹配只在唯一命中时采信，
-   * 命中多件（如"滤芯"同时匹配到机油/空气/液压油滤芯）一律不猜。
-   */
-  function getPartByName(name) {
-    const clean = String(name || '').trim()
-    if (!clean) return null
-    const exact = partsInventory.value.find(p => p.name === clean)
-    if (exact) return exact
-    const alias = PART_ALIASES[clean]
-    if (alias) {
-      const hit = partsInventory.value.find(p => p.name === alias)
-      if (hit) return hit
-    }
-    const loose = partsInventory.value.filter(p => p.name.includes(clean) || clean.includes(p.name))
-    return loose.length === 1 ? loose[0] : null
-  }
-
-  /** 调整库存（delta 可为正入库 / 负出库），并记流水 */
-  function adjustPartStock(partId, delta, { type = 'in', refType = '', refId = null, note = '' } = {}) {
-    const part = partsInventory.value.find(p => p.id === partId)
-    if (!part) return null
-    part.stock = Math.max(0, Number(part.stock) + Number(delta))
-    part.updatedAt = now()
-    if (Number(delta) !== 0) {
-      partTransactions.value.unshift({
-        id: nextPartTxId.value,
-        part_id: part.id,
-        type: Number(delta) > 0 ? 'in' : 'out',
-        quantity: Math.abs(Number(delta)),
-        ref_type: type === 'in' ? (refType || 'manual') : refType,
-        ref_id: refId,
-        note,
-        createdAt: now()
-      })
-    }
-    persistAll()
-    return part
-  }
-
-  const nextPartTxId = computed(() => {
-    const maxId = partTransactions.value.reduce((max, t) => Math.max(max, Number(t.id) || 0), 0)
-    return maxId + 1
-  })
-
-  /** 入库 */
-  function restockPart(partId, quantity, note = '手动入库') {
-    return adjustPartStock(partId, Number(quantity), { type: 'in', note })
-  }
-
-  /** 出库 */
-  function issuePart(partId, quantity, note = '手动出库') {
-    return adjustPartStock(partId, -Number(quantity), { type: 'out', note })
-  }
-
-  function addPart(item) {
-    const record = {
-      id: nextPartId.value,
-      name: String(item.name || '').trim(),
-      category: item.category || '其他',
-      stock: Number(item.stock) || 0,
-      safety_stock: Number(item.safety_stock) || 0,
-      unit_price: Number(item.unit_price) || 0,
-      unit: item.unit || '件',
-      updatedAt: now()
-    }
-    if (!record.name) return null
-    partsInventory.value.push(record)
-    persistAll()
-    return record
-  }
-
-  /**
-   * 备件联动：从一段文本（如维保记录的"配件"字段，逗号/顿号分隔）逐个匹配备件名并扣减库存
-   * 用于"维保/维修记录填配件 → 台账自动扣减 → 缺料预警"
-   *
-   * 返回值是明细而不是一个数字：对不上台账的配件、库存为 0 的配件都必须能被上层看见。
-   * 之前这里对这两种情况都是静默 `continue`——记录里明明白白写着换了件，
-   * 库存却分文未动，界面上也没有任何提示，账实不符却查不出原因。
-   *
-   * @returns {{ consumed: number, matched: string[], unmatched: string[], short: string[] }}
-   */
-  function consumePartsFromText(text, refType, refId) {
-    const result = { consumed: 0, matched: [], unmatched: [], short: [] }
-    if (!text) return result
-    const names = String(text)
-      .split(/[,，、;；/]/)
-      .map(s => s.trim())
-      .filter(Boolean)
-    for (const name of names) {
-      const part = getPartByName(name)
-      if (!part) { result.unmatched.push(name); continue }
-      if (Number(part.stock) <= 0) { result.short.push(part.name); continue }
-      adjustPartStock(part.id, -1, { type: 'out', refType, refId, note: `维保/维修领用（${refType} #${refId}）` })
-      result.consumed++
-      result.matched.push(part.name)
-    }
-    return result
-  }
-
-  /** 缺料预警：库存 ≤ 安全库存 */
-  const lowStockParts = computed(() =>
-    partsInventory.value
-      .filter(p => Number(p.stock) <= Number(p.safety_stock))
-      .sort((a, b) => a.stock - b.stock)
-  )
 
   // ---------- 健康快照 ----------
   function getSnapshots(equipmentId) {
