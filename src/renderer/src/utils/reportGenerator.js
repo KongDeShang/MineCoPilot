@@ -123,7 +123,16 @@ export function generateReportData(store, period = 'week') {
   const pendingRechecks = store.recheckList.slice(0, 5)
 
   // 5. 复诊闭环
+  // store.recheckStats 是**全车队累计**口径，而本函数其余数字（新增/已完成）都是周期口径。
+  // 直接混在一起会写出"本周新增 3 单、已完成 2 单，闭环率 70%"这种自相矛盾的句子 ——
+  // 那个 70% 是全车队有史以来的，不是本周的。所以两个口径都给，并且标签写明。
   const recheckStats = store.recheckStats
+  const periodRecheckOrders = completedOrders.filter(o =>
+    o.recheck_status === 'done' || o.recheck_status === 'pending')
+  const periodRecheckDone = periodRecheckOrders.filter(o => o.recheck_status === 'done').length
+  const periodRecheckRate = periodRecheckOrders.length > 0
+    ? Math.round((periodRecheckDone / periodRecheckOrders.length) * 100)
+    : null
 
   // 6. 高频故障
   const faultTop = store.faultTopStats.slice(0, 5)
@@ -144,9 +153,14 @@ export function generateReportData(store, period = 'week') {
       completionRate: newOrders.length > 0
         ? Math.round((completedOrders.length / newOrders.length) * 100)
         : null,
+      // 累计口径（全车队有史以来）
       recheckDone: recheckStats.done,
       recheckTotal: recheckStats.due,
       recheckRate: recheckStats.rate,
+      // 本周期口径（本周期已完成工单里的复诊情况）
+      periodRecheckDone,
+      periodRecheckTotal: periodRecheckOrders.length,
+      periodRecheckRate,
       overdueCount: store.overdueList.length
     },
     critical,
@@ -178,8 +192,17 @@ export function renderReportHTML(data) {
   lines.push(`<li>在管 <strong>${ov.total}</strong> 台设备，健康均分 <strong>${ov.healthAvg}</strong>（A:${ov.healthLevels.A} B:${ov.healthLevels.B} C:${ov.healthLevels.C} D:${ov.healthLevels.D}）</li>`)
   lines.push(`<li>新增工单 <strong>${ov.newOrderCount}</strong> 单（维修 ${ov.repairCount} / 保养 ${ov.maintenanceCount}）</li>`)
   lines.push(`<li>已完成 <strong>${ov.completedCount}</strong> 单${ov.completionRate !== null ? `（完成率 ${ov.completionRate}%）` : ''}</li>`)
-  if (ov.recheckTotal > 0) {
-    lines.push(`<li>复诊完成 ${ov.recheckDone}/${ov.recheckTotal}（闭环率 ${ov.recheckRate}%）</li>`)
+  if (ov.recheckTotal > 0 || ov.periodRecheckTotal > 0) {
+    // 两个口径都写明：累计是全车队有史以来的，本周期只统计本周期完成的单。
+    // 不标口径的话，"新增 3 单 / 完成 2 单 / 闭环率 70%"会被读成同一周期内的数字。
+    const parts = []
+    if (ov.periodRecheckTotal > 0) {
+      parts.push(`本周期完成单中复诊 ${ov.periodRecheckDone}/${ov.periodRecheckTotal}（${ov.periodRecheckRate}%）`)
+    }
+    if (ov.recheckTotal > 0) {
+      parts.push(`全车队累计 ${ov.recheckDone}/${ov.recheckTotal}（${ov.recheckRate}%）`)
+    }
+    lines.push(`<li>复诊闭环：${parts.join('；')}</li>`)
   }
   lines.push(`<li>维保超期 <span style="color:#f56c6c;font-weight:700">${ov.overdueCount}</span> 台</li>`)
   lines.push(`</ul></div>`)

@@ -140,6 +140,64 @@ function check(name, condition, detail = '') {
     offenders.length === 0, offenders.join('、') || '无')
 }
 
+// ============ A3 报告内所有数字必须是同一口径 ============
+{
+  // 回归：复诊闭环率曾经取的是 store.recheckStats（全车队**累计**），
+  // 而同一段"车队概况"里的新增/已完成都是**本周期**过滤过的。
+  // 于是周报会写出「本周新增 3 单、已完成 2 单、闭环率 70%」——
+  // 三个数字摆在一起，只有第三个不是本周的，且没有任何标注。
+  const { start } = reportGen.getPeriodRange('week')
+  const beforeRange = '2000-01-01T09:00:00'
+
+  const mk = (id, created, completed, recheck) => ({
+    id, equipment_id: id, equipment_name: `设备${id}`, title: '测试工单', type: 'repair',
+    status: completed ? 'completed' : 'pending', created_at: created,
+    completed_at: completed, recheck_status: recheck
+  })
+
+  const workOrders = [
+    // 本周期内完成：1 单已复诊 / 1 单待复诊
+    mk(1, `${start}T09:00:00`, `${start}T18:00:00`, 'done'),
+    mk(2, `${start}T09:00:00`, `${start}T18:00:00`, 'pending'),
+    // 历史遗留：区外完成但已复诊 —— 只有累计口径才该数到它
+    mk(3, beforeRange, beforeRange, 'done')
+  ]
+
+  const stub = {
+    equipmentList: [], equipmentWithHealth: [], healthLevelStats: { A: 0, B: 0, C: 0, D: 0 },
+    criticalList: [], worseningList: [], upcomingList: [], recheckList: [], overdueList: [],
+    faultTopStats: [], getSnapshots: () => [],
+    workOrders,
+    recheckStats: {
+      due: 3, done: 2, pending: 1, rate: 67
+    }
+  }
+
+  const data = reportGen.generateReportData(stub, 'week')
+  const ov = data.overview
+
+  check('本周期复诊口径只统计本周期完成的工单',
+    ov.periodRecheckTotal === 2 && ov.periodRecheckDone === 1,
+    `periodRecheck ${ov.periodRecheckDone}/${ov.periodRecheckTotal}，期望 1/2（区外那单不该计入）`)
+  check('本周期复诊率按本周期分母算',
+    ov.periodRecheckRate === 50, `${ov.periodRecheckRate}%，期望 50%`)
+  check('累计复诊口径保持原样，未被周期过滤污染',
+    ov.recheckTotal === 3 && ov.recheckDone === 2 && ov.recheckRate === 67,
+    `${ov.recheckDone}/${ov.recheckTotal} = ${ov.recheckRate}%`)
+
+  const html = reportGen.renderReportHTML(data)
+  check('报告里复诊一行同时标出两个口径',
+    html.includes('本周期完成单中复诊') && html.includes('全车队累计'),
+    html.match(/复诊闭环：[^<]*/)?.[0] || '未渲染复诊行')
+
+  // 无本周期完成单时，不该冒出"本周期 0/0（NaN%）"这种空口径
+  const emptyHtml = reportGen.renderReportHTML(reportGen.generateReportData(
+    { ...stub, workOrders: [mk(3, beforeRange, beforeRange, 'done')] }, 'week'))
+  check('本周期无完成单时不渲染本周期复诊口径',
+    !emptyHtml.includes('本周期完成单中复诊') && emptyHtml.includes('全车队累计'),
+    emptyHtml.match(/复诊闭环：[^<]*/)?.[0] || '未渲染复诊行')
+}
+
 // ============ B sql.js 持久化 ============
 {
   await database.initDatabase()
@@ -175,6 +233,68 @@ function check(name, condition, detail = '') {
   const rows = database.all('equipment')
   check('重启后数据仍在（关键）', rows.length === 1, `count=${rows.length}`)
   check('重启后字段完整', rows[0]?.name === '1号挖掘机' && rows[0]?.model === 'CAT 320D', JSON.stringify(rows[0] || {}))
+
+  // 归档标记必须真的落库：它决定「完成 → 退回处理中 → 再完成」会不会重做一遍副作用，
+  // 只活在内存里的话，重启一次这道闸门就失效了。
+  database.replaceAll({
+    work_orders: [{
+      id: 9001, equipment_id: 1, equipment_name: '1号挖掘机', title: '归档回归单',
+      status: 'completed', type: 'repair', created_at: '2026-09-01 09:00:00',
+      completed_at: '2026-09-02 18:00:00', archived_at: '2026-09-02 18:00:00',
+      recheck_status: 'pending'
+    }]
+  })
+  await database.persist(true)
+  await database.destroyDatabase()
+  await database.initDatabase()
+  const archived = database.all('work_orders')[0]
+  check('归档标记重启后仍在（否则归档幂等会被绕过）',
+    archived?.archived_at === '2026-09-02 18:00:00', JSON.stringify(archived || {}))
+
+  // 老库回填：completed_at 有值但 archived_at 为 NULL 的已完成单，启动时自动补上
+  database.execute("UPDATE work_orders SET archived_at = NULL WHERE id = 9001")
+  await database.persist(true) // 必须写盘，否则 NULL 只留在内存里，回填根本没被触发
+  await database.destroyDatabase()
+  await database.initDatabase()
+  const backfilled = database.all('work_orders')[0]
+  check('老库启动时回填已归档标记（迁移补数据）',
+    backfilled?.archived_at === '2026-09-02 18:00:00', JSON.stringify(backfilled || {}))
+}
+
+// ============ B2 建表列必须同时接进「写库」与「读库」两处映射 ============
+{
+  // 回归：archived_at 加进了建表语句、也加进了迁移，却漏在 workOrdersToRows 里。
+  // 列建好了却永远写不进去，重启后归档标记全丢 —— 「完成 → 退回处理中 → 再完成」
+  // 于是又把病历/快照/复诊/案例卡重做一遍。同一会话内一切正常，所以行为测试抓不到，
+  // 只能对源码做结构校验：表里的每一列，读写两个映射都要提到。
+  const source = readFileSync(join(root, 'src/renderer/src/stores/appStore.js'), 'utf8')
+  const bodyOf = (name) => {
+    const m = source.match(new RegExp(`function ${name}\\(\\)\\s*\\{([\\s\\S]*?)\\n  \\}`))
+    return m ? m[1] : ''
+  }
+
+  // 只校验**写库**这一侧。读库那侧有正当的省略（created_at / updated_at 只是审计字段，
+  // 读回来也没人用；设备台账的 created_at 同理），一刀切地要求"列列都读"会误报。
+  // 而写库没有正当省略：表里有这一列，却不给值，那这列就是死的。
+  const mappers = [
+    ['work_orders', 'workOrdersToRows'],
+    ['equipment', 'equipmentToRows'],
+    ['maintenance_records', 'maintenanceToRows'],
+    ['parts_inventory', 'partsToRows'],
+    ['operation_logs', 'logsToRows']
+  ]
+
+  for (const [table, writeFn] of mappers) {
+    const writeBody = bodyOf(writeFn)
+    if (!writeBody) {
+      check(`${table} 的写库映射 ${writeFn} 可被定位`, false, '正则没匹配到函数体')
+      continue
+    }
+    const columns = database.query(`PRAGMA table_info(${table})`).map(r => r.name)
+    const missWrite = columns.filter(c => !writeBody.includes(`${c}:`))
+    check(`${table} 的每一列都接进了写库映射（${writeFn}）`,
+      missWrite.length === 0, missWrite.join('、') || `${columns.length} 列齐全`)
+  }
 }
 
 // ============ C Excel 解析与合并 ============

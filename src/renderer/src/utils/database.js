@@ -226,6 +226,15 @@ function runMigrations() {
       console.info(`[数据库] 迁移：${table} 新增列 ${name}`)
     }
   }
+
+  // 数据回填：archived_at 是后加的列，老库里已完成的工单全是 NULL。
+  // 这些单的病历/快照/复诊/案例卡早已生成，本来就是"已归档"的状态，
+  // 不补的话重启后会被当成没归档过 —— 删除入口会照常放开，
+  // 「完成 → 退回 → 再完成」也会把副作用重做一遍。
+  db.run(`UPDATE work_orders SET archived_at = completed_at
+          WHERE status = 'completed' AND archived_at IS NULL AND completed_at IS NOT NULL`)
+  const backfilled = db.getRowsModified()
+  if (backfilled > 0) console.info(`[数据库] 迁移：回填 ${backfilled} 张已完成工单的归档标记`)
 }
 
 /**

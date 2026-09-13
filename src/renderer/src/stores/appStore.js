@@ -183,7 +183,10 @@ export const useAppStore = defineStore('app', () => {
       completed_at: toRow(order.completed_at),
       updated_at: stamp,
       recheck_date: toRow(order.recheck_date),
-      recheck_status: order.recheck_status || 'not_needed'
+      recheck_status: order.recheck_status || 'not_needed',
+      // 必须落库：归档标记如果只活在内存里，重启后已完成的工单又变成"没归档过"，
+      // 「完成 → 退回处理中 → 再完成」会重新跑一遍病历/快照/复诊/案例卡的副作用。
+      archived_at: toRow(order.archived_at)
     }))
   }
 
@@ -552,7 +555,8 @@ export const useAppStore = defineStore('app', () => {
         created_at: row.created_at,
         completed_at: row.completed_at || undefined,
         recheck_date: row.recheck_date || null,
-        recheck_status: row.recheck_status || 'not_needed'
+        recheck_status: row.recheck_status || 'not_needed',
+        archived_at: row.archived_at || null
       }))
 
     healthSnapshots.value = db.all('health_snapshots')

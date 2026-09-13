@@ -64,7 +64,7 @@
             <span v-else class="muted">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="140" fixed="right">
+        <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" size="small" link @click.stop="openDetail(row)">详情</el-button>
             <el-button
@@ -88,6 +88,15 @@
               link
               @click="updateStatus(row, 'completed')"
             >完成</el-button>
+            <!-- 已归档的单不给删，理由见 removeOrder 注释；这里只是不给入口，
+                真正的规则在 store.removeWorkOrder 里 -->
+            <el-button
+              v-if="!row.archived_at"
+              type="danger"
+              size="small"
+              link
+              @click.stop="removeOrder(row)"
+            >删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -301,7 +310,7 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore, maintenanceStyle, computeOverdueDays } from '../stores/appStore'
 import { getHealthScore, levelOf, levelMeta } from '../utils/health'
@@ -461,6 +470,40 @@ function updateStatus(row, newStatus) {
     })
     ElMessage.success(`工单 #${row.id} 状态已更新为 ${statusLabel(newStatus)}`)
   }
+}
+
+/**
+ * 删除工单（误建、取消的单）
+ *
+ * 删除前必须二次确认：这是整页唯一不可逆的操作，而且列表里"删除"和"完成"挨在一起，
+ * 误点一下是删数据不是改状态。store 那边还会挡一次已归档的单。
+ */
+async function removeOrder(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除工单 #${row.id}「${row.title}」？删除后无法恢复。`,
+      '删除工单',
+      {
+        type: 'warning',
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        confirmButtonClass: 'el-button--danger'
+      }
+    )
+  } catch {
+    return // 用户取消
+  }
+  if (!store.removeWorkOrder(row.id)) {
+    ElMessage.error('删除失败：工单不存在，或已完成归档（病历不可删）')
+    return
+  }
+  store.addLog({
+    content: `删除工单 #${row.id}「${row.title}」（${statusLabel(row.status)}）`,
+    source: '工单',
+    type: 'warning',
+    tagType: 'warning'
+  })
+  ElMessage.success('工单已删除')
 }
 
 /** 复诊：确认处置效果，闭环的最后一环 */

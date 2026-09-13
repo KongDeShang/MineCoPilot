@@ -22,10 +22,18 @@ export function createNlActions(ctx) {
     now
   } = ctx
 
-  /** 删除工单（口述建单的撤销用） */
+  /**
+   * 删除工单（口述建单的撤销用，也是工单页「删除」按钮的落点）
+   *
+   * 已归档的工单拒绝删除：完成的那一刻已经写回维保记录、健康快照、复诊任务、
+   * 故障案例卡和日志，这些记的是真实发生过的事。删掉工单并不能让它们消失，
+   * 只会让病历指向一个不存在的单号。这条规则放在 store 里而不是只写在按钮的
+   * v-if 上——否则"删不掉"只是界面的约定，任何别的调用方都能绕过去。
+   */
   function removeWorkOrder(id) {
     const index = workOrders.value.findIndex(o => String(o.id) === String(id))
     if (index < 0) return false
+    if (workOrders.value[index].archived_at) return false
     workOrders.value.splice(index, 1)
     persistAll()
     return true

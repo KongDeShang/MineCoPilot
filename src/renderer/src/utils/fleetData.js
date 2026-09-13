@@ -406,6 +406,10 @@ function generateWorkOrders(random, equipment) {
       updated_at: completedAt || createdAt,
       recheck_date: null,
       recheck_status: 'not_needed',
+      // 归档标记：演示数据里已完成的工单，其病历/快照/案例卡早就生成了，
+      // 属于"已归档"。留空会让它们被当成没归档过——删除入口会照常出现，
+      // 而删掉一张已完成的工单，它留下的病历就成了指向空单号的孤儿。
+      archived_at: status === 'completed' ? completedAt : null,
       __system: system
     }
 

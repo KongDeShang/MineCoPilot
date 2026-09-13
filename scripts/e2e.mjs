@@ -436,6 +436,57 @@ async function main() {
       (archiveFlow.cells || []).some(c => /待复诊/.test(c)),
       (archiveFlow.cells || []).join(' | '))
 
+    // ---------- 5b. 工单删除：能删误建单，不能删已归档单 ----------
+    const deleteFlow = await session.eval(`(async () => {
+      const $pinia = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia
+      const store = $pinia._s.get('app')
+      const rowsOf = () => Array.from(document.querySelectorAll('.el-table__row'))
+      // 复诊标记只在工单完成时写入，所以带复诊列的必然是已归档的单
+      const isArchivedRow = (r) => /待复诊|已复诊/.test(r.textContent)
+      const deleteBtn = (r) => Array.from(r.querySelectorAll('button')).find(b => /删除/.test(b.textContent))
+
+      const archivedRows = rowsOf().filter(isArchivedRow)
+      const archivedHasDelete = archivedRows.some(r => !!deleteBtn(r))
+
+      // store 层也要挡：不能只靠按钮不显示
+      const archivedOrder = store.workOrders.find(o => o.archived_at)
+      const storeRefused = archivedOrder ? store.removeWorkOrder(archivedOrder.id) : 'skip'
+      const stillThere = archivedOrder ? !!store.workOrders.find(o => o.id === archivedOrder.id) : 'skip'
+
+      const target = rowsOf().find(r => deleteBtn(r) && /待派单|已派单|处理中/.test(r.textContent))
+      if (!target) return { ok: false, reason: '没有可删除的单', archivedRows: archivedRows.length,
+        archivedHasDelete, storeRefused, stillThere }
+
+      const id = target.querySelector('.cell').textContent.trim()
+      const before = store.workOrders.length
+      deleteBtn(target).click()
+      await new Promise(r => setTimeout(r, 900))
+      const confirmBtn = document.querySelector('.el-message-box__btns .el-button--danger')
+      if (!confirmBtn) return { ok: false, reason: '没有弹出二次确认', id }
+      confirmBtn.click()
+      await new Promise(r => setTimeout(r, 1600))
+      const after = store.workOrders.length
+      return {
+        ok: true, id, before, after,
+        removed: after === before - 1,
+        goneFromStore: !store.workOrders.some(o => String(o.id) === String(id)),
+        goneFromTable: !rowsOf().some(r => r.querySelector('.cell').textContent.trim() === id),
+        archivedRows: archivedRows.length, archivedHasDelete, storeRefused, stillThere
+      }
+    })()`)
+
+    check('已归档工单不提供删除入口（病历不可删）',
+      deleteFlow.archivedRows > 0 && deleteFlow.archivedHasDelete === false,
+      `归档行 ${deleteFlow.archivedRows} 条，其中带删除按钮：${deleteFlow.archivedHasDelete}`)
+    check('store 层同样拒绝删除已归档工单（不只是按钮藏起来）',
+      deleteFlow.storeRefused === false && deleteFlow.stillThere === true,
+      `removeWorkOrder 返回 ${deleteFlow.storeRefused}，工单仍在：${deleteFlow.stillThere}`)
+    check('未完成工单可删除，且删除前有二次确认',
+      deleteFlow.ok && deleteFlow.removed && deleteFlow.goneFromStore && deleteFlow.goneFromTable,
+      deleteFlow.ok
+        ? `#${deleteFlow.id}：${deleteFlow.before} → ${deleteFlow.after}`
+        : `失败：${deleteFlow.reason}`)
+
     // 回看板确认闭环率与日志更新
     await session.goto(`${BASE}/#/dashboard`, 2600)
     const afterArchive = await session.eval(`(() => ({
