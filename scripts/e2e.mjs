@@ -827,6 +827,49 @@ async function main() {
       alertReloaded.rows === alertMarked.after,
       `刷新前 ${alertMarked.after} 行 / 刷新后 ${alertReloaded.rows} 行`)
 
+    // ---------- 10c. Excel 智能解析：加载示例 → 导入台账 ----------
+    // 放在最后（重置之前）：导入会真的往台账里加设备、动备件库存，
+    // 前面的断言都建立在"60 台原始演示数据"上，不能让它搅进来。
+    await session.goto(`${BASE}/#/ai-assistant`, 2800)
+    const excelDemo = await session.eval(`(async () => {
+      // 切到 Excel 页签
+      const tab = Array.from(document.querySelectorAll('.el-tabs__item')).find(t => /Excel/.test(t.textContent))
+      if (!tab) return { ok: false, reason: '找不到 Excel 页签' }
+      tab.click()
+      await new Promise(r => setTimeout(r, 800))
+
+      const demoBtn = Array.from(document.querySelectorAll('button')).find(b => /加载演示数据/.test(b.textContent))
+      if (!demoBtn) return { ok: false, reason: '找不到加载演示数据按钮' }
+      demoBtn.click()
+      await new Promise(r => setTimeout(r, 1500))
+
+      const files = Array.from(document.querySelectorAll('.file-name')).map(e => e.textContent.trim())
+      const stats = Array.from(document.querySelectorAll('.parse-stats .el-descriptions__label, .parse-stats .el-descriptions__content'))
+        .map(e => e.textContent.trim())
+      // 解析结果表里的机型列
+      const headers = Array.from(document.querySelectorAll('.el-table__header th .cell')).map(e => e.textContent.trim())
+      const modelCol = headers.indexOf('设备型号')
+      const models = modelCol < 0 ? [] : Array.from(document.querySelectorAll('.el-table__body .el-table__row'))
+        .map(r => r.querySelectorAll('.cell')[modelCol]?.textContent.trim()).filter(Boolean)
+
+      const importBtn = Array.from(document.querySelectorAll('button')).find(b => /导入设备台账/.test(b.textContent))
+      if (!importBtn) return { ok: false, reason: '找不到导入台账按钮', files, models }
+      importBtn.click()
+      await new Promise(r => setTimeout(r, 3000))
+
+      const report = (document.querySelector('.import-report') || {}).textContent || ''
+      return { ok: true, files, stats, models, report: report.replace(/\\s+/g, ' ').trim().slice(0, 200) }
+    })()`)
+
+    check('示例 Excel 可一键加载（5 个部门的表格）',
+      excelDemo.ok && (excelDemo.files || []).length === 5,
+      (excelDemo.files || []).join('、') || excelDemo.reason)
+    check('示例设备的机型是徐工为主（不是一排竞品机型）',
+      (excelDemo.models || []).length >= 8 && excelDemo.models.filter(m => /徐工/.test(m)).length >= 5,
+      (excelDemo.models || []).join('、'))
+    check('示例 Excel 可一键导入台账并给出结果',
+      /新增 \d+ 台/.test(excelDemo.report || ''), excelDemo.report)
+
     // ---------- 11. 重置演示数据仍可用 ----------
     await session.goto(`${BASE}/#/dashboard`, 2400)
     const reset = await session.eval(`(async () => {
@@ -841,10 +884,25 @@ async function main() {
       return {
         ok: true,
         statValues: Array.from(document.querySelectorAll('.stat-value')).map(e => e.textContent.trim()),
-        closing: document.querySelector('.closing-ring')?.textContent.trim()
+        closing: document.querySelector('.closing-ring')?.textContent.trim(),
+        storeLen: document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('app').equipmentList.length,
+        toasts: Array.from(document.querySelectorAll('.el-message')).map(e => e.textContent.replace(/\\s+/g, ' ').trim())
       }
     })()`)
-    check('重置演示数据可用且恢复 60 台', reset.ok && reset.statValues?.[0] === '60', JSON.stringify(reset))
+    check('重置演示数据可用（store 回到 60 台）',
+      reset.ok && reset.storeLen === 60, JSON.stringify(reset))
+
+    // 必须真的 reload（Page.navigate 到同一个含 hash 的 URL 属于同文档导航，不会重新加载），
+    // 这样才既验证了卡片会跟着重置刷新，又证明重置是真落了盘而不只是改了内存。
+    await session.send('Page.reload', { ignoreCache: false })
+    await sleep(4500)
+    const resetAfterReload = await session.eval(`(() => ({
+      statValues: Array.from(document.querySelectorAll('.stat-value')).map(e => e.textContent.trim()),
+      closing: document.querySelector('.closing-ring')?.textContent.trim()
+    }))()`)
+    check('重置后刷新仍然是 60 台（重置已落盘）',
+      resetAfterReload.statValues?.[0] === '60',
+      `${resetAfterReload.statValues?.join(',')} | 闭环率 ${resetAfterReload.closing}`)
 
     // ---------- 汇总 ----------
     console.log('')

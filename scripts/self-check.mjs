@@ -261,12 +261,12 @@ function check(name, condition, detail = '') {
     backfilled?.archived_at === '2026-09-02 18:00:00', JSON.stringify(backfilled || {}))
 }
 
-// ============ B2 建表列必须同时接进「写库」与「读库」两处映射 ============
+// ============ B2 建表列必须全部接进写库映射 ============
 {
   // 回归：archived_at 加进了建表语句、也加进了迁移，却漏在 workOrdersToRows 里。
   // 列建好了却永远写不进去，重启后归档标记全丢 —— 「完成 → 退回处理中 → 再完成」
   // 于是又把病历/快照/复诊/案例卡重做一遍。同一会话内一切正常，所以行为测试抓不到，
-  // 只能对源码做结构校验：表里的每一列，读写两个映射都要提到。
+  // 只能对源码做结构校验。
   const source = readFileSync(join(root, 'src/renderer/src/stores/appStore.js'), 'utf8')
   const bodyOf = (name) => {
     const m = source.match(new RegExp(`function ${name}\\(\\)\\s*\\{([\\s\\S]*?)\\n  \\}`))
@@ -295,6 +295,43 @@ function check(name, condition, detail = '') {
     check(`${table} 的每一列都接进了写库映射（${writeFn}）`,
       missWrite.length === 0, missWrite.join('、') || `${columns.length} 列齐全`)
   }
+}
+
+// ============ C0 示例 Excel 必须与机型/配件目录自洽 ============
+{
+  // 示例数据是演示的第一步："加载演示数据 → 一键导入台账"。
+  // 机型要是写了目录外的，导入进来的台账当场就是"品类校验认不出"的脏数据，
+  // 演示第一步就卡住；配件规格要是和目录对不上，同名件会分裂成两条库存记录。
+  const samples = excelParser.generateSampleData()
+  const allRows = samples.flatMap(f => f.sheets.flatMap(s => s.rows))
+  const equipmentRows = allRows.filter(r => r['设备名称'] && r['设备型号'] && r['设备类别'])
+  const partRows = allRows.filter(r => r['配件名称'] && r['数量'] !== undefined)
+
+  check('示例数据含 5 个部门的表格', samples.length === 5, String(samples.length))
+  check('示例数据含设备清单', equipmentRows.length >= 8, `${equipmentRows.length} 行`)
+
+  const unknownModel = equipmentRows.filter(r => !catalog.categoryOfModel(r['设备型号']))
+  check('示例设备的机型都在机型白名单里（导入不会被品类校验拦下）',
+    unknownModel.length === 0,
+    unknownModel.map(r => r['设备型号']).join('、') || `${equipmentRows.length} 个机型全部登记在册`)
+
+  const wrongCategory = equipmentRows.filter(r => catalog.categoryOfModel(r['设备型号']) !== r['设备类别'])
+  check('示例设备的品类与机型对得上（不出现"压路机写成破碎机"）',
+    wrongCategory.length === 0,
+    wrongCategory.map(r => `${r['设备型号']}→${r['设备类别']}`).join('、') || '全部一致')
+
+  const xu = equipmentRows.filter(r => catalog.brandOfModel(r['设备型号']) === '徐工').length
+  check('示例车队以徐工为主（不是一排竞品机型）',
+    xu / equipmentRows.length >= 0.6,
+    `徐工 ${xu}/${equipmentRows.length}`)
+
+  // 同名件必须与 PARTS_CATALOG 的规格一致，否则库存里会出现两条"液压油46号"
+  const specOf = new Map(catalog.PARTS_CATALOG.map(p => [p.name, p.spec]))
+  const specMismatch = partRows
+    .filter(r => specOf.has(r['配件名称']) && specOf.get(r['配件名称']) !== r['设备型号'])
+    .map(r => `${r['配件名称']}：示例「${r['设备型号']}」/ 目录「${specOf.get(r['配件名称'])}」`)
+  check('示例配件的规格与配件目录一致（同名件不会被归并成两行）',
+    specMismatch.length === 0, specMismatch.join('、') || `${partRows.length} 行规格一致`)
 }
 
 // ============ C Excel 解析与合并 ============

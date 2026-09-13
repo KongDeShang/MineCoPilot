@@ -406,8 +406,11 @@ import { now } from '../utils/dates'
 const store = useAppStore()
 const router = useRouter()
 
-// 统计数据：Pinia 会把 setup store 的 computed 解包成普通值，所以直接取属性，不要再加 .value
-const stats = store.stats
+// 统计数据必须包一层 computed。
+// Pinia 确实会把 setup store 的 computed 解包，但解包出来的是**取值那一刻的普通对象**——
+// `const stats = store.stats` 等于给台账拍了张快照。页面停留期间导入/重置数据，
+// 四张统计卡片的数字不会跟着变，看上去就像"操作没生效"（同类问题在工单抽屉里也踩过一次）。
+const stats = computed(() => store.stats)
 
 // D 级（需立即处置）设备预计停机损失总额：逐个用 estimateLoss 现算，口径与体检报告同源
 const totalLoss = computed(() => {
@@ -477,28 +480,28 @@ const todayCompletedMaintenance = computed(() => {
 
 // 统计卡副文案全部现算：此前是硬编码字符串，其中"92% 可用率"与旁边的"运行中 N 台"直接打架
 const statCards = computed(() => {
-  const total = stats.equipmentCount || 1
-  const availability = Math.round((stats.runningCount / total) * 100)
+  const total = stats.value.equipmentCount || 1
+  const availability = Math.round((stats.value.runningCount / total) * 100)
   const categories = new Set(store.equipmentList.map(e => e.category).filter(Boolean)).size
-  const faultPct = Math.round((stats.faultCount / total) * 100)
+  const faultPct = Math.round((stats.value.faultCount / total) * 100)
   return [
-    { label: '设备总数', value: stats.equipmentCount, icon: 'SetUp', bg: '#409eff', trend: `覆盖 ${categories} 个类别`, trendType: 'flat', trendIcon: 'Right' },
-    { label: '运行中', value: stats.runningCount, icon: 'CircleCheck', bg: '#67c23a', trend: `${availability}% 可用率`, trendType: availability >= 80 ? 'up' : 'down', trendIcon: availability >= 80 ? 'Top' : 'Bottom' },
-    { label: '维保中', value: stats.maintenanceCount, icon: 'Warning', bg: '#e6a23c', trend: `${todayCompletedMaintenance.value} 台今日完成`, trendType: 'flat', trendIcon: 'Right' },
-    { label: '故障', value: stats.faultCount, icon: 'CircleClose', bg: '#f56c6c', trend: `占在管设备 ${faultPct}%`, trendType: stats.faultCount > 0 ? 'down' : 'flat', trendIcon: stats.faultCount > 0 ? 'Bottom' : 'Right' }
+    { label: '设备总数', value: stats.value.equipmentCount, icon: 'SetUp', bg: '#409eff', trend: `覆盖 ${categories} 个类别`, trendType: 'flat', trendIcon: 'Right' },
+    { label: '运行中', value: stats.value.runningCount, icon: 'CircleCheck', bg: '#67c23a', trend: `${availability}% 可用率`, trendType: availability >= 80 ? 'up' : 'down', trendIcon: availability >= 80 ? 'Top' : 'Bottom' },
+    { label: '维保中', value: stats.value.maintenanceCount, icon: 'Warning', bg: '#e6a23c', trend: `${todayCompletedMaintenance.value} 台今日完成`, trendType: 'flat', trendIcon: 'Right' },
+    { label: '故障', value: stats.value.faultCount, icon: 'CircleClose', bg: '#f56c6c', trend: `占在管设备 ${faultPct}%`, trendType: stats.value.faultCount > 0 ? 'down' : 'flat', trendIcon: stats.value.faultCount > 0 ? 'Bottom' : 'Right' }
   ]
 })
 
 // 饼图数据 - 从台账实时计算，四种状态之和等于设备总数
 const statusLegend = computed(() => [
-  { name: '运行中', count: stats.runningCount, color: '#67c23a' },
-  { name: '维保中', count: stats.maintenanceCount, color: '#e6a23c' },
-  { name: '故障', count: stats.faultCount, color: '#f56c6c' },
-  { name: '闲置', count: stats.idleCount, color: '#909399' }
+  { name: '运行中', count: stats.value.runningCount, color: '#67c23a' },
+  { name: '维保中', count: stats.value.maintenanceCount, color: '#e6a23c' },
+  { name: '故障', count: stats.value.faultCount, color: '#f56c6c' },
+  { name: '闲置', count: stats.value.idleCount, color: '#909399' }
 ].filter(item => item.count > 0))
 
 const pieSegments = computed(() => {
-  const total = stats.equipmentCount || 1
+  const total = stats.value.equipmentCount || 1
   const circumference = 2 * Math.PI * 80
   const data = statusLegend.value.map(d => ({ count: d.count, color: d.color }))
 
@@ -623,7 +626,7 @@ const closingColor = computed(() => {
 })
 
 function brandPercent(count) {
-  const total = stats.equipmentCount || 1
+  const total = stats.value.equipmentCount || 1
   return Math.round((count / total) * 100)
 }
 

@@ -121,7 +121,7 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useAppStore } from '../stores/appStore'
 
@@ -131,7 +131,9 @@ const adding = ref(false)
 const selectedFile = ref(null)
 const form = reactive({ title: '', model: '', docType: '使用手册' })
 
-const stats = store.documentStats
+// 包一层 computed：Pinia 会把 setup store 的 computed 解包成取值那一刻的普通对象，
+// 直接别名等于拍快照——新增手册后页面上的份数/页数不会跟着变。
+const stats = computed(() => store.documentStats)
 
 function fmtSize(bytes) {
   if (!bytes) return '—'
