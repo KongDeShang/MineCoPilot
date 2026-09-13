@@ -19,11 +19,10 @@ import { evaluateHealth, evaluateTrend, computeOverdueDays as healthComputeOverd
   configureHealth, resetHealthConfig, DAILY_OUTPUT_LOSS } from '../utils/health'
 import { buildFaultStats } from '../utils/faultStats'
 import { buildDefaultKnowledge, extractKnowledgeFromOrders } from '../utils/knowledgeBase'
-import { docFileStore } from '../utils/docFileStore'
-import { extractPdfText } from '../utils/pdfExtract'
 import { createNlActions } from './nlActions'
 import { createPersistence } from './persistence'
 import { createPartsDomain } from './partsDomain'
+import { createDocumentDomain } from './documentDomain'
 
 // 界面文案字典（设备/工单状态、优先级、类型、维保类型样式）统一放在 utils/dictionaries.js。
 // 这里只做转发，不保留第二份实现 —— 之前那份躺在这里，一个页面都没用上。
@@ -125,6 +124,15 @@ export const useAppStore = defineStore('app', () => {
     getPartByName, adjustPartStock, restockPart, issuePart,
     addPart, consumePartsFromText, lowStockParts
   } = parts
+
+  // ---------- 手册库 ----------
+  // 领域逻辑在 stores/documentDomain.js（存字节 / 抽文字层 / 打开原文）。
+  // 同上，persistAll 与 addLog 都要等后面才就绪，包一层延迟取用。
+  const { addDocument, removeDocument, openDocument } = createDocumentDomain({
+    documents,
+    persistAll: (...args) => persistAll(...args),
+    addLog: (...args) => addLog(...args)
+  })
 
   // ---------- 演示操作日志 ----------
   // 必须定义在 createPersistence 之前：它是 const（不提升），
@@ -842,65 +850,10 @@ export const useAppStore = defineStore('app', () => {
    * @param {Object} input { file: File, title, docType, model, category }
    * @returns {Promise<{ok:boolean, doc?:Object, error?:string}>}
    */
-  async function addDocument(input) {
-    const { file, title, docType = '使用手册', model = '', category = '' } = input || {}
-    if (!file) return { ok: false, error: '未选择文件' }
-
-    // 1) 保存文件字节（Electron 落盘 / 浏览器 IndexedDB）
-    const saved = await docFileStore.save(file.name, file)
-    if (!saved || !saved.ok) return { ok: false, error: (saved && saved.error) || '文件保存失败' }
-
-    // 2) 本地提取 PDF 文本（无网络；扫描件降级为仅查看）
-    const extracted = await extractPdfText(file)
-    const doc = {
-      id: `doc-${Date.now()}`,
-      title: title || file.name.replace(/\.pdf$/i, ''),
-      docType,
-      model,
-      category,
-      fileName: file.name,
-      filePath: saved.path,
-      fileSize: saved.size || file.size,
-      pages: extracted.ok ? extracted.pages : 0,
-      status: extracted.ok && extracted.chunks.length ? 'ready' : 'view_only',
-      chunks: extracted.ok ? extracted.chunks.slice(0, 300) : [],
-      note: extracted.ok
-        ? ''
-        : '未提取到文字层（扫描件），可打开查看原文，暂不能直接问答',
-      addedAt: now()
-    }
-    documents.value = [doc, ...documents.value]
-    addLog({
-      content: `添加手册「${doc.title}」${doc.status === 'ready' ? `（${doc.pages} 页，可问答）` : '（扫描件，仅查看）'}`,
-      source: '手册库',
-      type: doc.status === 'ready' ? 'success' : 'warning',
-      tagType: doc.status === 'ready' ? 'success' : 'warning'
-    }, { silent: true })
-    persistAll()
-    return { ok: true, doc }
-  }
 
   /** 删除文档：删记录 + 删文件字节 */
-  async function removeDocument(id) {
-    const doc = documents.value.find(d => d.id === id)
-    if (!doc) return false
-    documents.value = documents.value.filter(d => d.id !== id)
-    if (doc.filePath) await docFileStore.remove(doc.filePath, doc.fileName)
-    addLog({
-      content: `删除手册「${doc.title}」`,
-      source: '手册库',
-      type: 'warning',
-      tagType: 'warning'
-    }, { silent: true })
-    persistAll()
-    return true
-  }
 
   /** 用系统阅读器 / 新窗口打开文档原文 */
-  async function openDocument(doc) {
-    if (!doc || !doc.filePath) return false
-    return docFileStore.open(doc.filePath, doc.fileName)
-  }
 
   /**
    * AI 检索池：内置规程 + 手册文本切片（命中时出处 = 手册名 + 页码）
