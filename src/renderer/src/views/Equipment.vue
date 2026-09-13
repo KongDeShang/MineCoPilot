@@ -38,8 +38,8 @@
         <div v-for="eq in filteredEquipment" :key="eq.id" class="equip-card" @click="viewDetail(eq)">
           <div class="equip-photo">
             <img :src="equipmentPhoto(eq.category)" :alt="eq.name" loading="lazy" />
-            <span class="equip-level" :style="{ background: levelColor(eq) }">
-              {{ getHealthLevel(eq) }} 级 · {{ getHealthScore(eq) }} 分
+            <span class="equip-level" :style="{ background: eq.health.color }">
+              {{ eq.health.level }} 级 · {{ eq.health.score }} 分
             </span>
             <span class="equip-status" :class="eq.status">
               <i class="status-dot"></i>{{ statusLabel(eq.status) }}
@@ -55,13 +55,13 @@
               <div class="equip-healthbar-track">
                 <div
                   class="equip-healthbar-fill"
-                  :style="{ width: getHealthScore(eq) + '%', background: levelColor(eq) }"
+                  :style="{ width: eq.health.score + '%', background: eq.health.color }"
                 ></div>
               </div>
             </div>
             <div class="equip-meta-row">
               <span class="equip-meta">上次维保：{{ eq.last_maintenance_date || '暂无记录' }}</span>
-              <el-tag :type="maintenanceStatus(eq).type" size="small">{{ maintenanceStatus(eq).label }}</el-tag>
+              <el-tag :type="eq.maint.type" size="small">{{ eq.maint.label }}</el-tag>
             </div>
             <div class="equip-actions" @click.stop>
               <el-button type="primary" size="small" link @click="viewDetail(eq)">
@@ -325,7 +325,7 @@ import {
   statusLabel as statusLabel2, statusTagType as statusTag
 } from '../utils/dictionaries'
 import { now, daysSince } from '../utils/dates'
-import { evaluateHealth, getHealthColor, getHealthScore, getHealthLevel, levelMeta, levelBounds, buildTrendPath, RISK_LEVELS } from '../utils/health'
+import { evaluateHealth, getHealthColor, levelBounds, buildTrendPath, RISK_LEVELS } from '../utils/health'
 import { equipmentPhoto } from '../utils/equipmentPhoto'
 import { generateHealthReport } from '../utils/healthReport'
 
@@ -348,7 +348,15 @@ const newEquipment = ref({
   name: '', model: '', category: '', location: '', purchase_date: ''
 })
 
-const equipmentList = computed(() => store.equipmentList)
+/**
+ * 卡片网格的数据源直接取 store 缓存的 equipmentWithHealth，而不是原始台账。
+ *
+ * 原来这里是 `store.equipmentList`，模板里再对每张卡分别调
+ * getHealthLevel / getHealthScore / levelColor —— 每个函数都会跑一次完整
+ * evaluateHealth（四因子 + 日期解析）。60 张卡 ≈ 每次渲染 300 次评估，
+ * 而 store 里这份结果早就算好并缓存了。
+ */
+const equipmentList = computed(() => store.equipmentWithHealth)
 
 /** 当前选中设备的健康评估（统一走 utils/health.js，评分口径全项目唯一） */
 const selectedHealth = computed(() => (selectedEquipment.value ? evaluateHealth(selectedEquipment.value) : null))
@@ -364,15 +372,6 @@ const healthOverview = computed(() => {
     { label: `严重 D（<${b.C}）`, count: levels.D, color: RISK_LEVELS.D.color }
   ]
 })
-
-/**
- * 卡片徽标 / 进度条配色：取自「等级」而非原始分数。
- * 二者在分级强制升级时会不一致（例如 62 分但已故障 → D 级），
- * 用等级取色才能和徽标上的"D 级"自洽。
- */
-function levelColor(eq) {
-  return levelMeta(getHealthLevel(eq)).color
-}
 
 /** 四因子（来自公共评分模块，带的算式与来源用于溯源展示） */
 const healthFactors = computed(() => selectedHealth.value ? selectedHealth.value.factors : [])
@@ -401,13 +400,17 @@ const maintenanceTimeline = computed(() => {
 })
 
 const filteredEquipment = computed(() => {
-  if (!searchText.value) return equipmentList.value
-  const keyword = searchText.value.toLowerCase()
-  return equipmentList.value.filter(e =>
-    e.name.toLowerCase().includes(keyword) ||
-    (e.model || '').toLowerCase().includes(keyword) ||
-    (e.category || '').includes(keyword)
-  )
+  let rows = equipmentList.value
+  if (searchText.value) {
+    const keyword = searchText.value.toLowerCase()
+    rows = rows.filter(e =>
+      e.name.toLowerCase().includes(keyword) ||
+      (e.model || '').toLowerCase().includes(keyword) ||
+      (e.category || '').includes(keyword)
+    )
+  }
+  // 维保徽标在这里算一次：原模板对同一张卡调了两次 maintenanceStatus(eq)
+  return rows.map(eq => ({ ...eq, maint: maintenanceStatus(eq) }))
 })
 
 

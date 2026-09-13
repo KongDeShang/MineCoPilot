@@ -158,13 +158,21 @@ export function maintenanceFactor(eq) {
   const overdue = computeOverdueDays(eq)
 
   if (since === null) {
+    /**
+     * 无维保记录：扣 30 分，因子得分 = 70。
+     *
+     * 这里原来是 score: 0 / penalty: 30 —— 总分靠 penalty 求和是对的，
+     * 但报告里的因子条形图取的是 score，于是同一行出现"0 分"的条和"扣 30 分"的算式。
+     * 全文件其余因子的约定都是 score = 100 − penalty，这里对齐它。
+     */
+    const penalty = 30
     return {
       key: 'timeliness',
       name: '维保及时性',
-      score: 0,
-      penalty: 30,
+      score: 100 - penalty,
+      penalty,
       detail: '无维保记录，无法评估',
-      formula: '无维保记录 → 本因子计 0 分（扣 30）',
+      formula: `无维保记录 → 扣 ${penalty} 分（本因子计 ${100 - penalty} 分）`,
       source: '维保记录表（空）'
     }
   }
@@ -201,8 +209,19 @@ export function maintenanceFactor(eq) {
 }
 
 /**
+ * 机龄因子的扣分上限，与维保因子的 45 分对齐。
+ *
+ * 为什么需要：不加限制时扣分 = (机龄 − 5) × 5 是无界的，30 年设备扣 125 分，
+ * 把总分压穿到 0 之后，"机龄 15 年"与"机龄 30 年"在报告上再无区别 ——
+ * 与维保因子当初加上限的理由完全相同：最差设备之间也要保留梯度。
+ * 同时它保证了报告里"健康分 = 100 − Σ扣分"这个等式在常见取值下成立。
+ */
+export const AGE_PENALTY_CAP = 45
+
+/**
  * 设备机龄因子
- * 规则：机龄 > 5 年，每多 1 年扣 5 分；购置日期缺失按 0 年计并单独扣数据完整度分
+ * 规则：机龄 > 5 年，每多 1 年扣 5 分（单因子扣分上限 45 分）；
+ *      购置日期缺失按 0 年计并单独扣数据完整度分；购置日期在未来按数据异常标注。
  */
 export function ageFactor(eq) {
   const age = equipmentAgeYears(eq && eq.purchase_date)
@@ -219,7 +238,28 @@ export function ageFactor(eq) {
     }
   }
 
-  const penalty = age > 5 ? Math.round((age - 5) * 5) : 0
+  if (age < 0) {
+    /**
+     * 购置日期晚于当前日期：这是录入错误，不是"设备很新"。
+     * 原来它静默落进下面的 age > 5 判断，拿满分且不留痕迹，账面上看不出任何异常。
+     * 这里如实标注（anomaly 供界面/报告提示），扣分仍为 0 ——
+     * 扣分应当反映设备状态，而不是反映台账录错了。
+     */
+    return {
+      key: 'age',
+      name: '设备机龄',
+      score: 100,
+      penalty: 0,
+      detail: `购置日期 ${eq.purchase_date} 晚于当前日期，数据异常（按 0 年计）`,
+      formula: '购置日期为未来日期 → 机龄不成立，本因子不扣分（请在台账中修正购置日期）',
+      source: `设备台账（购置日期 ${eq.purchase_date}）`,
+      anomaly: true
+    }
+  }
+
+  const raw = age > 5 ? Math.round((age - 5) * 5) : 0
+  const penalty = Math.min(AGE_PENALTY_CAP, raw)
+  const capped = raw > AGE_PENALTY_CAP
   return {
     key: 'age',
     name: '设备机龄',
@@ -227,7 +267,8 @@ export function ageFactor(eq) {
     penalty,
     detail: `机龄 ${age.toFixed(1)} 年`,
     formula: age > 5
-      ? `机龄 ${age.toFixed(1)} 年 > 5 年，超出 ${(age - 5).toFixed(1)} 年 × 5 分 → 扣 ${penalty} 分`
+      ? `机龄 ${age.toFixed(1)} 年 > 5 年，超出 ${(age - 5).toFixed(1)} 年 × 5 分 → 扣 ${raw} 分` +
+        (capped ? `，单因子上限 ${AGE_PENALTY_CAP} 分，实际扣 ${penalty} 分` : '')
       : `机龄 ${age.toFixed(1)} 年 ≤ 5 年 → 不扣分`,
     source: `购置日期 ${eq.purchase_date}`
   }

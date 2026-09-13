@@ -96,7 +96,10 @@ async function ensureLoaded() {
     // 主进程懒加载，避免拖慢应用启动
     // node-llama-cpp 是 ESM-only 包，commonjs 主进程必须用动态 import
     const { getLlama, LlamaCompletion } = await import('node-llama-cpp')
-    llama = await getLlama()
+    // skipDownload：node-llama-cpp 默认会在找不到本地预编译二进制时联网下载。
+    // 本应用承诺"全离线"，一旦走到那条路径就不只是违背承诺，而是在矿场/内网机器上
+    // 静默挂起直到超时。这里明确禁止联网：二进制缺失就如实报错，宁可不加载模型。
+    llama = await getLlama({ skipDownload: true })
     model = await llama.loadModel({ modelPath: file })
     context = await model.createContext({ contextSize: 1024 })
     completion = new LlamaCompletion({ contextSequence: context.getSequence() })

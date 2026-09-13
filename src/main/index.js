@@ -122,6 +122,23 @@ function registerIpc() {
   // ---------- 文档资料库：文件只存在本机 documents/ 目录 ----------
   const DOCS_DIR = () => path.join(app.getPath('userData'), 'documents')
 
+  /**
+   * 把外部传入的路径解析为绝对路径，并确认它确实落在 documents/ 之内。
+   * 越界返回 null，调用方一律拒绝。
+   *
+   * 为什么不能只用 startsWith(DOCS_DIR())：
+   *   DOCS_DIR() 结尾没有路径分隔符，于是两种越界都能"通过"前缀检查 ——
+   *     1) documents\..\..\重要文件.txt   （.. 让真实路径跑出目录）
+   *     2) documents2\secret.txt          （兄弟目录共享前缀）
+   *   path.resolve 会消解 ..，再按 "root + 分隔符" 比对前缀，两条都被挡住。
+   */
+  const resolveInDocs = (p) => {
+    const root = path.resolve(DOCS_DIR())
+    const target = path.resolve(String(p || ''))
+    if (target === root || !target.startsWith(root + path.sep)) return null
+    return target
+  }
+
   // 保存文档文件（文件名做安全清洗，禁止路径穿越）
   ipcMain.handle('docs:addFile', async (event, payload) => {
     try {
@@ -143,8 +160,8 @@ function registerIpc() {
 
   // 用系统默认阅读器打开文档（只允许打开 documents/ 目录内的文件）
   ipcMain.handle('docs:open', async (event, payload) => {
-    const p = String(payload && payload.path || '')
-    if (!p.startsWith(DOCS_DIR())) return { ok: false, error: '拒绝打开资料库之外的文件' }
+    const p = resolveInDocs(payload && payload.path)
+    if (!p) return { ok: false, error: '拒绝打开资料库之外的文件' }
     if (!fs.existsSync(p)) return { ok: false, error: '文件不存在（可能已被移动或删除）' }
     const err = await shell.openPath(p)
     return err ? { ok: false, error: err } : { ok: true }
@@ -152,8 +169,8 @@ function registerIpc() {
 
   // 删除文档文件（同样限制在 documents/ 目录内）
   ipcMain.handle('docs:delete', async (event, payload) => {
-    const p = String(payload && payload.path || '')
-    if (!p.startsWith(DOCS_DIR())) return { ok: false, error: '拒绝删除资料库之外的文件' }
+    const p = resolveInDocs(payload && payload.path)
+    if (!p) return { ok: false, error: '拒绝删除资料库之外的文件' }
     try {
       await fs.promises.unlink(p)
       return { ok: true }
@@ -216,7 +233,10 @@ function createWindow() {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      // 渲染进程只通过 preload 白名单调用原生能力，preload 本身只用
+      // contextBridge / ipcRenderer / process.platform —— 都在沙箱 preload 的允许集内，
+      // 开启后 preload 无需任何改动，但"渲染层被注入 → 直接拿到 Node 能力"这条路被切断。
+      sandbox: true
     }
   })
 

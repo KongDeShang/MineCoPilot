@@ -133,10 +133,18 @@ function buildMaintenancePlan(eq) {
 function buildTraceability(eq, health, loss) {
   const rows = []
 
+  /**
+   * 因子扣分之和理论上可以超过 100（每个因子各有上限，但上限相加大于 100），
+   * 此时总分被 evaluateHealth 的 Math.max(0, …) 截断。
+   * 算式里如实写出实际合计，否则"100 − Σ"这个等式在最差设备上对不上。
+   */
+  const totalPenalty = health.factors.reduce((sum, f) => sum + f.penalty, 0)
   rows.push({
     label: '健康分',
     value: `${health.score} / 100`,
-    formula: '健康分 = 100 − Σ各因子扣分',
+    formula: totalPenalty > 100
+      ? `健康分 = 100 − Σ各因子扣分（合计 ${totalPenalty} 分）< 0，按 0 分计`
+      : `健康分 = 100 − Σ各因子扣分（合计 ${totalPenalty} 分）`,
     source: '四因子明细见下表'
   })
 
