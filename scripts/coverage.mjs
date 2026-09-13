@@ -122,10 +122,28 @@ for (const kind of ['仅型号', '仅类别']) {
   if (s && s.notFound > 0) failures.push(`「${kind}」出现 ${s.notFound} 句"未找到"（应至少能给出候选）`)
 }
 
-// 底线 4：总命中率不低于当前基线（低于即说明某类说法整体退化）
-const BASELINE = 41
-if (overallRate < BASELINE) {
-  failures.push(`总命中率 ${overallRate}% 低于基线 ${BASELINE}%`)
+/**
+ * 底线 4：**绝对台数**基线，而不是总命中率。
+ *
+ * 原来的写法是"总命中率 ≥ 41%"。这个比例是 唯一命中 / 句数，而句数会随
+ * 车队覆盖的型号与类别数量一起增长——2026-09-13 扩充机型库（挖掘机 5→7 个型号、
+ * 新增叉车/起重机两个类别）后，句数 41 → 56，唯一命中 17 → 22（能力其实是**上升**的），
+ * 比例却从 41% 掉到 39%。用比例当底线，等于把"车队覆盖更全"误判成"解析能力退化"。
+ *
+ * 所以改成守两件不随车队规模漂移的事：
+ *   · 只报型号就能唯一确定的台数不低于基线（别名/型号识别能力的绝对度量）
+ *   · 只报类别时必须**全部**回问（说"挖掘机"有十几台，绝不允许猜一台出来）
+ */
+const UNIQUE_FLOOR = 22 // 本次实测 22（扩充机型前为 17）
+const totalUnique = detail.filter(d => d.status === 'resolved').length
+if (totalUnique < UNIQUE_FLOOR) {
+  failures.push(`唯一命中总台数 ${totalUnique} 低于基线 ${UNIQUE_FLOOR}（识别能力退化）`)
+}
+
+// 底线 5：只报类别一律回问，绝不猜（行为正确性，不是覆盖率）
+const catKind = stats['仅类别']
+if (catKind && catKind.resolved > 0) {
+  failures.push(`「仅类别」出现了 ${catKind.resolved} 句唯一命中（多台同类必须回问，不允许猜）`)
 }
 
 console.log('\n=== 覆盖率底线检查 ===')
@@ -136,8 +154,9 @@ if (failures.length) {
 } else {
   console.log(`PASS  类别+序号 ${seqKind.resolved}/${seqKind.total}、全名 ${nameKind.resolved}/${nameKind.total} 保持 100%`)
   console.log(`PASS  仅型号/仅类别未出现"未找到"（回问是预期行为，不是缺陷）`)
-  console.log(`PASS  总命中率 ${overallRate}% ≥ 基线 ${BASELINE}%`)
-  console.log('\n覆盖率自检通过')
+  console.log(`PASS  唯一命中 ${totalUnique} 台 ≥ 基线 ${UNIQUE_FLOOR}（不随车队扩编稀释）`)
+  console.log(`PASS  「仅类别」全部回问（${catKind ? catKind.ambiguous : 0}/${catKind ? catKind.total : 0}，不猜）`)
+  console.log(`\n覆盖率自检通过（总命中率 ${overallRate}% 仅供参考：句数随车队覆盖变化）`)
 }
 
 rmSync(md, { recursive: true, force: true })

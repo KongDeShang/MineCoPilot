@@ -491,6 +491,14 @@ export function createPersistence(ctx) {
     healthSnapshots.value = seed.healthSnapshots
     knowledgeItems.value = buildDefaultKnowledge()
     recentLogs.value = seedLogs()
+    /**
+     * 故障案例卡：由已完成的维修工单派生（工厂在 buildSeed 里就派生好了）。
+     *
+     * 这里原来什么都没做，于是 faultCases 首次启动是空的 ——
+     * 而工单上还写着 archived_at（"已归档"），相当于数据模型承诺了案例卡存在。
+     * 后果是"最新自动沉淀案例"整块卡片在首启时根本不显示。
+     */
+    faultCases.value = seed.faultCases || []
     // 备件必须在这里就位：之前只在 hydrateFromDb 里补种子，导致首次启动
     // parts_inventory 写了一张空表，备件库存页要重启一次才有数据。
     partsInventory.value = partsSeed()

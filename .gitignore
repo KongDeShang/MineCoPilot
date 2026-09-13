@@ -1,7 +1,7 @@
 node_modules/
 dist/
 release/
-.tmp-selfcheck/
+.tmp-*/
 .DS_Store
 *.log
 

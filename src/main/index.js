@@ -161,6 +161,46 @@ function registerIpc() {
       return { ok: false, error: error.message }
     }
   })
+
+  // 随包示例手册目录：开发时是仓库里的 public/manuals，安装后是 resources/manuals。
+  // 打包后不能用 asar 里的路径——shell.openPath 打不开 asar 内的文件，
+  // 所以由 electron-builder 的 extraResources 把它复制到 resources/ 下再读。
+  const BUNDLED_DIR = () => (app.isPackaged
+    ? path.join(process.resourcesPath, 'manuals')
+    : path.join(__dirname, '..', 'renderer', 'public', 'manuals'))
+
+  /**
+   * 把随包示例手册导入资料库（返回文件路径 + 已抽好的文字层）
+   *
+   * 为什么必须由主进程来做：资料库只认 DOCS_DIR（userData/documents）里的文件，
+   * docs:open / docs:delete 都按这个边界校验。渲染进程既拿不到 resources 路径，
+   * 也无权往 documents/ 里写文件，所以复制这一步只能在主进程完成。
+   *
+   * 目标文件名固定为 bundled-<slug>.pdf，不含时间戳：
+   * 重复导入落到同一个路径上，天然幂等，不会每启动一次就堆一份副本。
+   * 但尺寸不同就覆盖——换版本时随包的是另一份手册，别让旧副本留在磁盘上。
+   */
+  ipcMain.handle('docs:importBundled', async (event, payload) => {
+    const slug = String((payload && payload.slug) || '')
+    // slug 会被拼进文件路径，只放行小写字母/数字/连字符，挡住路径穿越
+    if (!/^[a-z0-9-]{1,64}$/.test(slug)) return { ok: false, error: '非法的随包手册标识' }
+    const source = path.join(BUNDLED_DIR(), `${slug}.pdf`)
+    const textSource = path.join(BUNDLED_DIR(), `${slug}.json`)
+    try {
+      if (!fs.existsSync(source)) return { ok: false, error: `随包手册缺失：${slug}.pdf` }
+      const dir = DOCS_DIR()
+      await fs.promises.mkdir(dir, { recursive: true })
+      const target = path.join(dir, `bundled-${slug}.pdf`)
+      const sameSize = fs.existsSync(target) && fs.statSync(target).size === fs.statSync(source).size
+      if (!sameSize) await fs.promises.copyFile(source, target)
+      const stat = await fs.promises.stat(target)
+      const text = fs.existsSync(textSource) ? await fs.promises.readFile(textSource, 'utf8') : ''
+      return { ok: true, path: target, size: stat.size, text }
+    } catch (error) {
+      console.error('[IPC] 导入随包手册失败：', error)
+      return { ok: false, error: error.message }
+    }
+  })
 }
 
 function createWindow() {

@@ -14,14 +14,21 @@
  *   · 四类故障系统各有 ≥ 8 次命中（TOP 图才有形状）
  */
 import {
-  MODEL_WHITELIST, FLEET_MIX, MINE_LOCATIONS, FAULT_LIBRARY,
-  MAINTENANCE_LIBRARY, PARTS_CATALOG, TECHNICIANS, brandOfModel, partsCost
+  MODEL_WHITELIST, FLEET_MIX, MINE_LOCATIONS, FAULT_LIBRARY, FAULT_PARTS,
+  MAINTENANCE_LIBRARY, LABOR_FEE, TECHNICIANS, brandOfModel, partsCost
 } from './equipmentCatalog'
 import { daysAgoDate, daysAgoDateTime, addDays, formatDate, dueDate, daysUntilDue } from './dates'
 import { evaluateHealth, evaluateTrend } from './health'
 
 export const DEFAULT_FLEET_SIZE = 60
 export const DEFAULT_SEED = 20260912
+
+/**
+ * 每个稀有型号（他牌设备、80t 矿用挖机）的投放台数
+ *
+ * 导出是为了让自检断言引用同一个常量，而不是在断言里再写一个 2。
+ */
+export const RARE_PER_MODEL = 2
 
 /** 确定性伪随机（mulberry32）：同一 seed 必然产出同一套数据 */
 export function createRandom(seed = DEFAULT_SEED) {
@@ -146,6 +153,25 @@ export function generateFleet({ size = DEFAULT_FLEET_SIZE, seed = DEFAULT_SEED }
     ;[order[i], order[j]] = [order[j], order[i]]
   }
 
+  /**
+   * 稀有/他牌型号的投放台数是**定数**，不靠概率。
+   *
+   * 原来是 `random() < 0.14` 的概率投放，于是"卡特 320D 有两台"这件事
+   * 换个种子就没了——而"同型号多台时必须判歧义"的用例正需要这个场景。
+   * 演示数据要呈现的**场景**（在管设备不挑品牌、同型号多台）属于产品要求，
+   * 不能交给运气：每个稀有型号固定投 RARE_PER_MODEL 台，
+   * 具体落在哪几台由打散后的顺序自然决定。
+   */
+  const rareQuota = {}
+  // plan 是"每台设备一个槽位"，同一类别会有多个槽位指向同一个 FLEET_MIX 条目，
+  // 所以先按类别去重，否则配额会被槽位数放大（每个槽位都配一份）
+  for (const slot of new Set(plan)) {
+    for (const model of slot.rareModels || []) {
+      if (!rareQuota[slot.category]) rareQuota[slot.category] = []
+      for (let i = 0; i < RARE_PER_MODEL; i++) rareQuota[slot.category].push(model)
+    }
+  }
+
   // 少量"两班倒/特殊工况"设备，让说明更真实
   const equipment = []
   const usedNames = new Set()
@@ -163,13 +189,9 @@ export function generateFleet({ size = DEFAULT_FLEET_SIZE, seed = DEFAULT_SEED }
     const cycle = slot.cycle
     const profile = profiles[index]
 
-    // 型号：他牌设备低概率出现（体现"在管设备不挑品牌"）
-    let model
-    if (slot.rareModels && random() < 0.14) {
-      model = pick(random, slot.rareModels)
-    } else {
-      model = pick(random, slot.models)
-    }
+    // 型号：先兑现稀有型号配额（他牌设备 / 80t 矿用挖机），配额用尽后走主型号池
+    const pendingRare = rareQuota[slot.category]
+    const model = pendingRare && pendingRare.length ? pendingRare.pop() : pick(random, slot.models)
 
     const location = pick(random, MINE_LOCATIONS)
 
@@ -205,8 +227,7 @@ export function generateFleet({ size = DEFAULT_FLEET_SIZE, seed = DEFAULT_SEED }
       // 以下为生成期辅助字段，落库前会被剔除
       __profile: profile.name,
       __sinceOffset: sinceOffset,
-      __locationHint: slot.locationHint,
-      __servicesMonths: slot.serviceMonths
+      __locationHint: slot.locationHint
     })
   })
 
@@ -241,13 +262,24 @@ function generateMaintenanceFor(random, eq) {
     const system = pickFaultSystem(random)
     const item = pick(random, FAULT_LIBRARY[system].items)
     const offset = eq.__sinceOffset + i * intBetween(random, 25, 70) + intBetween(random, 3, 20)
+    /**
+     * 换件必须跟故障对得上。
+     *
+     * 原来这里是两次独立的 `pick(random, PARTS_CATALOG)`——一次取件名、一次取价格。
+     * 两个后果：
+     *   1) 件名与系统毫无关系："回转马达渗油"的记录里换的是"空气滤芯"；
+     *   2) 件名与金额各随机各的："更换刹车片"这条记录的费用可能是斗齿的 1200 元。
+     * 现在按条目取件（不换件的如实留空），费用 = 工时费 + 件名单价合计，
+     * 件名与金额同源，点开明细能对上。
+     */
+    const partNames = FAULT_PARTS[item.title] || []
     records.push({
       date: daysAgoDate(offset),
       type: '故障维修',
       description: item.desc,
       technician: pick(random, TECHNICIANS),
-      parts_used: pick(random, PARTS_CATALOG).name,
-      cost: pick(random, PARTS_CATALOG).price,
+      parts_used: partNames.join('、'),
+      cost: (LABOR_FEE[system] || 0) + partsCost(partNames).cost,
       system
     })
   }
@@ -262,7 +294,8 @@ function generateMaintenanceFor(random, eq) {
     records.push({
       date: daysAgoDate(offset),
       type: '定期保养',
-      description: item.desc,
+      // level 是保养分级（50h/250h/1000h…），写进描述里，病历上才看得出这是哪一级保养
+      description: item.level ? `${item.level} ${item.desc}` : item.desc,
       technician: pick(random, TECHNICIANS),
       parts_used: item.partNames.join('、'),
       display_parts: item.parts,
@@ -366,21 +399,56 @@ function generateWorkOrders(random, equipment) {
 
   for (let i = 0; i < total; i++) {
     const eq = pick(random, equipment)
-    const system = pickFaultSystem(random)
-    const item = pick(random, FAULT_LIBRARY[system].items)
 
-    const daysAgo = intBetween(random, 0, 24)
-    const isRepair = system !== '其他' || random() < 0.4
-    const type = isRepair ? 'repair' : (random() < 0.5 ? 'maintenance' : 'inspection')
+    /**
+     * 先定类型，再按类型取内容。
+     *
+     * 原来是反过来的：先随机抓一条故障项，再随机定 type ——
+     * 于是会出现「巡检工单，标题写着液压油压力偏低」这种自相矛盾的记录，
+     * 维修班组的活和巡检班组的活混成一张单子。
+     */
+    const typeRoll = random()
+    const type = typeRoll < 0.55 ? 'repair' : (typeRoll < 0.78 ? 'maintenance' : 'inspection')
+
+    let system = null
+    let item
+    if (type === 'repair') {
+      system = pickFaultSystem(random)
+      item = pick(random, FAULT_LIBRARY[system].items)
+    } else {
+      const pool = MAINTENANCE_LIBRARY.filter(m =>
+        type === 'maintenance' ? m.type !== '巡检' : m.type === '巡检')
+      item = pick(random, pool)
+    }
+
+    /**
+     * 时间跨度铺开到约半年。
+     *
+     * 原来所有工单都挤在最近 24 天内：看板"近 30 天"看着热闹，
+     * 但月报/季报、维保趋势一拉就露底——历史是空的。
+     * 用平方偏置把样本压向近期：既留出纵深，又保证近几天有活跃单
+     * （否则"今日待办"看着像停摆）。
+     */
+    const spanRoll = random()
+    const daysAgo = Math.round(spanRoll * spanRoll * 165)
 
     // 状态分布按工单流转顺序铺开：待派单（刚建单）→ 已派单（派了班组）→ 处理中 → 已完成。
-    // 四种状态都必须真实存在，否则「已派单」筛选页在演示里永远是空的。
+    // 五种状态都必须真实存在，否则对应筛选页在演示里永远是空的。
     let status
     if (daysAgo <= 2) status = random() < 0.6 ? 'pending' : 'assigned'
     else if (daysAgo <= 7) {
       const r = random()
       status = r < 0.18 ? 'assigned' : (r < 0.58 ? 'processing' : 'completed')
-    } else status = random() < 0.8 ? 'completed' : 'processing'
+    } else {
+      // 已取消：字典里有这一档、工单页也有这个筛选按钮，但演示数据从来不发它，
+      // 点进去永远空。少量、且只出现在有年头的单子上——刚建 3 天的单子
+      // 就被取消，现场不常见。
+      const r = random()
+      if (daysAgo > 20 && r < 0.07) status = 'cancelled'
+      else if (r < 0.62) status = 'completed'
+      else if (r < 0.88) status = 'processing'
+      else status = 'assigned'
+    }
 
     const priority = system === '动力系统' && random() < 0.3 ? 'urgent'
       : random() < 0.35 ? 'high'
@@ -400,7 +468,14 @@ function generateWorkOrders(random, equipment) {
       priority,
       status,
       source,
-      assigned_to: pick(random, TECHNICIANS),
+      /**
+       * 待派单 = 还没派给班组，就不该有负责人。
+       *
+       * 原来无差别随机塞一个技师，于是"待派单"的工单在列表里明晃晃挂着负责人，
+       * 逻辑上说不通，也让人以为系统在替人做决定。空串表示尚未指派，
+       * 界面按"—"展示；dispatchWorkOrder 派单时才会写上人。
+       */
+      assigned_to: status === 'pending' || status === 'cancelled' ? '' : pick(random, TECHNICIANS),
       created_at: createdAt,
       completed_at: completedAt,
       updated_at: completedAt || createdAt,
@@ -452,7 +527,7 @@ export function buildDemoDataset({ size = DEFAULT_FLEET_SIZE, seed = DEFAULT_SEE
 
   // 剔除生成期辅助字段，落库的必须是干净数据
   const cleanEquipment = equipment.map(eq => {
-    const { __profile, __sinceOffset, __locationHint, __servicesMonths, ...rest } = eq
+    const { __profile, __sinceOffset, __locationHint, ...rest } = eq
     return rest
   })
   const cleanOrders = workOrders.map(order => {

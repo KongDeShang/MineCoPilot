@@ -77,6 +77,10 @@
       {
         "from": "resources/models",
         "to": "models"
+      },
+      {
+        "from": "src/renderer/public/manuals",
+        "to": "manuals"
       }
     ],
     "win": {

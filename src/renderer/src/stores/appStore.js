@@ -19,6 +19,7 @@ import { evaluateHealth, evaluateTrend, computeOverdueDays as healthComputeOverd
   resetHealthConfig } from '../utils/health'
 import { buildFaultStats } from '../utils/faultStats'
 import { buildDefaultKnowledge, extractKnowledgeFromOrders } from '../utils/knowledgeBase'
+import { draftFaultCase, buildFaultCasesFromOrders } from '../utils/faultCaseDraft'
 import { createNlActions } from './nlActions'
 import { createPersistence } from './persistence'
 import { createPartsDomain } from './partsDomain'
@@ -38,6 +39,14 @@ export {
 
 const SEED_VERSION = '3'
 const FLEET_SIZE = DEFAULT_FLEET_SIZE
+
+/**
+ * meta 标记：随包示例手册是否已经导入过
+ *
+ * 与 SEED_VERSION 分开：种子版本升级时会重写演示数据，但用户自己删掉的手册
+ * 不该因为"种子升级了"而复活。两者管的是不同的事，所以不共用一个键。
+ */
+const BUNDLED_DOCS_META = 'bundled_docs_seeded'
 
 /** 超期天数：未超期返回 null（统一由 utils/health.js 提供，此处转发以保持旧调用可用） */
 export function computeOverdueDays(eq) {
@@ -74,16 +83,27 @@ export const WORK_ORDER_TRANSITIONS = {
 function buildSeed() {
   const dataset = buildDemoDataset({ size: FLEET_SIZE })
   const audit = auditDataset(dataset)
+  /**
+   * 故障案例卡不是独立造的一份数据，而是从"已完成的维修工单"派生出来的 ——
+   * 与运行时工单完工归档用的是同一个函数（utils/faultCaseDraft.js）。
+   *
+   * 为什么不手写一批案例：案例卡的全部说服力在于"可溯源到工单 #NNNN"。
+   * 手写的案例症状写得再漂亮，点开源头工单要么对不上、要么根本不存在，
+   * 那比案例库空着更糟。演示数据里每一张卡都能点到它那张单子。
+   */
+  const seedFaultCases = buildFaultCasesFromOrders(dataset.workOrders, dataset.equipment, buildDefaultKnowledge())
   console.info(
     `[演示数据] ${audit.equipmentCount} 台设备 / 超期 ${audit.overdueCount} 台（重度 ${audit.severeOverdueCount}）/ ` +
     `健康分档 A${audit.levels.A} B${audit.levels.B} C${audit.levels.C} D${audit.levels.D} / ` +
-    `${audit.workOrderCount} 张工单 / ${audit.maintenanceCount} 条维保记录 / ${audit.snapshotCount} 条健康快照`
+    `${audit.workOrderCount} 张工单 / ${audit.maintenanceCount} 条维保记录 / ${audit.snapshotCount} 条健康快照 / ` +
+    `${seedFaultCases.length} 张故障案例卡`
   )
   return {
     equipment: dataset.equipment,
     maintenanceRecords: dataset.maintenanceRecords,
     workOrders: dataset.workOrders,
-    healthSnapshots: dataset.healthSnapshots
+    healthSnapshots: dataset.healthSnapshots,
+    faultCases: seedFaultCases
   }
 }
 
@@ -129,7 +149,7 @@ export const useAppStore = defineStore('app', () => {
   // ---------- 手册库 ----------
   // 领域逻辑在 stores/documentDomain.js（存字节 / 抽文字层 / 打开原文）。
   // 同上，persistAll 与 addLog 都要等后面才就绪，包一层延迟取用。
-  const { addDocument, removeDocument, openDocument } = createDocumentDomain({
+  const { addDocument, removeDocument, openDocument, seedBundledDocuments } = createDocumentDomain({
     documents,
     persistAll: (...args) => persistAll(...args),
     addLog: (...args) => addLog(...args)
@@ -177,6 +197,27 @@ export const useAppStore = defineStore('app', () => {
   })
 
   /**
+   * 确保随包示例手册在库里（幂等）
+   *
+   * 只在 meta 里没有标记时导入一次。为什么要有这个标记：
+   * 手册库是用户能删东西的地方，如果每次启动都"补齐缺的那几份"，
+   * 用户删掉的示例手册下次启动就会自己回来——那不是补齐，是删不掉。
+   * 于是改成"只补这一次"，删了就一直是删了。
+   *
+   * 代价是「恢复演示数据」必须把标记一起清掉才会重新出现——而 resetToSeedData
+   * 会整库重建（meta 表一并清空），所以那里天然就是对的，无需额外处理。
+   */
+  async function ensureBundledDocuments() {
+    if (dbReady.value && db.getMeta(BUNDLED_DOCS_META)) return []
+    const added = await seedBundledDocuments()
+    if (dbReady.value) {
+      db.setMeta(BUNDLED_DOCS_META, now())
+      await saveNow()
+    }
+    return added
+  }
+
+  /**
    * 启动时调用：打开本地数据库 → 有数据就恢复，没有就写入演示数据
    */
   async function initStore() {
@@ -204,6 +245,9 @@ export const useAppStore = defineStore('app', () => {
         }
         await saveNow()
       }
+      // 老库（本次升级前装的）也要有示例手册：标记只在"这一版之后"才存在，
+      // 所以这里对新装和升级是同一段代码，不需要分别处理
+      await ensureBundledDocuments()
       loadSettings()
       return true
     } catch (error) {
@@ -212,6 +256,7 @@ export const useAppStore = defineStore('app', () => {
       dbError.value = error.message
       console.warn('[数据库] 初始化失败，降级为内存模式：', error)
       applySeedData()
+      await ensureBundledDocuments()
       return false
     }
   }
@@ -251,6 +296,9 @@ export const useAppStore = defineStore('app', () => {
     resetHealthConfig()
     clearAlertDispositions()
     settings.value = defaultSettings()
+    // 整库刚被重建，示例手册的标记也一起没了 → 这里会重新导入，
+    // 也就是"恢复演示数据"确实把手册库也恢复成出厂状态
+    await ensureBundledDocuments()
     await saveNow()
   }
 
@@ -348,7 +396,9 @@ export const useAppStore = defineStore('app', () => {
       parts_used: item.parts_used || '',
       source_order_id: item.source_order_id || null,
       repair_hours: item.repair_hours != null ? Number(item.repair_hours) : null,
-      createdAt: now()
+      // 允许调用方指定产生时间：演示数据是"历史工单派生的历史案例"，
+      // 一律用 now() 会把半年的案例全堆在启动那一天
+      createdAt: item.createdAt || now()
     }
     faultCases.value.unshift(record)
     persistAll()
@@ -561,26 +611,14 @@ export const useAppStore = defineStore('app', () => {
       }
     }
 
-    // 故障案例自动沉淀：维修工单完工 → 生成结构化案例卡（症状/原因/处理，可溯源）
-    if (order.type === 'repair' && order.title) {
-      const eqCat = eq ? eq.category : ''
-      // 从知识库匹配最相关的条目作为"原因 / 处理"参考（命中失败则如实留空，不编造）
-      const kb = knowledgeItems.value.find(k => {
-        const kws = Array.isArray(k.keywords) ? k.keywords : String(k.keywords || '').split(/[,，]/)
-        return kws.some(w => w && String(order.title).includes(w))
-      })
-      const cause = kb ? kb.title : ''
-      const solution = kb && Array.isArray(kb.steps) && kb.steps.length ? kb.steps[0] : (order.description || '')
-      addFaultCase({
-        equipment_name: order.equipment_name || '',
-        category: eqCat,
-        symptom: order.title,
-        cause,
-        solution,
-        parts_used: '',
-        source_order_id: order.id,
-        repair_hours: kb && kb.avg_repair_hours != null ? Number(kb.avg_repair_hours) : null
-      })
+    // 故障案例自动沉淀：维修工单完工 → 生成结构化案例卡（症状/原因/处理，可溯源）。
+    // 推导规则在 utils/faultCaseDraft.js —— 演示数据工厂用的是同一份，两边不会漂移。
+    const draft = draftFaultCase(order, {
+      equipmentList: equipmentList.value,
+      knowledgeItems: knowledgeItems.value
+    })
+    if (draft) {
+      addFaultCase(draft)
       addLog({
         content: `故障案例自动沉淀：「${order.title}」已归档为结构化案例，可在故障案例库查看`,
         source: 'AI',

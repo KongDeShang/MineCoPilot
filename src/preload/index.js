@@ -31,7 +31,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   docs: {
     addFile: (payload) => ipcRenderer.invoke('docs:addFile', payload),
     open: (payload) => ipcRenderer.invoke('docs:open', payload),
-    deleteFile: (payload) => ipcRenderer.invoke('docs:delete', payload)
+    deleteFile: (payload) => ipcRenderer.invoke('docs:delete', payload),
+    // 随包示例手册：由主进程从 resources/manuals 复制进 documents/ 后再读
+    importBundled: (payload) => ipcRenderer.invoke('docs:importBundled', payload)
   },
 
   // 本地模型引擎（node-llama-cpp，仅 Electron 模式可用）

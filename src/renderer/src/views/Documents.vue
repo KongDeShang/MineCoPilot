@@ -71,7 +71,7 @@
             :on-change="onFileChange"
             :on-remove="() => (selectedFile = null)"
           >
-            <el-icon size="36" color="#0b3a82"><Document /></el-icon>
+            <el-icon size="36" color="var(--accent)"><Document /></el-icon>
             <div style="margin-top: 8px">拖拽或点击选择 PDF 手册</div>
             <div class="upload-hint">仅支持 PDF · 文件只在本机处理</div>
           </el-upload>
@@ -86,7 +86,9 @@
           <el-select v-model="form.docType" style="width: 100%">
             <el-option label="使用手册" value="使用手册" />
             <el-option label="维修手册" value="维修手册" />
+            <el-option label="操作维护手册" value="操作维护手册" />
             <el-option label="保养规范" value="保养规范" />
+            <el-option label="技术规格书" value="技术规格书" />
             <el-option label="其他资料" value="其他资料" />
           </el-select>
         </el-form-item>
@@ -187,22 +189,22 @@ async function removeDoc(row) {
 
 .doc-title {
   font-weight: 600;
-  color: #0a1326;
+  color: var(--text-1);
 }
 
 .docs-note {
   margin-top: 14px;
   font-size: 12px;
-  color: #8a95a7;
+  color: var(--text-3);
   line-height: 1.8;
-  background: #f4f7fb;
+  background: var(--line-2);
   border-radius: 10px;
   padding: 12px 14px;
 }
 
 .upload-hint {
   font-size: 12px;
-  color: #8a95a7;
+  color: var(--text-3);
   margin-top: 4px;
 }
 </style>

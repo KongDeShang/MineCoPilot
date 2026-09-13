@@ -15,7 +15,7 @@
  */
 import initSqlJsImport from 'sql.js'
 import * as XLSX from 'xlsx'
-import { readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync, existsSync, statSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
 
@@ -27,7 +27,7 @@ const mirrorDir = join(root, '.tmp-selfcheck')
 // ---- 生成 ESM 镜像，让 Node 能直接导入项目真实模块 ----
 rmSync(mirrorDir, { recursive: true, force: true })
 mkdirSync(mirrorDir, { recursive: true })
-for (const name of ['dates', 'html', 'storage', 'database', 'excelParser', 'synonyms', 'knowledgeBase', 'health', 'equipmentCatalog', 'fleetData', 'healthReport', 'faultStats', 'nlCommand', 'llmClient', 'narrate', 'reportGenerator', 'dictionaries']) {
+for (const name of ['dates', 'html', 'storage', 'database', 'excelParser', 'synonyms', 'knowledgeBase', 'health', 'equipmentCatalog', 'fleetData', 'healthReport', 'faultStats', 'nlCommand', 'llmClient', 'narrate', 'reportGenerator', 'dictionaries', 'bundledDocs', 'faultCaseDraft']) {
   const code = readFileSync(join(srcDir, `${name}.js`), 'utf8')
     .replace(/(from\s+['"]\.\/[a-zA-Z0-9_-]+)(['"])/g, '$1.mjs$2')
   writeFileSync(join(mirrorDir, `${name}.mjs`), code, 'utf8')
@@ -75,6 +75,7 @@ const nl = await import(mirror('nlCommand'))
 const llmC = await import(mirror('llmClient'))
 const narrate = await import(mirror('narrate'))
 const reportGen = await import(mirror('reportGenerator'))
+const caseDraft = await import(mirror('faultCaseDraft'))
 
 const results = []
 function check(name, condition, detail = '') {
@@ -755,6 +756,107 @@ function check(name, condition, detail = '') {
   check('故障现象库覆盖四个系统分类',
     ['液压系统', '动力系统', '电气系统', '底盘行走'].every(k => catalog.FAULT_LIBRARY[k]),
     Object.keys(catalog.FAULT_LIBRARY).join(','))
+
+  // ---- 故障 → 换件 → 工时费（单一来源，防止"维修记录里换了个不相干的件"复发） ----
+  const faultItems = Object.values(catalog.FAULT_LIBRARY).flatMap(g => g.items)
+  const unmapped = faultItems.filter(it => !(it.title in catalog.FAULT_PARTS))
+  check('每个故障条目都配了换件映射（新增条目忘配会在这里报出来）',
+    unmapped.length === 0,
+    unmapped.map(it => it.title).join('、') || `${faultItems.length} 条全部登记`)
+  const strayTitles = Object.keys(catalog.FAULT_PARTS)
+    .filter(t => !faultItems.some(it => it.title === t))
+  check('换件映射里没有已删除的故障条目（映射不留孤儿）',
+    strayTitles.length === 0, strayTitles.join('、') || '无孤儿')
+  const badParts = [...new Set(Object.values(catalog.FAULT_PARTS).flat())]
+    .filter(n => !catalog.PARTS_CATALOG.some(p => p.name === n))
+  check('换件映射里的件名都在配件目录内（扣库存不会静默失效）',
+    badParts.length === 0, badParts.join('、') || '全部命中')
+  const noLabor = Object.keys(catalog.FAULT_LIBRARY).filter(k => !(k in catalog.LABOR_FEE))
+  check('工时费覆盖全部故障系统（不换件的故障也要有成本口径）',
+    noLabor.length === 0, noLabor.join('、') || Object.keys(catalog.LABOR_FEE).join('/'))
+  check('工时费按系统区分（电气小活不与发动机大修同价）',
+    new Set(Object.values(catalog.LABOR_FEE)).size === Object.keys(catalog.LABOR_FEE).length)
+  check('确有不换件的故障条目（调整/清洗类不产生备件流水，不是漏配）',
+    Object.values(catalog.FAULT_PARTS).some(list => list.length === 0))
+}
+
+// ============ I2 随包示例手册（"装完就能看到"的那几份必须真的发出去） ============
+{
+  const publicDir = join(root, 'src', 'renderer', 'public', 'manuals')
+  const bundled = await import(mirror('bundledDocs'))
+  const docs = bundled.BUNDLED_DOCS
+
+  check('随包手册清单非空（手册库首屏不能是空的）', docs.length >= 2, String(docs.length))
+  check('随包手册 id / slug 唯一（重复会让幂等导入互相覆盖）',
+    new Set(docs.map(d => d.id)).size === docs.length &&
+    new Set(docs.map(d => d.slug)).size === docs.length,
+    docs.map(d => d.slug).join(','))
+
+  /**
+   * slug 会被主进程拼进文件路径，docs:importBundled 用这个正则挡路径穿越。
+   * 这里用同一套规则再挡一次：清单里写个带中文/斜杠的 slug 主进程会静默拒绝，
+   * 表现成"这份示例手册莫名其妙没进来"，而问题其实在这一行清单上。
+   */
+  const badSlug = docs.filter(d => !/^[a-z0-9-]{1,64}$/.test(d.slug))
+  check('随包 slug 符合主进程的路径安全规则（否则会被拒绝导入）',
+    badSlug.length === 0, badSlug.map(d => d.slug).join('、') || '全部合规')
+
+  // 挑选口径里的"是车队在管机型"要能被机器验证，否则这条口径会随时间失真
+  const notInFleet = docs.filter(d => !catalog.MODEL_WHITELIST[d.model])
+  check('每份随包手册的机型都在机型白名单内（口径：车队在管机型）',
+    notInFleet.length === 0,
+    notInFleet.map(d => d.model).join('、') || docs.map(d => d.model).join(','))
+
+  const catMismatch = docs.filter(d => (catalog.MODEL_WHITELIST[d.model] || {}).category !== d.category)
+  check('随包手册的类别与机型目录一致（品类写错会让检索关键词挂错）',
+    catMismatch.length === 0,
+    catMismatch.map(d => `${d.model}:${d.category}`).join('、') || '一致')
+
+  // 手册要能挂到演示车队里的设备档案上：型号得真的出现在车队构成里
+  const fleetModels = new Set(catalog.FLEET_MIX.flatMap(s => [...(s.models || []), ...(s.rareModels || [])]))
+  const notDeployed = docs.filter(d => !fleetModels.has(d.model))
+  check('随包手册对应机型都在车队构成里（能挂到在管设备上）',
+    notDeployed.length === 0,
+    notDeployed.map(d => d.model).join('、') || '全部在编')
+
+  // 资源必须真的在仓库里：只写清单不生成产物，装完依旧空空如也
+  const missing = []
+  const thin = []
+  const textOf = {}
+  for (const d of docs) {
+    const pdfPath = join(publicDir, `${d.slug}.pdf`)
+    const jsonPath = join(publicDir, `${d.slug}.json`)
+    if (!existsSync(pdfPath) || !existsSync(jsonPath)) { missing.push(d.slug); continue }
+    // 100KB 以下基本是"抽取失败写了个空壳"，不是真手册
+    const pdfBytes = statSync(pdfPath).size
+    if (pdfBytes < 100 * 1024) thin.push(`${d.slug}=${Math.round(pdfBytes / 1024)}KB`)
+    try { textOf[d.slug] = JSON.parse(readFileSync(jsonPath, 'utf8')) } catch { textOf[d.slug] = null }
+  }
+  check('随包手册的 PDF 与文字层都已在仓库里（跑过 build-manual-assets 才能过）',
+    missing.length === 0, missing.join('、') || docs.map(d => d.slug).join(','))
+  check('随包手册不是空壳（原件 ≥ 100KB，排除生成失败写出的 0 字节文件）',
+    thin.length === 0, thin.join('、') || '体积正常')
+
+  const noText = docs.filter(d => {
+    const p = textOf[d.slug]
+    return !p || !(p.pages > 0) || !Array.isArray(p.chunks) || p.chunks.length === 0
+  })
+  check('随包手册带逐页文字层（否则降级成"仅查看"，问答不到内容）',
+    noText.length === 0,
+    noText.map(d => d.slug).join('、') ||
+      docs.map(d => `${d.slug}:${textOf[d.slug].chunks.length} 页有文字`).join(' '))
+
+  const badPage = docs.filter(d => {
+    const p = textOf[d.slug]
+    return p && p.chunks.some(c => !(Number.isInteger(c.page) && c.page >= 1 && c.page <= p.pages))
+  })
+  check('文字层页码都在 1..总页数 内（越界页码会生成假出处）',
+    badPage.length === 0, badPage.map(d => d.slug).join('、') || '页码自洽')
+
+  // 产物与清单是两次独立的输入（清单手改、产物重生成），对不上说明该重跑生成脚本
+  const titleMismatch = docs.filter(d => textOf[d.slug] && textOf[d.slug].title !== d.title)
+  check('文字层里的标题与清单标题一致（不一致说明产物过期，需重跑生成脚本）',
+    titleMismatch.length === 0, titleMismatch.map(d => d.slug).join('、') || '一致')
 }
 
 // ============ J 演示数据工厂（规模与分布验收） ============
@@ -777,6 +879,20 @@ function check(name, condition, detail = '') {
     JSON.stringify(audit.brands))
   check('保留他牌设备以体现不挑品牌',
     audit.equipmentCount - audit.brands['徐工'] >= 2, JSON.stringify(audit.brands))
+  /**
+   * 稀有型号是**定数**投放，不是概率投放。
+   *
+   * 这条断言是 2026-09-13 补的：概率投放曾让"卡特 320D 有两台"变成 0 台，
+   * 于是「同型号多台时必须判歧义」的用例在演示数据里没了素材（换个种子就红）。
+   * 现在每个稀有型号固定 RARE_PER_MODEL 台，这条断言守住它。
+   */
+  const rareModels = catalog.FLEET_MIX.flatMap(s => s.rareModels || [])
+  const shortRare = rareModels
+    .map(m => ({ m, n: dataset.equipment.filter(e => e.model === m).length }))
+    .filter(x => x.n !== fleet.RARE_PER_MODEL)
+  check(`每个稀有型号都按定数投放（${fleet.RARE_PER_MODEL} 台）`,
+    shortRare.length === 0,
+    shortRare.map(x => `${x.m}:${x.n}`).join('、') || `${rareModels.length} 个稀有型号全部足额`)
 
   check('超期设备在合理区间（10~20 台）',
     audit.overdueCount >= 10 && audit.overdueCount <= 20, String(audit.overdueCount))
@@ -833,7 +949,7 @@ function check(name, condition, detail = '') {
     [...usedTokens].filter(t => !partNames.has(t)).join(',') || `全部命中（${usedTokens.size} 种）`)
   check('演示维保记录确实带配件（联动链路有真实输入）',
     partRecordCount >= 40, String(partRecordCount))
-  check('带配件的记录费用不为 0（成本由件名单价合计得出）', (() => {
+  check('带配件的记录费用不为 0（成本 = 工时费 + 配件费）', (() => {
     for (const list of Object.values(dataset.maintenanceRecords)) {
       for (const r of list) if (r.parts_used && !Number(r.cost)) return false
     }
@@ -845,6 +961,38 @@ function check(name, condition, detail = '') {
     }
     return true
   })())
+
+  /**
+   * 故障维修的换件必须与该故障条目对得上。
+   *
+   * 这是"维修记录里换个不相干的件"的回归守卫：原先件名是
+   * `pick(random, PARTS_CATALOG).name` —— 于是"回转马达渗油"这条记录里
+   * 换的是"空气滤芯"，费用还是另一次随机抓来的单价。
+   */
+  const partsByDesc = new Map()
+  for (const group of Object.values(catalog.FAULT_LIBRARY)) {
+    for (const it of group.items) partsByDesc.set(it.desc, (catalog.FAULT_PARTS[it.title] || []).join('、'))
+  }
+  const partMismatch = []
+  let faultRepairCount = 0
+  let laborOnlyCount = 0
+  for (const list of Object.values(dataset.maintenanceRecords)) {
+    for (const r of list) {
+      if (r.type !== '故障维修') continue
+      faultRepairCount++
+      const want = partsByDesc.get(r.description)
+      if (want === undefined) { partMismatch.push(`未登记的故障描述：${r.description}`); continue }
+      if (String(r.parts_used || '') !== want) {
+        partMismatch.push(`${r.description} → 记录「${r.parts_used}」/ 应为「${want}」`)
+      }
+      if (!r.parts_used && Number(r.cost) >= (catalog.LABOR_FEE[r.system] || 0)) laborOnlyCount++
+    }
+  }
+  check('故障维修记录的换件与故障现象自洽（不是随机抓一件）',
+    partMismatch.length === 0,
+    partMismatch.slice(0, 3).join('；') || `${faultRepairCount} 条全部对得上`)
+  check('不换件的故障也收了工时费（调整/清洗类不是零成本）',
+    laborOnlyCount > 0, `${laborOnlyCount} 条纯工时记录`)
   check('健康快照末值与当前评分一致（趋势与报告不自相矛盾）', (() => {
     const byEq = {}
     for (const s of dataset.healthSnapshots) (byEq[s.equipment_id] ||= []).push(s)
@@ -854,6 +1002,53 @@ function check(name, condition, detail = '') {
       return list[list.length - 1].score === health.evaluateHealth(eq).score
     })
   })())
+
+  /**
+   * 故障案例卡：先前 faultCases 完全没有种子 —— 首启时"最新自动沉淀案例"整块卡片不显示，
+   * 而工单上却写着 archived_at（已归档）。这里守住"承诺兑现"：
+   * 每张已完成的维修工单都要有一张卡，且卡片能如实指回它那张单子。
+   */
+  const seedCases = caseDraft.buildFaultCasesFromOrders(
+    dataset.workOrders, dataset.equipment, kb.buildDefaultKnowledge())
+  const completedRepair = dataset.workOrders.filter(o => o.status === 'completed' && o.type === 'repair' && o.title)
+  check('每张已完成的维修工单都有一张故障案例卡（archived_at 的承诺要兑现）',
+    seedCases.length === completedRepair.length,
+    `案例 ${seedCases.length} / 已完成维修工单 ${completedRepair.length}`)
+  const orderById = new Map(dataset.workOrders.map(o => [String(o.id), o]))
+  const orphan = seedCases.filter(c => !orderById.has(String(c.source_order_id)))
+  check('案例卡的来源工单都真实存在（不编造单号）',
+    orphan.length === 0, orphan.map(c => c.source_order_id).join('、') || '全部命中')
+  const symptomMismatch = seedCases.filter(c => {
+    const o = orderById.get(String(c.source_order_id))
+    return !o || o.title !== c.symptom
+  })
+  check('案例卡症状与来源工单标题逐字一致（症状永远是工单原文）',
+    symptomMismatch.length === 0, symptomMismatch.slice(0, 3).map(c => c.symptom).join('；') || '全部一致')
+  const badSource = seedCases.filter(c => {
+    const o = orderById.get(String(c.source_order_id))
+    return o && (o.type !== 'repair' || o.status !== 'completed')
+  })
+  check('案例卡只来自已完成维修工单（在建/取消的单子不算经验）',
+    badSource.length === 0, badSource.map(c => c.source_order_id).join('、') || '全部合规')
+  check('案例卡 id 唯一且为正整数',
+    new Set(seedCases.map(c => c.id)).size === seedCases.length &&
+    seedCases.every(c => Number.isInteger(c.id) && c.id > 0),
+    `id ${seedCases.map(c => c.id).join(',')}`)
+  check('案例列表按最新在前（首屏"最新沉淀"名副其实）',
+    seedCases.every((c, i) => i === 0 || String(seedCases[i - 1].createdAt) >= String(c.createdAt)),
+    `${seedCases[0] && seedCases[0].createdAt} → ${seedCases.length ? seedCases[seedCases.length - 1].createdAt : ''}`)
+  check('案例的产生时间取自工单完成时间（不是全部堆在启动那天）',
+    new Set(seedCases.map(c => String(c.createdAt).slice(0, 10))).size >= 5,
+    `${new Set(seedCases.map(c => String(c.createdAt).slice(0, 10))).size} 个不同日期`)
+  const withCause = seedCases.filter(c => c.cause)
+  check('多数案例能从知识库命中原因为（命中不到如实留空，但不应全都空）',
+    withCause.length >= Math.ceil(seedCases.length / 2),
+    `${withCause.length}/${seedCases.length} 条有原因`)
+  // 留空必须是"知识库真没命中"，不是映射没接上 —— 反向验一次
+  const shouldHit = seedCases.filter(c => caseDraft.matchKnowledge(c.symptom, kb.buildDefaultKnowledge()))
+  check('有原因可命中的案例确实都填上了原因（留空只留给没命中的）',
+    shouldHit.every(c => c.cause),
+    shouldHit.filter(c => !c.cause).map(c => c.symptom).join('、') || '一致')
 }
 
 // ============ K 体检报告（结构与可溯源） ============
@@ -873,8 +1068,23 @@ function check(name, condition, detail = '') {
   const report = healthReport.generateHealthReport(eq, store)
 
   check('报告含设备信息与生成时间', !!report.equipment.name && !!report.generatedAt)
-  check('报告小结含分数/等级/结论', report.summary.score > 0 && !!report.summary.levelLabel && report.summary.conclusion.length > 10,
+  /**
+   * 这里原先是 `score > 0`。
+   *
+   * 最差的一台可能被如实扣到 0 分（超期扣 45 + 机龄扣 25 + 当前故障扣 30 = 100），
+   * 那是评分模型算出来的结果，不是"报告没内容"。把断言写成 `score > 0`，
+   * 等于要求演示数据里不许出现报废级设备——那是拿数据去迁就断言。
+   *
+   * 所以改成守两件真事：分数是 0~100 的有限数（NaN 会在这里现形）、
+   * 小结字段与结论有实质内容；另外单独守住"0 分设备不能成片"。
+   */
+  check('报告小结含分数/等级/结论（分数为 0~100 的有限数）',
+    Number.isFinite(report.summary.score) && report.summary.score >= 0 && report.summary.score <= 100 &&
+    !!report.summary.levelLabel && report.summary.conclusion.length > 10,
     `${report.summary.score} ${report.summary.level} ${report.summary.conclusion.slice(0, 20)}`)
+  check('0 分设备最多 1 台（极端分不成片，成片说明评分或数据坏了）',
+    ranked.filter(r => r.h.score === 0).length <= 1,
+    ranked.filter(r => r.h.score === 0).map(r => r.e.name).join('、') || '无 0 分设备')
   check('报告含四因子与算式', report.factors.length === 4 && report.factors.every(f => f.formula),
     report.factors.map(f => f.name).join('/'))
   check('报告含风险清单且每条有出处', report.riskItems.length > 0 && report.riskItems.every(r => r.ref),

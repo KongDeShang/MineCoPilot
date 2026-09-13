@@ -706,6 +706,76 @@ async function main() {
       kbLive.error || (kbLive.refs || []).join(' | '))
 
 
+    // ---------- 8.5 随包示例手册：装完就有真手册可看、可问答 ----------
+    // 断言重点不是"数据库里有三行"，而是**资源真的随包发出来了**：
+    // 只断言行数的话，拿一份空 JSON 也能过——所以这里直接去取静态文件。
+    const BUNDLED = [
+      { slug: 'sq10sk3q-manual', title: 'SQ10SK3Q 随车起重机 操作维护手册', pages: 36 },
+      { slug: 'xca60e-spec', title: 'XCA60E 全地面起重机 技术规格书', pages: 32 },
+      { slug: 'qy25k5d-spec', title: 'QY25K5D 汽车起重机 技术规格书', pages: 18 }
+    ]
+    const assetProbe = await session.eval(`(async () => {
+      const slugs = ${JSON.stringify(BUNDLED.map(b => b.slug))}
+      const out = {}
+      for (const slug of slugs) {
+        const rec = {}
+        try {
+          const j = await fetch(new URL('manuals/' + slug + '.json', document.baseURI))
+          rec.jsonOk = j.ok
+          if (j.ok) {
+            const parsed = await j.json()
+            rec.pages = parsed.pages
+            rec.chunks = (parsed.chunks || []).length
+            rec.chars = (parsed.chunks || []).reduce((n, c) => n + (c.text || '').length, 0)
+          }
+        } catch (e) { rec.jsonOk = false; rec.jsonError = String(e) }
+        try {
+          const p = await fetch(new URL('manuals/' + slug + '.pdf', document.baseURI))
+          rec.pdfOk = p.ok
+          rec.pdfBytes = p.ok ? (await p.blob()).size : 0
+        } catch (e) { rec.pdfOk = false; rec.pdfError = String(e) }
+        out[slug] = rec
+      }
+      return out
+    })()`)
+    for (const b of BUNDLED) {
+      const r = assetProbe[b.slug] || {}
+      check(`随包手册资源可取：${b.slug}（文字层 ${r.chunks || 0} 页 / 原件 ${Math.round((r.pdfBytes || 0) / 1024)}KB）`,
+        r.jsonOk && r.pdfOk && r.chunks > 0 && r.pages === b.pages && r.pdfBytes > 100 * 1024,
+        JSON.stringify(r).slice(0, 180))
+    }
+
+    await session.goto(`${BASE}/#/documents`, 2800)
+    const docsPage = await session.eval(`(() => {
+      const rows = Array.from(document.querySelectorAll('.el-table__row')).map(r => r.textContent.replace(/\\s+/g, ' ').trim())
+      const cards = Array.from(document.querySelectorAll('.stat-card, .stat-item, .el-card')).map(e => e.textContent.replace(/\\s+/g, ' ').trim()).join(' ')
+      return { rows, count: rows.length, cards: cards.slice(0, 220) }
+    })()`)
+    for (const b of BUNDLED) {
+      const row = docsPage.rows.find(r => r.includes(b.title))
+      check(`手册库首屏就有随包示例「${b.title.slice(0, 18)}…」`, !!row, row || docsPage.rows.join(' / ').slice(0, 180))
+      // "可问答"而不是"仅查看"：说明随包的是带文字层的真手册，不是扫描件占位
+      check(`随包示例「${b.slug}」状态为可问答（${b.pages} 页）`,
+        !!row && row.includes('可问答') && !row.includes('仅查看'), row || '')
+    }
+    // 断言取的是卡片上的**数字**，不是"文本里有'手册资料'四个字"：
+    // 卡片 label 与 value 是两个节点，textContent 拼出来是"手册资料3 份"（中间没有空格）。
+    // 注意这里不在模板字符串里，正则就是普通正则——写成 \\s 会变成"反斜杠 + s"，
+    // 永远匹配不上（第一版就是这么写的，报出来的 detail 里明明写着 3 份却没通过）。
+    const statDocs = docsPage.cards.match(/手册资料\D{0,6}?(\d+)\s*份/)
+    const statPages = docsPage.cards.match(/累计页数\D{0,6}?(\d+)\s*页/)
+    check(`手册库统计把随包示例算进去（${statDocs ? statDocs[1] : '?'} 份 / ${statPages ? statPages[1] : '?'} 页）`,
+      !!statDocs && Number(statDocs[1]) >= BUNDLED.length && !!statPages && Number(statPages[1]) >= 80,
+      docsPage.cards)
+
+    // 真去问一句手册上的内容：回答必须带《手册名》第 N 页的出处（可审计）
+    await session.goto(`${BASE}/#/ai-assistant`, 2800)
+    await session.eval(ASK_HELPER)
+    const manualAsk = await session.eval(`window.__ask('SQ10SK3Q 随车起重机操作维护手册里，液压系统怎么保养？')`)
+    check('AI 能回答随包手册里的内容，并给出页码出处',
+      !manualAsk.error && (manualAsk.refs || []).some(r => r.includes('第') && r.includes('页')),
+      manualAsk.error || (manualAsk.refs || []).join(' | ') || manualAsk.text)
+
     // 说明：口述录入（自然语言→结构化写入）的端到端验收已拆分到独立文件，
     // 由 scripts/e2e-nl.mjs 承载（npm run e2e:nl），覆盖率更全且避免单文件过长。
 
