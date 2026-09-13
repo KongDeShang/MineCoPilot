@@ -24,11 +24,21 @@ import { parseDate, daysUntilDue, equipmentAgeYears } from './dates'
 // 风险等级（4 级）
 // ============================================================
 
+/**
+ * 四个等级的颜色 = tokens.css 里的同名令牌值（翠绿/品牌中蓝/琥珀/危险）。
+ * 为什么这里写死 hex 而不用 var(--emerald)：
+ *   这四个值会被绑到 SVG 的 stroke / fill 上（看板饼图、病历趋势线、台账评级条），
+ *   而 **SVG 表现属性不解析 var()** —— 写成 var() 不会报错，图直接变黑。
+ *   所以色值只能在这里以字面量形式存在一份；它同时被 CSS 与 SVG 两条路消费，
+ *   改色只需改这一处。改这里时记得同步 tokens.css 的对应令牌。
+ * 旧值是 Element Plus 默认色板（#67c23a/#409eff/#e6a23c/#f56c6c）——
+ * 与本项目的品牌蓝并排放是两套绿、两套蓝，故统一到品牌色板。
+ */
 export const RISK_LEVELS = {
-  A: { label: '优', desc: '状态良好，按计划执行即可', color: '#67c23a', factor: 0.1 },
-  B: { label: '良', desc: '需关注，建议本周期内安排', color: '#409eff', factor: 0.3 },
-  C: { label: '预警', desc: '建议尽快安排处置', color: '#e6a23c', factor: 0.5 },
-  D: { label: '严重', desc: '需立即处置，存在停机风险', color: '#f56c6c', factor: 0.7 }
+  A: { label: '优', desc: '状态良好，按计划执行即可', color: '#12a06b', factor: 0.1 },
+  B: { label: '良', desc: '需关注，建议本周期内安排', color: '#3d5f9c', factor: 0.3 },
+  C: { label: '预警', desc: '建议尽快安排处置', color: '#e0a020', factor: 0.5 },
+  D: { label: '严重', desc: '需立即处置，存在停机风险', color: '#e0413e', factor: 0.7 }
 }
 
 /** 各等级健康分下限（用于 health.js 内部判定，与 §2.B 表格一致） */
@@ -489,11 +499,11 @@ export function estimateLoss(eq) {
 // ============================================================
 
 export const TREND_KINDS = {
-  improving: { label: '改善中', color: '#67c23a' },
-  stable: { label: '稳定', color: '#409eff' },
-  fluctuating: { label: '波动', color: '#e6a23c' },
-  worsening: { label: '恶化中', color: '#f56c6c' },
-  insufficient: { label: '数据积累中', color: '#909399' }
+  improving: { label: '改善中', color: 'var(--success-ink)' },
+  stable: { label: '稳定', color: 'var(--accent-mid)' },
+  fluctuating: { label: '波动', color: 'var(--warn-ink)' },
+  worsening: { label: '恶化中', color: 'var(--danger-ink)' },
+  insufficient: { label: '数据积累中', color: 'var(--text-3)' }
 }
 
 /**

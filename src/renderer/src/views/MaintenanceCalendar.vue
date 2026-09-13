@@ -307,7 +307,7 @@ function createWorkOrder(event) {
   gap: 20px;
   margin-bottom: 16px;
   padding: 10px 16px;
-  background: #f8f9fa;
+  background: var(--card-2);
   border-radius: 8px;
 }
 
@@ -316,7 +316,7 @@ function createWorkOrder(event) {
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: #606266;
+  color: var(--text-2);
 }
 
 .legend-dot {
@@ -325,18 +325,18 @@ function createWorkOrder(event) {
   border-radius: 50%;
 }
 
-.legend-dot.overdue { background: #f56c6c; }
-.legend-dot.today { background: #409eff; }
-.legend-dot.upcoming { background: #e6a23c; }
-.legend-dot.normal { background: #909399; }
-.legend-dot.completed { background: #67c23a; }
+.legend-dot.overdue { background: var(--danger); }
+.legend-dot.today { background: var(--accent); }
+.legend-dot.upcoming { background: var(--amber); }
+.legend-dot.normal { background: var(--ink-4); }
+.legend-dot.completed { background: var(--emerald); }
 
 .calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 1px;
-  background: #e4e7ed;
-  border: 1px solid #e4e7ed;
+  background: var(--line);
+  border: 1px solid var(--line);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -344,10 +344,10 @@ function createWorkOrder(event) {
 .weekday-header {
   text-align: center;
   padding: 10px;
-  background: #f5f7fa;
+  background: var(--line-2);
   font-size: 13px;
   font-weight: 600;
-  color: #606266;
+  color: var(--text-2);
 }
 
 .calendar-cell {
@@ -359,22 +359,22 @@ function createWorkOrder(event) {
 }
 
 .calendar-cell:hover {
-  background: #ecf5ff;
+  background: var(--accent-soft);
 }
 
 .calendar-cell.is-other-month {
-  background: #fafafa;
+  background: var(--card-2);
   opacity: 0.5;
 }
 
 .calendar-cell.is-today {
-  background: #ecf5ff;
+  background: var(--accent-soft);
 }
 
 .cell-date {
   font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-1);
   margin-bottom: 4px;
 }
 
@@ -385,7 +385,7 @@ function createWorkOrder(event) {
   line-height: 24px;
   text-align: center;
   border-radius: 50%;
-  background: #409eff;
+  background: var(--accent);
   color: white;
 }
 
@@ -405,38 +405,38 @@ function createWorkOrder(event) {
 }
 
 .event-tag.overdue {
-  background: #fef0f0;
-  color: #f56c6c;
-  border: 1px solid #fde2e2;
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid var(--danger-line);
 }
 
 .event-tag.today {
-  background: #ecf5ff;
-  color: #409eff;
-  border: 1px solid #d9ecff;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent-line);
 }
 
 .event-tag.upcoming {
-  background: #fdf6ec;
-  color: #e6a23c;
-  border: 1px solid #faecd8;
+  background: var(--amber-soft);
+  color: var(--amber);
+  border: 1px solid var(--amber-soft);
 }
 
 .event-tag.normal {
-  background: #f4f4f5;
-  color: #909399;
-  border: 1px solid #e9e9eb;
+  background: var(--line-2);
+  color: var(--text-3);
+  border: 1px solid var(--line-2);
 }
 
 .event-tag.nodata {
-  background: #f4f4f5;
-  color: #c0c4cc;
-  border: 1px dashed #e9e9eb;
+  background: var(--line-2);
+  color: var(--text-mute);
+  border: 1px dashed var(--line-2);
 }
 
 .event-more {
   font-size: 11px;
-  color: #909399;
+  color: var(--text-3);
   text-align: center;
 }
 
@@ -452,12 +452,12 @@ function createWorkOrder(event) {
   gap: 12px;
   padding: 14px;
   border-radius: 8px;
-  background: #f8f9fa;
+  background: var(--card-2);
 }
 
 .detail-item.overdue {
-  background: #fef0f0;
-  border: 1px solid #fde2e2;
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-line);
 }
 
 .detail-status {
@@ -467,16 +467,16 @@ function createWorkOrder(event) {
   flex-shrink: 0;
 }
 
-.detail-status.overdue { background: #f56c6c; }
-.detail-status.upcoming { background: #e6a23c; }
-.detail-status.normal { background: #409eff; }
+.detail-status.overdue { background: var(--danger); }
+.detail-status.upcoming { background: var(--amber); }
+.detail-status.normal { background: var(--accent); }
 
 .detail-info { flex: 1; }
 
 .detail-equipment {
   font-size: 15px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-1);
   margin-bottom: 4px;
 }
 
@@ -485,6 +485,6 @@ function createWorkOrder(event) {
   align-items: center;
   gap: 10px;
   font-size: 12px;
-  color: #909399;
+  color: var(--text-3);
 }
 </style>

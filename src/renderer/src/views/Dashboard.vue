@@ -118,11 +118,10 @@
               <circle v-for="(seg, i) in pieSegments" :key="i"
                 cx="100" cy="100" r="80"
                 fill="none"
-                :stroke="seg.color"
                 stroke-width="32"
                 :stroke-dasharray="seg.dasharray"
                 :stroke-dashoffset="seg.offset"
-                :style="{ transition: 'all 1s ease ' + (i * 0.2) + 's' }"
+                :style="{ stroke: seg.color, transition: 'stroke 1s ease ' + (i * 0.2) + 's' }"
               />
               <!-- 中心文字 -->
               <text x="100" y="92" text-anchor="middle" class="pie-center-num">{{ stats.equipmentCount }}</text>
@@ -164,7 +163,7 @@
               </div>
             </template>
             <div v-else class="empty-inline">
-              <el-icon :size="32" color="#c0c4cc"><CircleCheck /></el-icon>
+              <el-icon :size="32" color="var(--text-mute)"><CircleCheck /></el-icon>
               <p>今日无待办事项</p>
             </div>
           </div>
@@ -192,8 +191,8 @@
               </div>
             </div>
             <div class="trend-legend">
-              <span class="legend-dot" style="background: #409eff"></span> 计划
-              <span class="legend-dot" style="background: #67c23a; margin-left: 12px"></span> 完成
+              <span class="legend-dot" style="background: var(--accent-line)"></span> 计划
+              <span class="legend-dot" style="background: var(--emerald); margin-left: 12px"></span> 完成
             </div>
           </div>
         </el-card>
@@ -225,8 +224,8 @@
               </div>
             </template>
             <div v-else class="empty-inline">
-              <el-icon :size="32" color="#67c23a"><CircleCheck /></el-icon>
-              <p style="color: #67c23a">所有设备维保正常</p>
+              <el-icon :size="32" color="var(--emerald)"><CircleCheck /></el-icon>
+              <p style="color: var(--emerald)">所有设备维保正常</p>
             </div>
           </div>
         </el-card>
@@ -339,8 +338,8 @@
             <div class="worsen-note">连续下降意味着设备在"趴窝前"就已经在退化——提前介入比抢修便宜得多</div>
           </template>
           <div v-else class="empty-inline">
-            <el-icon :size="32" color="#67c23a"><CircleCheck /></el-icon>
-            <p style="color: #67c23a">暂无健康分持续下降的设备</p>
+            <el-icon :size="32" color="var(--emerald)"><CircleCheck /></el-icon>
+            <p style="color: var(--emerald)">暂无健康分持续下降的设备</p>
           </div>
         </el-card>
       </el-col>
@@ -485,19 +484,19 @@ const statCards = computed(() => {
   const categories = new Set(store.equipmentList.map(e => e.category).filter(Boolean)).size
   const faultPct = Math.round((stats.value.faultCount / total) * 100)
   return [
-    { label: '设备总数', value: stats.value.equipmentCount, icon: 'SetUp', bg: '#409eff', trend: `覆盖 ${categories} 个类别`, trendType: 'flat', trendIcon: 'Right' },
-    { label: '运行中', value: stats.value.runningCount, icon: 'CircleCheck', bg: '#67c23a', trend: `${availability}% 可用率`, trendType: availability >= 80 ? 'up' : 'down', trendIcon: availability >= 80 ? 'Top' : 'Bottom' },
-    { label: '维保中', value: stats.value.maintenanceCount, icon: 'Warning', bg: '#e6a23c', trend: `${todayCompletedMaintenance.value} 台今日完成`, trendType: 'flat', trendIcon: 'Right' },
-    { label: '故障', value: stats.value.faultCount, icon: 'CircleClose', bg: '#f56c6c', trend: `占在管设备 ${faultPct}%`, trendType: stats.value.faultCount > 0 ? 'down' : 'flat', trendIcon: stats.value.faultCount > 0 ? 'Bottom' : 'Right' }
+    { label: '设备总数', value: stats.value.equipmentCount, icon: 'SetUp', bg: 'var(--accent)', trend: `覆盖 ${categories} 个类别`, trendType: 'flat', trendIcon: 'Right' },
+    { label: '运行中', value: stats.value.runningCount, icon: 'CircleCheck', bg: 'var(--emerald)', trend: `${availability}% 可用率`, trendType: availability >= 80 ? 'up' : 'down', trendIcon: availability >= 80 ? 'Top' : 'Bottom' },
+    { label: '维保中', value: stats.value.maintenanceCount, icon: 'Warning', bg: 'var(--amber)', trend: `${todayCompletedMaintenance.value} 台今日完成`, trendType: 'flat', trendIcon: 'Right' },
+    { label: '故障', value: stats.value.faultCount, icon: 'CircleClose', bg: 'var(--danger)', trend: `占在管设备 ${faultPct}%`, trendType: stats.value.faultCount > 0 ? 'down' : 'flat', trendIcon: stats.value.faultCount > 0 ? 'Bottom' : 'Right' }
   ]
 })
 
 // 饼图数据 - 从台账实时计算，四种状态之和等于设备总数
 const statusLegend = computed(() => [
-  { name: '运行中', count: stats.value.runningCount, color: '#67c23a' },
-  { name: '维保中', count: stats.value.maintenanceCount, color: '#e6a23c' },
-  { name: '故障', count: stats.value.faultCount, color: '#f56c6c' },
-  { name: '闲置', count: stats.value.idleCount, color: '#909399' }
+  { name: '运行中', count: stats.value.runningCount, color: 'var(--emerald)' },
+  { name: '维保中', count: stats.value.maintenanceCount, color: 'var(--amber)' },
+  { name: '故障', count: stats.value.faultCount, color: 'var(--danger)' },
+  { name: '闲置', count: stats.value.idleCount, color: 'var(--ink-4)' }
 ].filter(item => item.count > 0))
 
 const pieSegments = computed(() => {
@@ -609,7 +608,7 @@ function faultWidth(percent, maxPercent) {
 }
 
 function faultColor(i) {
-  const colors = ['#f56c6c', '#e6a23c', '#409eff', '#67c23a', '#909399']
+  const colors = ['var(--danger)', 'var(--amber)', 'var(--accent)', 'var(--emerald)', 'var(--ink-4)']
   return colors[i % colors.length]
 }
 
@@ -619,10 +618,10 @@ function toggleFaultDetail(item) {
 
 const closingColor = computed(() => {
   const rate = recheck.value.rate
-  if (rate === null) return '#909399'
-  if (rate >= 80) return '#67c23a'
-  if (rate >= 50) return '#e6a23c'
-  return '#f56c6c'
+  if (rate === null) return 'var(--text-mute)'
+  if (rate >= 80) return 'var(--emerald)'
+  if (rate >= 50) return 'var(--amber)'
+  return 'var(--danger)'
 })
 
 function brandPercent(count) {
@@ -663,7 +662,7 @@ function goEquipment(item) {
 .hd-title {
   font-size: 14px;
   font-weight: 600;
-  color: #0a1326;
+  color: var(--text-1);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -671,7 +670,7 @@ function goEquipment(item) {
 
 .hd-sub {
   font-size: 12px;
-  color: #8a95a7;
+  color: var(--text-3);
 }
 
 .hd-bar {
@@ -679,7 +678,7 @@ function goEquipment(item) {
   height: 14px;
   border-radius: 7px;
   overflow: hidden;
-  background: #e6ecf5;
+  background: var(--bg-sunken);
 }
 
 .hd-seg {
@@ -700,7 +699,7 @@ function goEquipment(item) {
   align-items: center;
   gap: 5px;
   font-size: 12px;
-  color: #5a6779;
+  color: var(--text-3);
 }
 
 .hd-dot {
@@ -734,12 +733,12 @@ function goEquipment(item) {
 .stat-value {
   font-size: 26px;
   font-weight: 800;
-  color: #303133;
+  color: var(--text-1);
 }
 
 .stat-label {
   font-size: 13px;
-  color: #909399;
+  color: var(--text-3);
 }
 
 .stat-trend {
@@ -749,9 +748,9 @@ function goEquipment(item) {
   gap: 2px;
 }
 
-.stat-trend.up { color: #67c23a; }
-.stat-trend.down { color: #f56c6c; }
-.stat-trend.flat { color: #909399; }
+.stat-trend.up { color: var(--success-ink); }
+.stat-trend.down { color: var(--danger-ink); }
+.stat-trend.flat { color: var(--text-3); }
 
 /* 饼图 */
 .chart-card { height: 100%; }
@@ -772,12 +771,12 @@ function goEquipment(item) {
 .pie-center-num {
   font-size: 28px;
   font-weight: 800;
-  fill: #303133;
+  fill: var(--text-1);
 }
 
 .pie-center-label {
   font-size: 12px;
-  fill: #909399;
+  fill: var(--text-3);
 }
 
 .pie-legend { flex: 1; }
@@ -787,7 +786,7 @@ function goEquipment(item) {
   align-items: center;
   gap: 8px;
   padding: 8px 0;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--line-2);
 }
 
 .legend-item:last-child { border-bottom: none; }
@@ -802,13 +801,13 @@ function goEquipment(item) {
 .legend-name {
   flex: 1;
   font-size: 14px;
-  color: #606266;
+  color: var(--text-2);
 }
 
 .legend-count {
   font-size: 14px;
   font-weight: 700;
-  color: #303133;
+  color: var(--text-1);
 }
 
 /* 今日待办 */
@@ -826,11 +825,11 @@ function goEquipment(item) {
   gap: 10px;
   padding: 10px 12px;
   border-radius: 8px;
-  background: #f8f9fa;
+  background: var(--card-2);
   transition: all 0.2s;
 }
 
-.todo-item:hover { background: #ecf5ff; }
+.todo-item:hover { background: var(--accent-soft); }
 
 .todo-priority {
   width: 6px;
@@ -839,22 +838,22 @@ function goEquipment(item) {
   flex-shrink: 0;
 }
 
-.todo-priority.urgent { background: #f56c6c; }
-.todo-priority.high { background: #e6a23c; }
-.todo-priority.normal { background: #409eff; }
-.todo-priority.low { background: #c0c4cc; }
+.todo-priority.urgent { background: var(--danger); }
+.todo-priority.high { background: var(--amber); }
+.todo-priority.normal { background: var(--accent); }
+.todo-priority.low { background: var(--line-strong); }
 
 .todo-content { flex: 1; }
 
 .todo-title {
   font-size: 13px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-1);
 }
 
 .todo-meta {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-3);
   margin-top: 2px;
 }
 
@@ -892,8 +891,8 @@ function goEquipment(item) {
   min-height: 4px;
 }
 
-.trend-bar.planned { background: #d9ecff; }
-.trend-bar.completed { background: #67c23a; }
+.trend-bar.planned { background: var(--accent-line); }
+.trend-bar.completed { background: var(--emerald); }
 
 .bar-value {
   position: absolute;
@@ -902,20 +901,20 @@ function goEquipment(item) {
   transform: translateX(-50%);
   font-size: 11px;
   font-weight: 700;
-  color: #606266;
+  color: var(--text-2);
   white-space: nowrap;
 }
 
 .trend-label {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-3);
 }
 
 .trend-legend {
   text-align: center;
   margin-top: 12px;
   font-size: 12px;
-  color: #909399;
+  color: var(--text-3);
 }
 
 .trend-legend .legend-dot {
@@ -936,8 +935,8 @@ function goEquipment(item) {
   gap: 10px;
   padding: 12px;
   border-radius: 8px;
-  background: #fef0f0;
-  border: 1px solid #fde2e2;
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-line);
 }
 
 .overdue-status {
@@ -948,8 +947,8 @@ function goEquipment(item) {
   animation: pulse-dot 1.5s ease-in-out infinite;
 }
 
-.overdue-status.critical { background: #f56c6c; }
-.overdue-status.warning { background: #e6a23c; }
+.overdue-status.critical { background: var(--danger); }
+.overdue-status.warning { background: var(--amber); }
 
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; transform: scale(1); }
@@ -961,12 +960,12 @@ function goEquipment(item) {
 .overdue-name {
   font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-1);
 }
 
 .overdue-detail {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-3);
   margin-top: 2px;
 }
 
@@ -977,12 +976,12 @@ function goEquipment(item) {
 .days-num {
   font-size: 24px;
   font-weight: 800;
-  color: #f56c6c;
+  color: var(--danger);
 }
 
 .days-unit {
   font-size: 12px;
-  color: #f56c6c;
+  color: var(--danger);
   margin-left: 2px;
 }
 
@@ -992,14 +991,14 @@ function goEquipment(item) {
   align-items: center;
   gap: 8px;
   font-size: 14px;
-  color: #606266;
+  color: var(--text-2);
 }
 
 /* 空状态 */
 .empty-inline {
   text-align: center;
   padding: 24px;
-  color: #c0c4cc;
+  color: var(--text-mute);
 }
 .empty-inline p {
   margin: 8px 0 0;
@@ -1033,22 +1032,22 @@ function goEquipment(item) {
 
 .closing-line {
   font-size: 13px;
-  color: #606266;
+  color: var(--text-2);
   margin-bottom: 4px;
 }
 
-.closing-line.warn { color: #e6a23c; }
+.closing-line.warn { color: var(--warn-ink); }
 
 .closing-note {
   font-size: 11px;
-  color: #909399;
+  color: var(--text-3);
   margin-top: 6px;
   line-height: 1.5;
 }
 
 .recheck-list {
   margin-top: 12px;
-  border-top: 1px dashed #e4e7ed;
+  border-top: 1px dashed var(--line);
   padding-top: 10px;
 }
 
@@ -1062,13 +1061,13 @@ function goEquipment(item) {
 
 .recheck-title {
   font-size: 12px;
-  color: #303133;
+  color: var(--text-1);
   font-weight: 600;
 }
 
 .recheck-meta {
   font-size: 11px;
-  color: #909399;
+  color: var(--text-3);
 }
 
 /* 健康恶化 */
@@ -1078,14 +1077,14 @@ function goEquipment(item) {
   gap: 10px;
   padding: 8px 10px;
   border-radius: 8px;
-  background: #fef0f0;
-  border: 1px solid #fde2e2;
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-line);
   margin-bottom: 8px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
-.worsen-item:hover { background: #fde2e2; }
+.worsen-item:hover { background: var(--danger-line); }
 
 .worsen-score {
   width: 40px;
@@ -1105,24 +1104,24 @@ function goEquipment(item) {
 .worsen-name {
   font-size: 13px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-1);
 }
 
 .worsen-meta {
   font-size: 11px;
-  color: #909399;
+  color: var(--text-3);
   margin-top: 2px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.worsen-arrow { color: #c0c4cc; }
+.worsen-arrow { color: var(--text-mute); }
 
 .worsen-note {
   margin-top: 10px;
   font-size: 11px;
-  color: #909399;
+  color: var(--text-3);
   line-height: 1.6;
 }
 
@@ -1136,7 +1135,7 @@ function goEquipment(item) {
 
 .brand-name {
   font-size: 13px;
-  color: #303133;
+  color: var(--text-1);
   width: 72px;
   flex-shrink: 0;
 }
@@ -1144,21 +1143,21 @@ function goEquipment(item) {
 .brand-bar {
   flex: 1;
   height: 10px;
-  background: #ebeef5;
+  background: var(--line-2);
   border-radius: 5px;
   overflow: hidden;
 }
 
 .brand-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, #1d4ed8, #0bb4c4);
+  background: linear-gradient(90deg, var(--accent), var(--signal));
   border-radius: 5px;
   transition: width 0.6s ease;
 }
 
 .brand-count {
   font-size: 12px;
-  color: #606266;
+  color: var(--text-2);
   width: 48px;
   text-align: right;
   flex-shrink: 0;
@@ -1178,8 +1177,8 @@ function goEquipment(item) {
   border: 1px solid transparent;
 }
 
-.fault-row:hover { background: #f5f7fa; }
-.fault-row.active { background: #ecf5ff; border-color: #d9ecff; }
+.fault-row:hover { background: var(--line-2); }
+.fault-row.active { background: var(--accent-soft); border-color: var(--accent-line); }
 
 .fault-rank {
   width: 22px;
@@ -1194,23 +1193,23 @@ function goEquipment(item) {
   flex-shrink: 0;
 }
 
-.fault-rank.rank-1 { background: #f56c6c; }
-.fault-rank.rank-2 { background: #e6a23c; }
-.fault-rank.rank-3 { background: #409eff; }
-.fault-rank.rank-4, .fault-rank.rank-5 { background: #909399; }
+.fault-rank.rank-1 { background: var(--danger); }
+.fault-rank.rank-2 { background: var(--amber); }
+.fault-rank.rank-3 { background: var(--accent); }
+.fault-rank.rank-4, .fault-rank.rank-5 { background: var(--ink-4); }
 
 .fault-system {
   width: 76px;
   font-size: 13px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-1);
   flex-shrink: 0;
 }
 
 .fault-bar-wrap {
   flex: 1;
   height: 14px;
-  background: #f0f2f5;
+  background: var(--bg-sunken);
   border-radius: 7px;
   overflow: hidden;
 }
@@ -1227,7 +1226,7 @@ function goEquipment(item) {
   text-align: right;
   font-size: 14px;
   font-weight: 700;
-  color: #303133;
+  color: var(--text-1);
   flex-shrink: 0;
 }
 
@@ -1235,24 +1234,24 @@ function goEquipment(item) {
   width: 48px;
   text-align: right;
   font-size: 12px;
-  color: #909399;
+  color: var(--text-3);
   flex-shrink: 0;
 }
 
-.fault-arrow { color: #c0c4cc; flex-shrink: 0; transition: transform 0.2s; }
+.fault-arrow { color: var(--text-mute); flex-shrink: 0; transition: transform 0.2s; }
 
 .fault-row.active .fault-arrow { transform: rotate(180deg); }
 
 .fault-note {
   margin-top: 10px;
   font-size: 11px;
-  color: #909399;
+  color: var(--text-3);
   line-height: 1.6;
 }
 
 .fault-samples {
   margin-top: 12px;
-  border-top: 1px dashed #e4e7ed;
+  border-top: 1px dashed var(--line);
   padding-top: 10px;
 }
 
@@ -1261,7 +1260,7 @@ function goEquipment(item) {
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: #303133;
+  color: var(--text-1);
   margin-bottom: 8px;
 }
 
@@ -1273,10 +1272,10 @@ function goEquipment(item) {
   font-size: 12px;
 }
 
-.fault-sample-text { color: #303133; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fault-sample-text { color: var(--text-1); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .fault-sample-meta {
-  color: #909399;
+  color: var(--text-3);
   margin-left: auto;
   flex-shrink: 0;
   font-size: 11px;
@@ -1285,7 +1284,7 @@ function goEquipment(item) {
 .fault-more {
   margin-top: 6px;
   font-size: 11px;
-  color: #909399;
+  color: var(--text-3);
 }
 
 /* 响应式 */
@@ -1301,7 +1300,7 @@ function goEquipment(item) {
   align-items: center;
   gap: 0;
   flex-wrap: wrap;
-  background: linear-gradient(120deg, #0b3a82 0%, #1457b3 70%, #1c6bd4 100%);
+  background: var(--grad-strip);
   border-radius: 12px;
   padding: 10px 18px;
   margin-bottom: 16px;
@@ -1327,7 +1326,7 @@ function goEquipment(item) {
 
 /* ===== 重点关注设备照片墙 ===== */
 .focus-card { margin-bottom: 16px; }
-.focus-sub { font-size: 12px; color: #8a95a7; font-weight: 400; }
+.focus-sub { font-size: 12px; color: var(--text-3); font-weight: 400; }
 .focus-grid {
   display: flex;
   gap: 14px;
@@ -1336,7 +1335,7 @@ function goEquipment(item) {
 .focus-item {
   flex: 1 1 230px;
   min-width: 200px;
-  border: 1px solid #e4e7ed;
+  border: 1px solid var(--line);
   border-radius: 10px;
   overflow: hidden;
   cursor: pointer;
@@ -1346,12 +1345,12 @@ function goEquipment(item) {
 .focus-item:hover {
   box-shadow: 0 6px 18px rgba(11, 58, 130, 0.12);
   transform: translateY(-2px);
-  border-color: #0b3a82;
+  border-color: var(--accent);
 }
 .focus-photo {
   position: relative;
   height: 120px;
-  background: #f0f2f5;
+  background: var(--bg-sunken);
 }
 .focus-photo img {
   width: 100%;
@@ -1374,12 +1373,12 @@ function goEquipment(item) {
 .focus-name {
   font-size: 13.5px;
   font-weight: 700;
-  color: #111827;
+  color: var(--text-1);
   display: flex;
   align-items: center;
   gap: 6px;
 }
-.focus-model { font-size: 11px; color: #8a95a7; font-weight: 400; }
+.focus-model { font-size: 11px; color: var(--text-3); font-weight: 400; }
 .focus-meta {
   display: flex;
   align-items: center;
@@ -1390,7 +1389,7 @@ function goEquipment(item) {
 .focus-reason {
   margin-top: 6px;
   font-size: 12px;
-  color: #b91c1c;
+  color: var(--danger-ink);
   background: rgba(185, 28, 28, 0.06);
   border-radius: 6px;
   padding: 4px 8px;

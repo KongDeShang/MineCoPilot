@@ -38,7 +38,7 @@
       </div>
 
       <div v-if="totalResults === 0" class="no-results">
-        <el-icon :size="32" color="#c0c4cc"><Search /></el-icon>
+        <el-icon :size="32" color="var(--text-mute)"><Search /></el-icon>
         <p>未找到匹配结果</p>
       </div>
     </div>
@@ -179,7 +179,7 @@ function navigateTo(item) {
 
 .search-section {
   padding: 12px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--line-2);
 }
 
 .search-section:last-child {
@@ -192,7 +192,7 @@ function navigateTo(item) {
   gap: 6px;
   font-size: 13px;
   font-weight: 600;
-  color: #909399;
+  color: var(--text-3);
   margin-bottom: 8px;
 }
 
@@ -204,29 +204,29 @@ function navigateTo(item) {
 }
 
 .search-item:hover {
-  background: #ecf5ff;
+  background: var(--accent-soft);
 }
 
 .item-title {
   font-size: 14px;
-  color: #303133;
+  color: var(--text-1);
 }
 
 .item-title :deep(.highlight) {
-  color: #409eff;
+  color: var(--accent);
   font-weight: 700;
 }
 
 .item-meta {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-3);
   margin-top: 2px;
 }
 
 .no-results {
   text-align: center;
   padding: 24px;
-  color: #c0c4cc;
+  color: var(--text-mute);
 }
 
 .no-results p {

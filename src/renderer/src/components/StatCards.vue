@@ -45,7 +45,7 @@ function valueStyle(item) {
 <style scoped>
 .stat-card {
   background: #fff;
-  border: 1px solid #dde4ef;
+  border: 1px solid var(--line);
   border-radius: 13px;
   padding: 14px 16px;
   box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
@@ -54,19 +54,19 @@ function valueStyle(item) {
 
 .stat-label {
   font-size: 12px;
-  color: #8a95a7;
+  color: var(--text-3);
 }
 
 .stat-value {
   font-size: 24px;
   font-weight: 700;
-  color: #0a1326;
+  color: var(--text-1);
   margin-top: 4px;
 }
 
 .stat-unit {
   font-size: 12px;
-  color: #8a95a7;
+  color: var(--text-3);
   font-weight: 400;
 }
 </style>

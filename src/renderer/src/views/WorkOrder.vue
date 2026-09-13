@@ -22,49 +22,63 @@
       <el-table :data="filteredOrders" stripe border style="width: 100%">
         <template #empty>
           <div class="empty-state">
-            <el-icon :size="48" color="#c0c4cc"><EditPen /></el-icon>
+            <el-icon :size="48" color="var(--text-mute)"><EditPen /></el-icon>
             <p class="empty-title">暂无工单数据</p>
             <p class="empty-desc">点击"新建工单"创建第一张工单，或通过语音/拍照快速创建</p>
           </div>
         </template>
-        <el-table-column prop="id" label="工单号" width="80" />
-        <el-table-column prop="title" label="标题" min-width="200" />
-        <el-table-column prop="equipment_name" label="关联设备" width="140">
+        <!-- 列宽按 1440（侧栏 230 + 表格可用约 1149px）配平：
+             原来固定列合计 1210px，超出可用宽度 → 表格横向滚动，
+             「复诊」正好被固定在右侧的「操作」压住，一列数据在默认窗口下看不见。
+             配平后最小值 = 固定列 796 + 弹性列 318 = 1114，1440 下放得下，还有余量分给弹性列。 -->
+        <el-table-column prop="id" label="工单号" width="76" />
+        <el-table-column prop="title" label="标题" min-width="168" show-overflow-tooltip />
+        <!-- 弹性列：宽屏摊开、窄屏收窄，而不是撑出滚动条。
+             窗口比 1440 窄时先被裁掉的是后面的「创建时间」「来源」，
+             闭环状态（复诊）排在它们前面，任何窗口宽度下都看得见。 -->
+        <el-table-column prop="equipment_name" label="关联设备" min-width="176" show-overflow-tooltip>
           <template #default="{ row }">
             <span class="clickable-link" @click="goToEquipment(row.equipment_name)">{{ row.equipment_name }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="type" label="类型" width="100">
+        <el-table-column prop="type" label="类型" width="84">
           <template #default="{ row }">
             <el-tag :type="typeTag(row.type)">{{ typeLabel(row.type) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="priority" label="优先级" width="80">
+        <el-table-column prop="priority" label="优先级" width="76">
           <template #default="{ row }">
-            <el-tag :type="priorityTag(row.priority)" effect="dark" size="small">
+            <!-- 优先级原本一律 effect="dark"（实心块），而"普通"的 tagType 是空串
+                 → 落到组件库默认的实心主色，最重的一块留给最常见的值。
+                 改成紧急/高才实心，普通/低走浅底，视觉重量才跟优先级同向。 -->
+            <el-tag
+              :type="priorityTag(row.priority)"
+              :effect="row.priority === 'normal' || row.priority === 'low' ? 'plain' : 'dark'"
+              size="small"
+            >
               {{ priorityLabel(row.priority) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态" width="100">
+        <el-table-column prop="status" label="状态" width="92">
           <template #default="{ row }">
             <el-tag :type="statusTag(row.status)">{{ statusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="source" label="来源" width="80">
-          <template #default="{ row }">
-            <el-tag type="info" effect="plain" size="small">{{ sourceLabel(row.source) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="created_at" label="创建时间" width="160" />
-        <el-table-column label="复诊" width="90">
+        <el-table-column label="复诊" width="88">
           <template #default="{ row }">
             <el-tag v-if="row.recheck_status === 'pending'" type="warning" size="small">待复诊</el-tag>
             <el-tag v-else-if="row.recheck_status === 'done'" type="success" size="small">已复诊</el-tag>
             <span v-else class="muted">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column prop="source" label="来源" width="72">
+          <template #default="{ row }">
+            <el-tag type="info" effect="plain" size="small">{{ sourceLabel(row.source) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="created_at" label="创建时间" width="144" />
+        <el-table-column label="操作" width="164" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" size="small" link @click.stop="openDetail(row)">详情</el-button>
             <el-button
@@ -577,26 +591,26 @@ function addOrder() {
 }
 
 .clickable-link {
-  color: #409eff;
+  color: var(--accent);
   cursor: pointer;
 }
 .clickable-link:hover {
   text-decoration: underline;
 }
 
-.muted { color: #c0c4cc; }
+.muted { color: var(--text-mute); }
 
 .recheck-date {
   margin-left: 8px;
   font-size: 12px;
-  color: #909399;
+  color: var(--text-3);
 }
 
 /* 详情抽屉 */
 .detail-title {
   font-size: 18px;
   font-weight: 700;
-  color: #303133;
+  color: var(--text-1);
   margin-bottom: 10px;
 }
 
@@ -628,18 +642,18 @@ function addOrder() {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  border: 2px solid #c8d1de;
+  border: 2px solid var(--line-strong);
   background: #fff;
   transition: all 0.3s;
 }
 .lc-step b {
   font-size: 12px;
-  color: #8a95a7;
+  color: var(--text-3);
   font-weight: 600;
 }
 .lc-time {
   font-size: 10.5px;
-  color: #b0b7c3;
+  color: var(--text-mute);
   max-width: 84px;
   text-align: center;
   line-height: 1.3;
@@ -647,32 +661,32 @@ function addOrder() {
 .lc-line {
   flex: 1;
   height: 2px;
-  background: #dde4ef;
+  background: var(--line);
   margin-top: 6px;
   min-width: 14px;
   transition: background 0.3s;
 }
-.lc-line.on { background: #0b3a82; }
+.lc-line.on { background: var(--accent); }
 .lc-step.done .lc-dot {
-  background: #0b3a82;
-  border-color: #0b3a82;
+  background: var(--accent);
+  border-color: var(--accent);
 }
-.lc-step.done b { color: #0b3a82; }
+.lc-step.done b { color: var(--accent); }
 .lc-step.active .lc-dot {
-  background: #e0a020;
-  border-color: #e0a020;
+  background: var(--amber);
+  border-color: var(--amber);
   box-shadow: 0 0 0 4px rgba(224, 160, 32, 0.18);
 }
-.lc-step.active b { color: #e0a020; }
+.lc-step.active b { color: var(--warn-ink); }
 
 .dispatch-info {
-  background: #f4f7fb;
+  background: var(--line-2);
   border-radius: 8px;
   padding: 10px 12px;
 }
-.dispatch-id { font-size: 12px; color: #8a95a7; }
-.dispatch-title { font-size: 14px; font-weight: 700; color: #111827; margin-top: 2px; }
-.dispatch-meta { font-size: 12px; color: #6b7280; margin-top: 2px; }
+.dispatch-id { font-size: 12px; color: var(--text-3); }
+.dispatch-title { font-size: 14px; font-weight: 700; color: var(--text-1); margin-top: 2px; }
+.dispatch-meta { font-size: 12px; color: var(--text-3); margin-top: 2px; }
 
 .detail-block {
   margin-top: 24px;
@@ -680,10 +694,10 @@ function addOrder() {
 
 .detail-block h4 {
   font-size: 14px;
-  color: #303133;
+  color: var(--text-1);
   margin-bottom: 12px;
   padding-left: 8px;
-  border-left: 3px solid #409eff;
+  border-left: 3px solid var(--accent);
 }
 
 .equip-summary {
@@ -691,7 +705,7 @@ function addOrder() {
   align-items: center;
   gap: 16px;
   padding: 14px;
-  background: #f8f9fa;
+  background: var(--card-2);
   border-radius: 10px;
 }
 
@@ -715,12 +729,12 @@ function addOrder() {
 
 .equip-score small {
   font-size: 11px;
-  color: #909399;
+  color: var(--text-3);
 }
 
 .equip-meta {
   font-size: 13px;
-  color: #303133;
+  color: var(--text-1);
   display: flex;
   flex-direction: column;
   gap: 5px;
@@ -728,7 +742,7 @@ function addOrder() {
 
 .equip-sub {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-3);
 }
 
 .record-line {
@@ -736,12 +750,12 @@ function addOrder() {
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: #303133;
+  color: var(--text-1);
 }
 
 .record-sub {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-3);
   margin-top: 4px;
 }
 
@@ -758,19 +772,19 @@ function addOrder() {
 }
 .empty-title {
   font-size: 16px;
-  color: #909399;
+  color: var(--text-3);
   margin: 12px 0 6px;
 }
 .empty-desc {
   font-size: 13px;
-  color: #c0c4cc;
+  color: var(--text-mute);
 }
 
 /* AI 知识推荐卡片 */
 .kb-recommend-card {
   padding: 10px 12px;
-  background: #f0f5ff;
-  border: 1px solid #d6e4ff;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
   border-radius: 8px;
   margin-bottom: 8px;
 }
@@ -786,19 +800,19 @@ function addOrder() {
 .kb-rec-title {
   font-weight: 600;
   font-size: 13px;
-  color: #303133;
+  color: var(--text-1);
 }
 
 .kb-rec-symptoms {
   font-size: 12px;
-  color: #606266;
+  color: var(--text-2);
   margin-bottom: 4px;
   line-height: 1.5;
 }
 
 .kb-rec-source {
   font-size: 11px;
-  color: #909399;
+  color: var(--text-3);
   margin-bottom: 6px;
 }
 </style>

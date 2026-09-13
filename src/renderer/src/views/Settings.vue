@@ -315,39 +315,39 @@ loadDbInfo()
 .section-title {
   font-size: 13px;
   font-weight: 600;
-  color: #0b3a82;
+  color: var(--accent);
   margin: 4px 0 12px;
 }
 
 .param-field {
-  background: #fafcff;
-  border: 1px solid #dde4ef;
+  background: var(--card-2);
+  border: 1px solid var(--line);
   border-radius: 10px;
   padding: 10px 12px;
 }
 
 .param-label {
   font-size: 12px;
-  color: #5a6779;
+  color: var(--text-3);
   margin-bottom: 8px;
 }
 
 .param-static {
   font-size: 13px;
-  color: #8a95a7;
+  color: var(--text-3);
   line-height: 32px;
 }
 
 .param-note {
   font-size: 11.5px;
-  color: #8a95a7;
+  color: var(--text-3);
   margin: -4px 0 10px;
 }
 
 .actions {
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 1px dashed #dde4ef;
+  border-top: 1px dashed var(--line);
   display: flex;
   gap: 10px;
 }
@@ -355,9 +355,9 @@ loadDbInfo()
 .settings-note {
   margin-top: 16px;
   font-size: 12px;
-  color: #8a95a7;
+  color: var(--text-3);
   line-height: 1.8;
-  background: #f4f7fb;
+  background: var(--line-2);
   border-radius: 10px;
   padding: 12px 14px;
 }
@@ -372,7 +372,7 @@ loadDbInfo()
 .scenario-card {
   flex: 1 1 220px;
   min-width: 200px;
-  border: 1.5px solid #dde4ef;
+  border: 1.5px solid var(--line);
   border-radius: 10px;
   padding: 12px 14px;
   cursor: pointer;
@@ -380,22 +380,22 @@ loadDbInfo()
   background: #fff;
 }
 .scenario-card:hover {
-  border-color: #0b3a82;
+  border-color: var(--accent);
   box-shadow: 0 4px 14px rgba(11, 58, 130, 0.1);
 }
 .scenario-card.active {
-  border-color: #0b3a82;
+  border-color: var(--accent);
   background: linear-gradient(135deg, rgba(11, 58, 130, 0.06), rgba(28, 107, 212, 0.1));
   box-shadow: 0 4px 14px rgba(11, 58, 130, 0.16);
 }
 .scenario-name {
   font-size: 14px;
   font-weight: 700;
-  color: #0b3a82;
+  color: var(--accent);
 }
 .scenario-desc {
   font-size: 11.5px;
-  color: #6b7280;
+  color: var(--text-3);
   margin: 4px 0 8px;
   line-height: 1.5;
 }
@@ -405,7 +405,7 @@ loadDbInfo()
 }
 .scenario-note {
   font-size: 11.5px;
-  color: #8a95a7;
+  color: var(--text-3);
   margin-bottom: 6px;
 }
 
@@ -422,19 +422,19 @@ loadDbInfo()
 .backup-desc {
   margin-top: 8px;
   font-size: 12px;
-  color: #8a95a7;
+  color: var(--text-3);
   line-height: 1.6;
 }
 .backup-steps {
   margin-top: 18px;
-  background: #f4f7fb;
+  background: var(--line-2);
   border-radius: 10px;
   padding: 12px 14px;
 }
 .backup-steps-title {
   font-size: 12.5px;
   font-weight: 700;
-  color: #0b3a82;
+  color: var(--accent);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -455,7 +455,7 @@ loadDbInfo()
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: #0b3a82;
+  background: var(--accent);
   color: #fff;
   font-size: 12px;
   font-weight: 700;
@@ -471,28 +471,28 @@ loadDbInfo()
 }
 .step-txt b {
   font-size: 12.5px;
-  color: #1f2937;
+  color: var(--text-1);
 }
 .step-txt span {
   font-size: 11.5px;
-  color: #6b7280;
+  color: var(--text-3);
   line-height: 1.5;
 }
 .backup-meta {
   margin-top: 16px;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--text-3);
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  background: #fafcff;
-  border: 1px solid #eef0f3;
+  background: var(--card-2);
+  border: 1px solid var(--line-2);
   border-radius: 8px;
   padding: 8px 12px;
 }
 .backup-meta code {
-  background: #eef1f6;
+  background: var(--line-2);
   border-radius: 4px;
   padding: 2px 6px;
   font-size: 11px;

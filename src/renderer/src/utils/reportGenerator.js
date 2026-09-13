@@ -182,7 +182,7 @@ export function renderReportHTML(data) {
   const p = data.period === 'week' ? '周' : '月'
 
   // 标题
-  lines.push(`<div style="font-size:16px;font-weight:800;margin-bottom:16px">📊 ${data.label} 设备运维${p}报 <span style="font-size:12px;color:#909399;font-weight:400">[AI 生成 · ${data.generatedAt.slice(0, 16)}]</span></div>`)
+  lines.push(`<div style="font-size:16px;font-weight:800;margin-bottom:16px">📊 ${data.label} 设备运维${p}报 <span style="font-size:12px;color:var(--text-3);font-weight:400">[AI 生成 · ${data.generatedAt.slice(0, 16)}]</span></div>`)
 
   // 车队概况
   const ov = data.overview
@@ -204,7 +204,7 @@ export function renderReportHTML(data) {
     }
     lines.push(`<li>复诊闭环：${parts.join('；')}</li>`)
   }
-  lines.push(`<li>维保超期 <span style="color:#f56c6c;font-weight:700">${ov.overdueCount}</span> 台</li>`)
+  lines.push(`<li>维保超期 <span style="color:var(--danger-ink);font-weight:700">${ov.overdueCount}</span> 台</li>`)
   lines.push(`</ul></div>`)
 
   // 重点预警
@@ -213,10 +213,10 @@ export function renderReportHTML(data) {
     lines.push(`<div style="font-weight:700;margin-bottom:8px">⚠️ 重点关注</div>`)
     lines.push(`<ul style="margin:0;padding-left:18px;line-height:2">`)
     for (const eq of data.critical.slice(0, 3)) {
-      lines.push(`<li><span style="color:#f56c6c;font-weight:600">${eq.name}</span>（${eq.model || ''}）— ${eq.reason}</li>`)
+      lines.push(`<li><span style="color:var(--danger-ink);font-weight:600">${eq.name}</span>（${eq.model || ''}）— ${eq.reason}</li>`)
     }
     for (const eq of data.worsening.slice(0, 2)) {
-      lines.push(`<li><span style="color:#e6a23c;font-weight:600">${eq.name}</span> — ${eq.trend}</li>`)
+      lines.push(`<li><span style="color:var(--warn-ink);font-weight:600">${eq.name}</span> — ${eq.trend}</li>`)
     }
     lines.push(`</ul></div>`)
   }
@@ -260,7 +260,7 @@ export function renderReportHTML(data) {
     lines.push(`</ul></div>`)
   }
 
-  lines.push(`<div style="margin-top:12px;padding:8px 12px;background:#f0f9eb;border-radius:6px;font-size:12px;color:#529b2e">` +
+  lines.push(`<div style="margin-top:12px;padding:8px 12px;background:var(--emerald-soft);border-radius:6px;font-size:12px;color:var(--success-ink)">` +
     `以上所有数字均由本地台账实时计算，未联网、未编造。报告生成于 ${data.generatedAt}。</div>`)
 
   return lines.join('')

@@ -25,7 +25,12 @@ export default [
       'release/**',
       'node_modules/**',
       '.tmp-selfcheck/**',
-      'src/renderer/public/**'
+      'src/renderer/public/**',
+      // 临时/一次性脚本（截图工具、数据探针）。它们在 .gitignore 里已被 .tmp-*/ 忽略，
+      // 但 eslint 看的是工作区、git 看的是版本控制，两件事 —— 不在这里再忽略一次的话，
+      // 一个随手写的探针就能让 npm run verify 在第一步 lint 挂掉，而原因与项目代码无关。
+      '.tmp-*/**',
+      '.audit-probe*.mjs'
     ]
   },
 

@@ -199,19 +199,19 @@ function buildWelcomeMessage() {
   const worsening = store.worseningList
 
   const alerts = []
-  if (critical.length) alerts.push(`<span style="color:#f56c6c">🔴 ${critical.length} 台 D 级设备需要立即关注</span>`)
-  if (overdue.length) alerts.push(`<span style="color:#e6a23c">⚠️ ${overdue.length} 台维保已超期${overdue.filter(e => e.overdueDays > 45).length > 0 ? `（其中 ${overdue.filter(e => e.overdueDays > 45).length} 台超期超过 45 天）` : ''}</span>`)
-  if (worsening.length) alerts.push(`<span style="color:#e6a23c">📉 ${worsening.length} 台健康分持续下降，正在恶化中</span>`)
+  if (critical.length) alerts.push(`<span style="color:var(--danger-ink)">🔴 ${critical.length} 台 D 级设备需要立即关注</span>`)
+  if (overdue.length) alerts.push(`<span style="color:var(--warn-ink)">⚠️ ${overdue.length} 台维保已超期${overdue.filter(e => e.overdueDays > 45).length > 0 ? `（其中 ${overdue.filter(e => e.overdueDays > 45).length} 台超期超过 45 天）` : ''}</span>`)
+  if (worsening.length) alerts.push(`<span style="color:var(--warn-ink)">📉 ${worsening.length} 台健康分持续下降，正在恶化中</span>`)
 
   const alertBlock = alerts.length
-    ? `<div style="margin:10px 0;padding:10px 12px;background:#fef7f7;border:1px solid #fde2e2;border-radius:8px;line-height:2">${alerts.join('<br>')}</div>`
-    : `<div style="margin:10px 0;padding:10px 12px;background:#f0f9eb;border:1px solid #d7efc1;border-radius:8px;color:#529b2e">✅ 所有设备状态正常，暂无紧急事项</div>`
+    ? `<div style="margin:10px 0;padding:10px 12px;background:var(--danger-soft);border:1px solid var(--danger-line);border-radius:8px;line-height:2">${alerts.join('<br>')}</div>`
+    : `<div style="margin:10px 0;padding:10px 12px;background:var(--emerald-soft);border:1px solid var(--emerald-line);border-radius:8px;color:var(--success-ink)">✅ 所有设备状态正常，暂无紧急事项</div>`
 
   return [
-    `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:24px">👷</span><strong style="font-size:16px">智工</strong><span style="color:#909399;font-size:13px">· 你的设备健康顾问</span></div>`,
+    `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:24px">👷</span><strong style="font-size:16px">智工</strong><span style="color:var(--text-3);font-size:13px">· 你的设备健康顾问</span></div>`,
     `<div style="margin:6px 0">我帮你盯了 <strong>${stats.equipmentCount}</strong> 台设备，今天发现：</div>`,
     alertBlock,
-    `<div style="margin-top:8px;color:#909399;font-size:12px">有事直接说，或者选下面的问题先看看。所有数字均由本地规则引擎实时计算，全程不联网。</div>`
+    `<div style="margin-top:8px;color:var(--text-3);font-size:12px">有事直接说，或者选下面的问题先看看。所有数字均由本地规则引擎实时计算，全程不联网。</div>`
   ].join('')
 }
 
@@ -559,7 +559,7 @@ async function sendMessage() {
 
   // 查询意图 + 提到了设备 → 给一个直达体检报告的入口
   if (plan.notFound && plan.notFound.length) {
-    msg.content += `<div style="margin-top:8px;color:#e6a23c">ℹ️ 顺带提示：${plan.notFound[0].reason}（原话："${plan.notFound[0].clause}"）</div>`
+    msg.content += `<div style="margin-top:8px;color:var(--warn-ink)">ℹ️ 顺带提示：${plan.notFound[0].reason}（原话："${plan.notFound[0].clause}"）</div>`
   }
 
   // 追加"智工小提示"（与问题类型相关的行动建议）
@@ -588,9 +588,9 @@ async function sendMessage() {
 function narrateBlockHtml(boxId, bodyHtml) {
   return [
     '<div class="llm-narrate" style="margin-bottom:10px;padding:10px 12px;background:rgba(11,58,130,0.06);border:1px solid rgba(11,58,130,0.18);border-radius:8px;">',
-    '<div style="font-size:12px;font-weight:600;color:#0b3a82;margin-bottom:4px;">🤖 本地模型解读</div>',
-    `<div id="${boxId}" style="font-size:13px;line-height:1.7;color:#1f2937;white-space:pre-wrap;">${bodyHtml || ''}</div>`,
-    '<div style="margin-top:6px;font-size:11px;color:#8a95a7;">本地模型生成 · 数据未出本机</div>',
+    '<div style="font-size:12px;font-weight:600;color:var(--accent);margin-bottom:4px;">🤖 本地模型解读</div>',
+    `<div id="${boxId}" style="font-size:13px;line-height:1.7;color:var(--text-1);white-space:pre-wrap;">${bodyHtml || ''}</div>`,
+    '<div style="margin-top:6px;font-size:11px;color:var(--text-3);">本地模型生成 · 数据未出本机</div>',
     '</div>'
   ].join('')
 }
@@ -602,7 +602,7 @@ function narrateFallbackHtml(reason) {
     : '本地模型暂不可用，本次由内置规则叙述'
   return [
     '<div class="llm-narrate" style="margin-bottom:10px;padding:8px 12px;background:rgba(11,58,130,0.04);border:1px dashed rgba(11,58,130,0.25);border-radius:8px;">',
-    `<span style="font-size:12px;color:#8a95a7;">ℹ️ ${detail} · 数据未出本机</span>`,
+    `<span style="font-size:12px;color:var(--text-3);">ℹ️ ${detail} · 数据未出本机</span>`,
     '</div>'
   ].join('')
 }
@@ -657,11 +657,11 @@ function buildTip(question, result) {
   if (/健康|体检|怎么样/.test(q) && result.source === 'ledger') {
     const worst = store.criticalList[0]
     if (worst) {
-      return `<div style="margin-top:10px;padding:8px 12px;background:#ecf5ff;border-radius:6px;font-size:12px;color:#1d4ed8">💡 <strong>智工提示：</strong>如需详细分析，可在设备台账页一键生成《设备体检报告》，含完整溯源。</div>`
+      return `<div style="margin-top:10px;padding:8px 12px;background:var(--accent-soft);border-radius:6px;font-size:12px;color:var(--accent)">💡 <strong>智工提示：</strong>如需详细分析，可在设备台账页一键生成《设备体检报告》，含完整溯源。</div>`
     }
   }
   if (/超期|到期/.test(q) && store.overdueList.length > 0) {
-    return `<div style="margin-top:10px;padding:8px 12px;background:#fef0f0;border-radius:6px;font-size:12px;color:#c45656">💡 <strong>智工提示：</strong>超期设备建议优先安排保养，可在维保日历中一键创建工单。</div>`
+    return `<div style="margin-top:10px;padding:8px 12px;background:var(--danger-soft);border-radius:6px;font-size:12px;color:var(--danger-ink)">💡 <strong>智工提示：</strong>超期设备建议优先安排保养，可在维保日历中一键创建工单。</div>`
   }
   return ''
 }
@@ -919,13 +919,13 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   font-size: 15px;
-  color: #303133;
+  color: var(--text-1);
   margin-bottom: 8px;
 }
 
 .section-desc {
   font-size: 13px;
-  color: #909399;
+  color: var(--text-3);
   margin-bottom: 12px;
 }
 
@@ -939,7 +939,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #f56c6c;
+  color: var(--danger);
   font-size: 14px;
 }
 
@@ -947,7 +947,7 @@ onBeforeUnmount(() => {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #f56c6c;
+  background: var(--danger);
   animation: pulse 1s infinite;
 }
 
@@ -972,37 +972,37 @@ onBeforeUnmount(() => {
   flex: 1;
   overflow-y: auto;
   padding: 16px;
-  background: #f5f7fa;
+  background: var(--line-2);
   border-radius: 8px;
 }
 
 .chat-input {
   padding-top: 12px;
-  border-top: 1px solid #e4e7ed;
+  border-top: 1px solid var(--line);
   background: linear-gradient(180deg, rgba(255,255,255,0) 0%, #fff 18px);
 }
 
 /* 输入框：圆角 + 聚焦高亮 */
 .chat-input :deep(.el-input__wrapper) {
   border-radius: 10px;
-  box-shadow: 0 0 0 1px #dcdfe6 inset;
+  box-shadow: 0 0 0 1px var(--line-strong) inset;
   transition: box-shadow 0.2s;
 }
 .chat-input :deep(.el-input__wrapper.is-focus) {
-  box-shadow: 0 0 0 1.5px #0b3a82 inset, 0 0 0 4px rgba(11, 58, 130, 0.08);
+  box-shadow: 0 0 0 1.5px var(--accent) inset, 0 0 0 4px rgba(11, 58, 130, 0.08);
 }
 .chat-input :deep(.el-input-group__append) {
   border-radius: 0 10px 10px 0;
   overflow: hidden;
 }
 .chat-input :deep(.el-input-group__append .el-button) {
-  background: linear-gradient(120deg, #0b3a82, #1c6bd4);
-  border-color: #0b3a82;
+  background: var(--grad-strip);
+  border-color: var(--accent);
   color: #fff;
   font-weight: 600;
 }
 .chat-input :deep(.el-input-group__append .el-button:hover) {
-  background: linear-gradient(120deg, #123f8f, #2b7de0);
+  background: linear-gradient(120deg, var(--accent-dark), var(--accent-mid));
 }
 /* 动画关键帧：录音指示红点 */
 @keyframes pulse {

@@ -147,8 +147,8 @@ function barColor(i) {
   border: 1px solid transparent;
 }
 
-.fault-row:hover { background: #eef3fc; }
-.fault-row.active { background: #e8effb; border-color: #c7d6ef; }
+.fault-row:hover { background: var(--chrome-hover); }
+.fault-row.active { background: var(--accent-soft); border-color: var(--accent-line); }
 
 .fault-rank {
   width: 22px;
@@ -163,23 +163,23 @@ function barColor(i) {
   flex-shrink: 0;
 }
 
-.fault-rank.rank-1 { background: #e0413e; }
-.fault-rank.rank-2 { background: #e0a020; }
-.fault-rank.rank-3 { background: #0b3a82; }
-.fault-rank.rank-4, .fault-rank.rank-5 { background: #8a95a7; }
+.fault-rank.rank-1 { background: var(--danger); }
+.fault-rank.rank-2 { background: var(--amber); }
+.fault-rank.rank-3 { background: var(--accent); }
+.fault-rank.rank-4, .fault-rank.rank-5 { background: var(--ink-4); }
 
 .fault-system {
   width: 88px;
   font-size: 13px;
   font-weight: 600;
-  color: #0a1326;
+  color: var(--text-1);
   flex-shrink: 0;
 }
 
 .fault-bar-wrap {
   flex: 1;
   height: 14px;
-  background: #e6ecf5;
+  background: var(--bg-sunken);
   border-radius: 7px;
   overflow: hidden;
 }
@@ -196,7 +196,7 @@ function barColor(i) {
   text-align: right;
   font-size: 14px;
   font-weight: 700;
-  color: #0a1326;
+  color: var(--text-1);
   flex-shrink: 0;
 }
 
@@ -204,16 +204,16 @@ function barColor(i) {
   width: 48px;
   text-align: right;
   font-size: 12px;
-  color: #8a95a7;
+  color: var(--text-3);
   flex-shrink: 0;
 }
 
-.fault-arrow { color: #c0c6d1; flex-shrink: 0; transition: transform .2s; }
+.fault-arrow { color: var(--text-mute); flex-shrink: 0; transition: transform .2s; }
 .fault-row.active .fault-arrow { transform: rotate(180deg); }
 
 .fault-samples {
   margin-top: 14px;
-  border-top: 1px dashed #dde4ef;
+  border-top: 1px dashed var(--line);
   padding-top: 12px;
 }
 
@@ -222,14 +222,14 @@ function barColor(i) {
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: #0a1326;
+  color: var(--text-1);
   margin-bottom: 10px;
 }
 
 .fault-note {
   margin-top: 12px;
   font-size: 11.5px;
-  color: #8a95a7;
+  color: var(--text-3);
   line-height: 1.7;
 }
 
@@ -240,10 +240,10 @@ function barColor(i) {
   gap: 12px;
 }
 .case-card {
-  border: 1px solid #e4e9f0;
+  border: 1px solid var(--line);
   border-radius: 10px;
   padding: 12px 14px;
-  background: linear-gradient(135deg, #fbfcfe, #f4f7fb);
+  background: linear-gradient(135deg, var(--card-2), var(--line-2));
   transition: box-shadow .2s, transform .2s;
 }
 .case-card:hover {
@@ -259,7 +259,7 @@ function barColor(i) {
 .case-name {
   font-size: 14px;
   font-weight: 700;
-  color: #0a1326;
+  color: var(--text-1);
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -268,7 +268,7 @@ function barColor(i) {
 }
 .case-date {
   font-size: 11px;
-  color: #8a95a7;
+  color: var(--text-3);
 }
 .case-row {
   display: flex;
@@ -281,21 +281,21 @@ function barColor(i) {
   flex-shrink: 0;
   width: 26px;
   font-weight: 700;
-  color: #0b3a82;
+  color: var(--accent);
 }
 .case-v {
-  color: #374151;
+  color: var(--text-2);
   min-width: 0;
 }
 .case-foot {
   margin-top: 10px;
   padding-top: 8px;
-  border-top: 1px dashed #dde4ef;
+  border-top: 1px dashed var(--line);
   display: flex;
   align-items: center;
   gap: 4px;
   font-size: 11.5px;
-  color: #8a95a7;
+  color: var(--text-3);
 }
-.case-hours { color: #0b3a82; }
+.case-hours { color: var(--accent); }
 </style>

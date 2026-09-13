@@ -32,6 +32,10 @@
   --accent-dark: #072057;
   --accent-contrast: #ffffff;
 
+  /* ===== 品牌中间调（B 级健康色 / 次级强调）=====
+     品牌蓝 #0b3a82 太深，做图表条与 B 级标签时不合适，取它的浅三档。 */
+  --accent-mid: #3d5f9c;
+
   /* ===== 信号青：链接 / 高亮 / 进度 ===== */
   --signal: #0bb4c4;
   --signal-hover: #0aa2b1;
@@ -60,6 +64,48 @@
   --ink-4: #8a95a7;
   --ink-on-accent: #ffffff;
 
+  /* ===== 语义文字层（正文用这一组，对比度逐个核算过） =====
+     为什么要单列一层：上面那组是"调色板"，页面直接拿来当正文用过 ——
+     结果是 #909399(3.08:1) / #c0c4cc(1.75:1) 这类值充当次要文字，低于 AA 4.5:1。
+     这一组把"能不能做正文"写死在注释里，选值只有一个标准：白底与浅底都 ≥ 4.5:1。
+       --text-1  主正文/标题   白底 18.5:1
+       --text-2  次要文字      白底  8.8:1
+       --text-3  弱化文字/标签 白底  6.0:1
+       --text-mute 占位符/装饰：白底 4.34:1 —— 只允许用于 placeholder、分隔符、
+                  图表网格、禁用态等"非必须读"的位置，不得当正文        */
+  --text-1: #0a1326;
+  --text-2: #3d4b63;
+  --text-3: #57647a;
+  --text-mute: #6e7a8f;
+
+  /* ===== 状态色 · 文字版（用于彩色文字，全部 ≥ AA） =====
+     原来的做法是把 tag 的底色色值直接拿来写文字（如 #e0a020 当字色，2.28:1）。
+     底色可以浅，但文字必须够深 —— 所以状态色分"面"和"字"两套。 */
+  --success-ink: #0b7a51;   /* 白底 5.36:1 / 浅绿底 4.84:1 */
+  --warn-ink: #8a5d0a;      /* 白底 5.75:1 / 浅黄底 5.21:1 */
+  --danger-ink: #b33431;    /* 白底 6.08:1 / 浅红底 5.33:1 */
+  --signal-ink: #0a7079;    /* 白底 5.82:1 / 浅青底 5.25:1 */
+
+  /* ===== 深色表面层（落地页 / 侧栏等深底） =====
+     浅色那组 token 换到深底上会直接失效：--text-1 #0a1326 压在 #0c1426 上只有 1.02:1，
+     --danger #e0413e 在深底也只有 4.37:1 —— 看着"有颜色"，其实读不清。
+     这一组是同色相提亮后的"深底版"，实测在落地页三段底色最亮的那段（#0b2a5c）上也 ≥ 4.5:1。 */
+  --on-dark-1: #e8eefb;        /* 12.0:1 主文字 */
+  --on-dark-2: #a7b5cf;        /*  6.8:1 次要文字 */
+  --on-dark-3: #8899b4;        /*  4.8:1 弱化文字 / 说明 */
+  --danger-on-dark: #e86f6d;   /*  4.6:1 */
+  --emerald-on-dark: #4db68d;  /*  5.6:1 */
+  --amber-on-dark: #e8b64f;    /*  7.5:1 */
+  --signal-bright: #7de8f2;    /* 12.7:1 品牌标记（侧栏 logo / 落地页 logo） */
+
+  /* 深底页面底色：品牌深空蓝三段，与侧栏渐变同源，色相拉齐
+     （原先落地页是自己一套石板蓝 #0c1426→#1a2744→#0d1b2e，全站第四套配色） */
+  --grad-landing: linear-gradient(135deg, #061530 0%, #0b2a5c 50%, #071b3d 100%);
+
+  /* 深底主标题渐变：终点 #3d8fd4 在深底只有 4.05:1，但 44px/800 属大字号，
+     AA 对大字号的要求是 3:1，够用；中间的信号青段实测 5.6:1。 */
+  --grad-hero: linear-gradient(90deg, #7de8f2 0%, #0bb4c4 55%, #3d8fd4 100%);
+
   /* ===== 表面与边界（蓝图质感） ===== */
   --bg: #eef2f8;
   --bg-sunken: #e6ecf5;
@@ -81,6 +127,11 @@
 
   /* ===== 蓝图网格（装饰） ===== */
   --grid-color: rgba(11, 58, 130, 0.045);
+
+  /* ===== 品牌渐变 =====
+     首屏信息条用的深空蓝→亮蓝，是这套视觉里唯一一处"渐层"，单独成令牌
+     免得两个页面各写一份、改的时候漏掉一处。 */
+  --grad-strip: linear-gradient(120deg, #0b3a82 0%, #1457b3 70%, #1c6bd4 100%);
 
   /* ===== 圆角 ===== */
   --r-lg: 18px;
@@ -244,4 +295,93 @@ body {
 
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* ============================================================
+   全局一致性层
+   ------------------------------------------------------------
+   这一层只做"每个页面都该有、但没人愿意在 15 个页面里各写一遍"的事。
+   全部是纯样式，不涉及任何组件结构、props、事件或状态。
+   ============================================================ */
+
+/* ===== 1. 键盘可达：Tab 走到的每个可交互元素都要看得见焦点 =====
+   此前全站 :focus-visible 为 0 处 —— 用键盘（或读屏）操作时完全不知道焦点在哪。
+   用 :where() 把特异度压到 0，保证 Element Plus 自己的聚焦样式仍能覆盖它。 */
+:where(a, button, [role="button"], [tabindex], summary):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 深色底（侧边栏 / 落地页）上换成信号青，否则深蓝描边压在深蓝底上等于没有 */
+.app-aside :where(a, button, [tabindex]):focus-visible,
+.landing-wrapper :where(a, button, [tabindex]):focus-visible {
+  outline-color: var(--signal);
+}
+
+/* ===== 2. 尊重系统的"减弱动效"设置 =====
+   本站有路由过渡、常驻呼吸点、图表入场动画、14 处 transition: all。
+   对前庭功能敏感的用户来说这些是真难受 —— 系统开关一开就全部收敛。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ===== 3. 数字等宽 =====
+   表格里的工单号、健康分、金额、时间用的是比例字形，位数一变整列就左右抖动。
+   tabular-nums 让 1 和 8 一样宽，数字列才是稳定的。 */
+.el-table,
+.el-table td,
+.el-table th,
+.el-statistic__content,
+.el-pagination {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 页面里自定义的数字块（看板大数字、环比、天数、金额）统一挂这个类 */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===== 4. 表格行高 =====
+   默认单元格上下内边距偏大，1440×900 下工单表首屏只看得见 11 行。
+   收到 8px，同样是纯内边距调整。 */
+.el-table .el-table__cell {
+  padding: 8px 0;
+}
+
+.el-table .cell {
+  line-height: 1.5;
+}
+
+/* 空值时给一个看得懂的占位，而不是一片空白
+   （工单表里有不少没填标题的行，空着看起来像数据丢了）
+   只命中真正空的单元格：有选择框/展开箭头/子节点的单元格不是 :empty。 */
+.el-table .cell:empty::after {
+  content: '—';
+  color: var(--text-mute);
+}
+
+/* ===== 5. 过渡时长统一（原先 14 处 transition: all 各写各的时长） ===== */
+.el-card,
+.el-button,
+.el-tag,
+.el-table__row {
+  transition-duration: var(--dur);
+  transition-timing-function: var(--ease-out);
+}
+
+/* ===== 6. 正文基准字号 =====
+   此前 body 没有任何字号规则，实际吃的是浏览器默认 16px/line-height:normal
+   —— 令牌里的 --fs-body 从没生效过（实测 computed 16px，改前改后都验过）。
+   这里把它落成 15px / 1.5：数据密集的工具按 15px 走；1.66 那档留给长文本阅读面
+   （AI 对话正文、体检报告），由各自局部声明。 */
+body {
+  font-size: var(--fs-body);
+  line-height: 1.5;
 }

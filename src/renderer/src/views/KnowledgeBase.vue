@@ -60,8 +60,8 @@
         <el-table-column prop="source" label="来源" min-width="180" show-overflow-tooltip />
         <el-table-column label="频次" width="80" align="center">
           <template #default="{ row }">
-            <span v-if="row.frequency > 0" style="color:#e6a23c;font-weight:600">{{ row.frequency }}次</span>
-            <span v-else style="color:#c0c4cc">—</span>
+            <span v-if="row.frequency > 0" style="color:var(--warn-ink);font-weight:600">{{ row.frequency }}次</span>
+            <span v-else style="color:var(--text-mute)">—</span>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="200" fixed="right">
@@ -252,12 +252,12 @@ function resetKnowledge() {
 .kb-title {
   font-size: 18px;
   font-weight: 700;
-  color: #303133;
+  color: var(--text-1);
 }
 
 .kb-sub {
   font-size: 13px;
-  color: #909399;
+  color: var(--text-3);
   margin-top: 4px;
 }
 
@@ -276,11 +276,11 @@ function resetKnowledge() {
 
 .kb-item-title {
   font-weight: 600;
-  color: #303133;
+  color: var(--text-1);
 }
 
 .kb-keywords {
   font-size: 12px;
-  color: #606266;
+  color: var(--text-2);
 }
 </style>

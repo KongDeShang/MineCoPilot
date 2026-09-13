@@ -10,14 +10,14 @@
       <!-- 标题区 -->
       <div class="hero-section">
         <div class="logo-big">
-          <el-icon :size="64" color="#409eff"><Monitor /></el-icon>
+          <el-icon :size="64" color="var(--signal-bright)"><Monitor /></el-icon>
         </div>
         <h1 class="main-title">矿山智工</h1>
         <p class="sub-title">工程机械运维 AI 工作台</p>
         <div class="tagline">
-          <el-tag effect="dark" type="success">本地优先</el-tag>
-          <el-tag effect="dark" type="warning">离线可用</el-tag>
-          <el-tag effect="dark" type="danger">数据不出设备</el-tag>
+          <el-tag effect="dark" class="tag-pill">本地优先</el-tag>
+          <el-tag effect="dark" class="tag-pill">离线可用</el-tag>
+          <el-tag effect="dark" class="tag-pill">数据不出设备</el-tag>
         </div>
       </div>
 
@@ -190,8 +190,8 @@ function enterApp() {
 <style scoped>
 .landing {
   min-height: 100vh;
-  background: linear-gradient(135deg, #0c1426 0%, #1a2744 50%, #0d1b2e 100%);
-  color: #e0e6f0;
+  background: var(--grad-landing);
+  color: var(--on-dark-1);
   overflow-y: auto;
   position: relative;
 }
@@ -206,7 +206,7 @@ function enterApp() {
 
 .particle {
   position: absolute;
-  background: rgba(64, 158, 255, 0.3);
+  background: rgba(11, 180, 196, 0.3);
   border-radius: 50%;
   animation: float linear infinite;
 }
@@ -224,7 +224,9 @@ function enterApp() {
   z-index: 1;
   max-width: 1100px;
   margin: 0 auto;
-  padding: 40px 24px 30px;
+  /* 底部留白要盖过固定 CTA（按钮 + 上下 padding 约 78px），
+     原先只有 30px —— 底部"900万+/5000亿/50万+"那排数据被压在按钮底下。 */
+  padding: 40px 24px 104px;
 }
 
 /* 标题区 */
@@ -239,8 +241,8 @@ function enterApp() {
 }
 
 @keyframes pulse-glow {
-  0%, 100% { filter: drop-shadow(0 0 8px rgba(64, 158, 255, 0.4)); }
-  50% { filter: drop-shadow(0 0 20px rgba(64, 158, 255, 0.8)); }
+  0%, 100% { filter: drop-shadow(0 0 8px rgba(11, 180, 196, 0.4)); }
+  50% { filter: drop-shadow(0 0 20px rgba(11, 180, 196, 0.8)); }
 }
 
 .main-title {
@@ -248,7 +250,7 @@ function enterApp() {
   font-weight: 800;
   letter-spacing: 8px;
   margin: 0 0 6px;
-  background: linear-gradient(90deg, #409eff, #67c23a, #e6a23c);
+  background: var(--grad-hero);
   background-size: 200% 200%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -263,7 +265,7 @@ function enterApp() {
 
 .sub-title {
   font-size: 20px;
-  color: #8899b4;
+  color: var(--on-dark-3);
   margin: 0 0 20px;
   letter-spacing: 4px;
 }
@@ -272,6 +274,18 @@ function enterApp() {
   display: flex;
   justify-content: center;
   gap: 12px;
+}
+
+/* 三个标签原本是 success / warning / danger 三色 —— 但"本地优先 / 离线可用 /
+   数据不出设备"是三条正面声明，用琥珀和红色说出来等于给自己贴了个警告条。
+   改成同一套品牌标记样式（跟侧栏 logo 同款：信号青淡底 + 细边 + 亮青字）。 */
+.tagline :deep(.el-tag.tag-pill) {
+  height: 26px;
+  padding: 0 12px;
+  font-weight: 500;
+  background: rgba(11, 180, 196, 0.14);
+  border-color: rgba(11, 180, 196, 0.42);
+  color: var(--signal-bright);
 }
 
 /* 老王的故事 */
@@ -285,11 +299,11 @@ function enterApp() {
   align-items: center;
   gap: 8px;
   margin: 0 0 4px;
-  color: #e6a23c;
+  color: var(--amber-on-dark);
 }
 
 .story-subtitle {
-  color: #8899b4;
+  color: var(--on-dark-3);
   margin: 0 0 32px;
   font-size: 15px;
 }
@@ -314,7 +328,7 @@ function enterApp() {
 
 .pain-card:hover {
   background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(64, 158, 255, 0.3);
+  border-color: rgba(11, 180, 196, 0.3);
   transform: translateY(-2px);
 }
 
@@ -326,12 +340,12 @@ function enterApp() {
 .pain-content h3 {
   font-size: 16px;
   margin: 0 0 6px;
-  color: #f56c6c;
+  color: var(--danger-on-dark);
 }
 
 .pain-desc {
   font-size: 13px;
-  color: #8899b4;
+  color: var(--on-dark-3);
   margin: 0 0 10px;
   line-height: 1.5;
 }
@@ -345,12 +359,12 @@ function enterApp() {
 .metric-value {
   font-size: 28px;
   font-weight: 800;
-  color: #f56c6c;
+  color: var(--danger-on-dark);
 }
 
 .metric-unit {
   font-size: 13px;
-  color: #8899b4;
+  color: var(--on-dark-3);
 }
 
 /* 损失高亮 */
@@ -360,14 +374,14 @@ function enterApp() {
   gap: 16px;
   padding: 18px 24px;
   border-radius: 12px;
-  background: linear-gradient(135deg, rgba(245, 108, 108, 0.15), rgba(230, 162, 60, 0.1));
-  border: 1px solid rgba(245, 108, 108, 0.3);
+  background: linear-gradient(135deg, rgba(232, 111, 109, 0.15), rgba(232, 182, 79, 0.1));
+  border: 1px solid rgba(232, 111, 109, 0.3);
   animation: pulse-border 2s ease-in-out infinite;
 }
 
 @keyframes pulse-border {
-  0%, 100% { border-color: rgba(245, 108, 108, 0.3); }
-  50% { border-color: rgba(245, 108, 108, 0.6); }
+  0%, 100% { border-color: rgba(232, 111, 109, 0.3); }
+  50% { border-color: rgba(232, 111, 109, 0.6); }
 }
 
 .loss-icon {
@@ -377,7 +391,7 @@ function enterApp() {
 .loss-text p {
   margin: 0;
   font-size: 15px;
-  color: #e0e6f0;
+  color: var(--on-dark-1);
 }
 
 .loss-number {
@@ -388,7 +402,7 @@ function enterApp() {
 .loss-number span {
   font-size: 28px;
   font-weight: 800;
-  color: #f56c6c;
+  color: var(--danger-on-dark);
 }
 
 /* 解决方案 */
@@ -402,7 +416,7 @@ function enterApp() {
   align-items: center;
   gap: 8px;
   margin: 0 0 28px;
-  color: #67c23a;
+  color: var(--emerald-on-dark);
 }
 
 .compare-grid {
@@ -428,13 +442,13 @@ function enterApp() {
 }
 
 .compare-before {
-  background: rgba(245, 108, 108, 0.1);
-  border: 1px solid rgba(245, 108, 108, 0.2);
+  background: rgba(232, 111, 109, 0.1);
+  border: 1px solid rgba(232, 111, 109, 0.2);
 }
 
 .compare-after {
-  background: rgba(103, 194, 58, 0.1);
-  border: 1px solid rgba(103, 194, 58, 0.2);
+  background: rgba(77, 182, 141, 0.1);
+  border: 1px solid rgba(77, 182, 141, 0.2);
 }
 
 .compare-label {
@@ -443,19 +457,19 @@ function enterApp() {
   margin-bottom: 6px;
 }
 
-.compare-before .compare-label { color: #f56c6c; }
-.compare-after .compare-label { color: #67c23a; }
+.compare-before .compare-label { color: var(--danger-on-dark); }
+.compare-after .compare-label { color: var(--emerald-on-dark); }
 
 .compare-before p, .compare-after p {
   margin: 0;
   font-size: 14px;
   line-height: 1.6;
-  color: #c0c8dc;
+  color: var(--on-dark-2);
 }
 
 .compare-arrow {
   text-align: center;
-  color: #409eff;
+  color: var(--signal);
 }
 
 /* CTA */
@@ -472,7 +486,7 @@ function enterApp() {
 .cta-hint {
   margin: 12px 0 0;
   font-size: 13px;
-  color: #8899b4;
+  color: var(--on-dark-3);
 }
 
 /* 底部数据 */
@@ -491,12 +505,12 @@ function enterApp() {
 .stat-num {
   font-size: 32px;
   font-weight: 800;
-  color: #409eff;
+  color: var(--signal);
 }
 
 .stat-text {
   font-size: 13px;
-  color: #8899b4;
+  color: var(--on-dark-3);
   margin-top: 4px;
 }
 
@@ -510,38 +524,40 @@ function enterApp() {
   display: flex;
   justify-content: center;
   padding: 16px 24px;
-  background: linear-gradient(transparent, rgba(12, 20, 38, 0.95) 30%);
+  background: linear-gradient(transparent, rgba(7, 27, 61, 0.95) 30%);
 }
 
 .sticky-cta .el-button {
   font-size: 16px;
   padding: 12px 40px;
-  box-shadow: 0 4px 20px rgba(64, 158, 255, 0.4);
+  box-shadow: 0 4px 20px rgba(11, 180, 196, 0.4);
 }
 
-/* 响应式 */
+/* 响应式
+   注意：这里原先写的 .comparison-grid / .market-stats 两个类在模板里不存在，
+   三个 *-section 的 padding 也压在没设置 padding 的元素上 —— 四条规则全是空转的，
+   窄屏下对比区仍是 1fr 40px 1fr 三列，正文被挤成一列字。类名已对齐实际模板。 */
 @media (max-width: 768px) {
   .pain-cards {
     grid-template-columns: 1fr;
   }
-  .comparison-grid {
+  .compare-item {
     grid-template-columns: 1fr;
   }
-  .market-stats {
+  /* 竖排后箭头要转向，否则 40px 的空列会横在"以前"和"现在"中间 */
+  .compare-arrow {
+    transform: rotate(90deg);
+  }
+  .bottom-stats {
     flex-direction: column;
-    gap: 16px;
+    gap: 20px;
   }
   .main-title {
-    font-size: 36px;
+    font-size: 34px;
+    letter-spacing: 4px;
   }
-  .hero-section {
-    padding: 40px 20px 30px;
-  }
-  .story-section {
-    padding: 30px 20px;
-  }
-  .solution-section {
-    padding: 30px 20px;
+  .landing-content {
+    padding: 32px 20px 104px;
   }
 }
 </style>

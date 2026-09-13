@@ -263,13 +263,13 @@ function resetAll() {
 .dash-rate { background: linear-gradient(120deg, #15803d, #22a55f); }
 .dash-action {
   background: #fff;
-  border: 1px solid #eef0f3;
-  color: #111827;
+  border: 1px solid var(--line-2);
+  color: var(--text-1);
   justify-content: center;
 }
 .dash-value { font-size: 26px; font-weight: 800; line-height: 1; }
 .dash-label { font-size: 12px; opacity: 0.88; }
-.dash-note { font-size: 11px; color: #8a95a7; margin-top: 4px; }
+.dash-note { font-size: 11px; color: var(--text-3); margin-top: 4px; }
 
 .card-header {
   display: flex;
@@ -289,7 +289,7 @@ function resetAll() {
   display: flex;
   align-items: center;
   gap: 12px;
-  border: 1px solid #eef0f3;
+  border: 1px solid var(--line-2);
   border-radius: 10px;
   padding: 10px 12px;
   background: #fff;
@@ -307,8 +307,8 @@ function resetAll() {
   bottom: 0;
   width: 4px;
 }
-.alert-row.danger .alert-bar { background: #e0413e; }
-.alert-row.warning .alert-bar { background: #e0a020; }
+.alert-row.danger .alert-bar { background: var(--danger); }
+.alert-row.warning .alert-bar { background: var(--amber); }
 .alert-icon {
   width: 34px;
   height: 34px;
@@ -318,15 +318,15 @@ function resetAll() {
   justify-content: center;
   flex-shrink: 0;
 }
-.alert-row.danger .alert-icon { background: rgba(224, 65, 62, 0.12); color: #e0413e; }
-.alert-row.warning .alert-icon { background: rgba(224, 160, 32, 0.12); color: #e0a020; }
+.alert-row.danger .alert-icon { background: rgba(224, 65, 62, 0.12); color: var(--danger-ink); }
+.alert-row.warning .alert-icon { background: rgba(224, 160, 32, 0.12); color: var(--warn-ink); }
 .alert-photo {
   width: 64px;
   height: 44px;
   border-radius: 6px;
   overflow: hidden;
   flex-shrink: 0;
-  background: #f0f2f5;
+  background: var(--bg-sunken);
 }
 .alert-photo img {
   width: 100%;
@@ -347,15 +347,15 @@ function resetAll() {
 .alert-name {
   font-size: 14px;
   font-weight: 700;
-  color: #111827;
+  color: var(--text-1);
 }
 .alert-model {
   font-size: 11px;
-  color: #8a95a7;
+  color: var(--text-3);
 }
 .alert-value {
   font-size: 12.5px;
-  color: #374151;
+  color: var(--text-2);
   margin-top: 4px;
 }
 .alert-suggest {
@@ -363,12 +363,12 @@ function resetAll() {
   align-items: center;
   gap: 5px;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--text-3);
   margin-top: 3px;
 }
 .alert-time {
   font-size: 11px;
-  color: #b0b7c3;
+  color: var(--text-mute);
   flex-shrink: 0;
 }
 .alert-actions {
@@ -382,9 +382,9 @@ function resetAll() {
 .alert-note {
   margin-top: 14px;
   font-size: 11.5px;
-  color: #8a95a7;
+  color: var(--text-3);
   line-height: 1.7;
-  background: #f4f7fb;
+  background: var(--line-2);
   border-radius: 8px;
   padding: 8px 12px;
 }

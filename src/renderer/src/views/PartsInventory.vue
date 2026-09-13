@@ -331,7 +331,7 @@ function partName(partId) {
   min-width: 130px;
   border-radius: 12px;
   padding: 14px 18px;
-  background: linear-gradient(120deg, #0b3a82, #1457b3);
+  background: var(--grad-strip);
   color: #fff;
   display: flex;
   flex-direction: column;
@@ -340,8 +340,8 @@ function partName(partId) {
 .dash-item.dash-warn { background: linear-gradient(120deg, #b45309, #d97706); }
 .dash-item.dash-action {
   background: #fff;
-  border: 1px solid #eef0f3;
-  color: #111827;
+  border: 1px solid var(--line-2);
+  color: var(--text-1);
   flex-direction: row;
   align-items: center;
   justify-content: center;
@@ -361,41 +361,41 @@ function partName(partId) {
 
 /* 缺料预警 */
 .warn-card { border-color: rgba(217, 119, 6, 0.35); }
-.warn-title { display: flex; align-items: center; gap: 6px; color: #b45309; font-weight: 700; }
+.warn-title { display: flex; align-items: center; gap: 6px; color: var(--warn-ink); font-weight: 700; }
 .warn-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 12px;
 }
 .warn-item {
-  border: 1px solid #f0e2c8;
-  background: #fffaf0;
+  border: 1px solid var(--amber-soft);
+  background: var(--amber-soft);
   border-radius: 10px;
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-.warn-name { font-size: 13.5px; font-weight: 700; color: #78350f; }
-.warn-nums { font-size: 12px; color: #92400e; }
-.warn-low { font-size: 18px; color: #b91c1c; }
-.warn-bar { height: 6px; border-radius: 3px; background: #f3e2c0; overflow: hidden; }
+.warn-name { font-size: 13.5px; font-weight: 700; color: var(--warn-ink); }
+.warn-nums { font-size: 12px; color: var(--warn-ink); }
+.warn-low { font-size: 18px; color: var(--danger-ink); }
+.warn-bar { height: 6px; border-radius: 3px; background: var(--amber-line); overflow: hidden; }
 .warn-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, #e0a020, #d97706); }
 
-.part-name { font-weight: 600; color: #0a1326; }
-.stock-low { color: #b91c1c; font-weight: 700; font-size: 15px; }
-.stock-ok { color: #15803d; font-weight: 700; font-size: 15px; }
-.stock-unit { color: #8a95a7; font-size: 12px; }
+.part-name { font-weight: 600; color: var(--text-1); }
+.stock-low { color: var(--danger-ink); font-weight: 700; font-size: 15px; }
+.stock-ok { color: var(--success-ink); font-weight: 700; font-size: 15px; }
+.stock-unit { color: var(--text-3); font-size: 12px; }
 
 .stock-target {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  background: #f4f7fb;
+  background: var(--line-2);
   border-radius: 8px;
   padding: 10px 12px;
 }
-.stock-target span { font-size: 12px; color: #6b7280; }
+.stock-target span { font-size: 12px; color: var(--text-3); }
 
 .purchase-empty {
   display: flex;
@@ -403,14 +403,14 @@ function partName(partId) {
   justify-content: center;
   gap: 8px;
   padding: 30px 0;
-  color: #15803d;
+  color: var(--success-ink);
 }
-.buy-qty { color: #b45309; font-size: 15px; }
+.buy-qty { color: var(--warn-ink); font-size: 15px; }
 .purchase-total {
   margin-top: 12px;
   text-align: right;
   font-size: 13px;
-  color: #374151;
+  color: var(--text-2);
 }
-.purchase-total b { color: #b45309; }
+.purchase-total b { color: var(--warn-ink); }
 </style>

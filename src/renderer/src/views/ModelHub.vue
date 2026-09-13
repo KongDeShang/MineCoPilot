@@ -306,7 +306,7 @@ onMounted(async () => {
   border-radius: 12px;
   margin-bottom: 16px;
   color: #fff;
-  background: linear-gradient(120deg, #0b3a82 0%, #1457b3 60%, #1c6bd4 100%);
+  background: var(--grad-strip);
 }
 .hero-ready { background: linear-gradient(120deg, #0b3a82 0%, #1457b3 60%, #1c6bd4 100%); }
 .hero-loading, .hero-generating { background: linear-gradient(120deg, #1457b3 0%, #1c6bd4 70%, #2b7de0 100%); }
@@ -387,17 +387,17 @@ onMounted(async () => {
   justify-content: center;
   color: #fff;
 }
-.pipe-icon-1 { background: #0b3a82; }
-.pipe-icon-2 { background: #3b6fb5; }
-.pipe-icon-3 { background: #1c6bd4; }
+.pipe-icon-1 { background: var(--accent); }
+.pipe-icon-2 { background: var(--accent-mid); }
+.pipe-icon-3 { background: var(--accent); }
 .pipe-title {
   font-size: 14px;
   font-weight: 700;
-  color: #0b3a82;
+  color: var(--accent);
 }
 .pipe-desc {
   font-size: 12px;
-  color: #4b5563;
+  color: var(--text-2);
   margin-top: 5px;
   line-height: 1.5;
 }
@@ -405,7 +405,7 @@ onMounted(async () => {
   display: inline-block;
   margin-top: 8px;
   font-size: 11px;
-  color: #1c6bd4;
+  color: var(--accent);
   background: rgba(28, 107, 212, 0.1);
   padding: 2px 8px;
   border-radius: 999px;
@@ -414,7 +414,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #0b3a82;
+  color: var(--accent);
   font-size: 20px;
   font-weight: 700;
 }
@@ -424,7 +424,7 @@ onMounted(async () => {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--text-3);
   background: rgba(11, 58, 130, 0.04);
   border-radius: 8px;
   padding: 8px 12px;
@@ -450,7 +450,7 @@ onMounted(async () => {
 }
 .trial-hint {
   font-size: 12px;
-  color: #8a95a7;
+  color: var(--text-3);
 }
 .trial-output {
   margin-top: 14px;
@@ -465,12 +465,12 @@ onMounted(async () => {
   gap: 5px;
   font-size: 12px;
   font-weight: 700;
-  color: #0b3a82;
+  color: var(--accent);
 }
 .trial-output-text {
   margin-top: 6px;
   font-size: 13.5px;
-  color: #1f2937;
+  color: var(--text-1);
   line-height: 1.7;
   white-space: pre-wrap;
 }
@@ -484,11 +484,11 @@ onMounted(async () => {
   padding: 6px 10px;
 }
 .trial-check.ok {
-  color: #15803d;
+  color: var(--success-ink);
   background: rgba(22, 163, 74, 0.08);
 }
 .trial-check.fail {
-  color: #b91c1c;
+  color: var(--danger-ink);
   background: rgba(185, 28, 28, 0.08);
 }
 
@@ -504,18 +504,18 @@ onMounted(async () => {
 }
 .spec-label {
   font-size: 11px;
-  color: #8a95a7;
+  color: var(--text-3);
 }
 .spec-value {
   font-size: 13px;
   font-weight: 600;
-  color: #111827;
+  color: var(--text-1);
   margin-top: 3px;
 }
 .spec-path {
   margin-top: 12px;
   font-size: 11px;
-  color: #8a95a7;
+  color: var(--text-3);
   word-break: break-all;
   background: rgba(11, 58, 130, 0.04);
   border-radius: 6px;

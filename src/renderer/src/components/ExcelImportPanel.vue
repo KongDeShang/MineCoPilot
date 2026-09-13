@@ -20,7 +20,7 @@
           @drop.prevent="handleExcelDrop"
           @click="openFilePicker"
         >
-          <el-icon :size="48" color="#c0c4cc"><Upload /></el-icon>
+          <el-icon :size="48" color="var(--text-mute)"><Upload /></el-icon>
           <p class="upload-text">拖入 Excel 文件到此处</p>
           <p class="upload-hint">支持 .xlsx / .xls / .csv 格式</p>
           <input
@@ -37,7 +37,7 @@
         <div v-if="importedFiles.length > 0" class="file-list">
           <div class="file-list-title">已导入文件 ({{ importedFiles.length }})</div>
           <div v-for="(file, index) in importedFiles" :key="index" class="file-item">
-            <el-icon color="#409eff"><Document /></el-icon>
+            <el-icon color="var(--accent)"><Document /></el-icon>
             <span class="file-name">{{ file.filename }}</span>
             <el-tag size="small" type="info">{{ file.sheets.length }} 个工作表</el-tag>
             <el-button type="danger" size="small" link @click="removeExcelFile(index)">删除</el-button>
@@ -103,7 +103,7 @@
         <div v-if="!mergedResult" class="empty-state">
           <el-empty description="请导入 Excel 文件查看解析结果">
             <template #image>
-              <el-icon :size="80" color="#dcdfe6"><Document /></el-icon>
+              <el-icon :size="80" color="var(--line-strong)"><Document /></el-icon>
             </template>
           </el-empty>
         </div>
@@ -182,7 +182,7 @@
             <div class="source-files">
               <div v-for="(file, i) in importedFiles" :key="i" class="source-file">
                 <div class="source-header">
-                  <el-icon color="#409eff"><Document /></el-icon>
+                  <el-icon color="var(--accent)"><Document /></el-icon>
                   <span>{{ file.filename }}</span>
                 </div>
                 <div class="source-headers">
@@ -473,30 +473,30 @@ function exportExcelJSON() {
 
 /* Excel 解析样式 */
 .upload-area {
-  border: 2px dashed #dcdfe6;
+  border: 2px dashed var(--line-strong);
   border-radius: 12px;
   padding: 48px 24px;
   text-align: center;
   cursor: pointer;
   transition: all 0.3s;
-  background: #fafafa;
+  background: var(--card-2);
 }
 
 .upload-area:hover,
 .upload-area.is-dragover {
-  border-color: #409eff;
-  background: #ecf5ff;
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .upload-text {
   font-size: 16px;
-  color: #606266;
+  color: var(--text-2);
   margin: 12px 0 4px;
 }
 
 .upload-hint {
   font-size: 13px;
-  color: #c0c4cc;
+  color: var(--text-mute);
 }
 
 .file-list {
@@ -506,7 +506,7 @@ function exportExcelJSON() {
 .file-list-title {
   font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-1);
   margin-bottom: 8px;
 }
 
@@ -515,7 +515,7 @@ function exportExcelJSON() {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: #f5f7fa;
+  background: var(--line-2);
   border-radius: 6px;
   margin-bottom: 6px;
 }
@@ -536,9 +536,9 @@ function exportExcelJSON() {
 .quality-report {
   padding: 14px 16px;
   margin-bottom: 16px;
-  background: #f8f9fa;
+  background: var(--card-2);
   border-radius: 10px;
-  border: 1px solid #e4e7ed;
+  border: 1px solid var(--line);
 }
 
 .quality-report h4 {
@@ -546,7 +546,7 @@ function exportExcelJSON() {
   align-items: center;
   gap: 6px;
   font-size: 14px;
-  color: #303133;
+  color: var(--text-1);
   margin-bottom: 12px;
 }
 
@@ -561,31 +561,31 @@ function exportExcelJSON() {
   padding: 10px 4px;
   background: #fff;
   border-radius: 8px;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--line-2);
 }
 
 .quality-item.warn {
-  border-color: #fdf6ec;
-  background: #fdf6ec;
+  border-color: var(--amber-soft);
+  background: var(--amber-soft);
 }
 
 .quality-item.danger {
-  border-color: #fde2e2;
-  background: #fef0f0;
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
 }
 
 .q-value {
   font-size: 20px;
   font-weight: 800;
-  color: #303133;
+  color: var(--text-1);
 }
 
-.quality-item.warn .q-value { color: #e6a23c; }
-.quality-item.danger .q-value { color: #f56c6c; }
+.quality-item.warn .q-value { color: var(--warn-ink); }
+.quality-item.danger .q-value { color: var(--danger-ink); }
 
 .q-label {
   font-size: 11px;
-  color: #909399;
+  color: var(--text-3);
   margin-top: 2px;
 }
 
@@ -599,14 +599,14 @@ function exportExcelJSON() {
 
 .quality-detail .detail-title {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-3);
 }
 
 .merge-chip {
   font-size: 11px;
   padding: 2px 8px;
-  background: #ecf5ff;
-  color: #409eff;
+  background: var(--accent-soft);
+  color: var(--accent);
   border-radius: 10px;
 }
 
@@ -625,8 +625,8 @@ function exportExcelJSON() {
   margin-bottom: 16px;
   padding: 14px 16px;
   border-radius: 10px;
-  background: linear-gradient(135deg, #ecf5ff, #f0f9eb);
-  border: 1px solid #d9ecff;
+  background: linear-gradient(135deg, var(--accent-soft), var(--emerald-soft));
+  border: 1px solid var(--accent-line);
 }
 
 .efficiency-title {
@@ -635,7 +635,7 @@ function exportExcelJSON() {
   gap: 6px;
   font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-1);
   margin-bottom: 12px;
 }
 
@@ -657,30 +657,30 @@ function exportExcelJSON() {
   line-height: 1.2;
 }
 
-.eff-item.manual .eff-value { color: #f56c6c; }
-.eff-item.system .eff-value { color: #67c23a; }
+.eff-item.manual .eff-value { color: var(--danger-ink); }
+.eff-item.system .eff-value { color: var(--success-ink); }
 
 .eff-label {
   font-size: 12px;
-  color: #606266;
+  color: var(--text-2);
   margin-top: 4px;
   line-height: 1.5;
 }
 
 .eff-label small {
-  color: #909399;
+  color: var(--text-3);
   font-size: 11px;
 }
 
 .eff-arrow {
-  color: #409eff;
+  color: var(--accent);
   flex-shrink: 0;
 }
 
 .efficiency-note {
   margin-top: 12px;
   font-size: 12px;
-  color: #909399;
+  color: var(--text-3);
   text-align: center;
   line-height: 1.6;
 }
@@ -691,7 +691,7 @@ function exportExcelJSON() {
 
 .source-comparison h4 {
   font-size: 14px;
-  color: #303133;
+  color: var(--text-1);
   margin-bottom: 10px;
 }
 
@@ -705,9 +705,9 @@ function exportExcelJSON() {
   flex: 1;
   min-width: 180px;
   padding: 10px 12px;
-  background: #f5f7fa;
+  background: var(--line-2);
   border-radius: 8px;
-  border: 1px solid #e4e7ed;
+  border: 1px solid var(--line);
 }
 
 .source-header {
@@ -716,7 +716,7 @@ function exportExcelJSON() {
   gap: 6px;
   font-size: 12px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-1);
   margin-bottom: 8px;
 }
 
@@ -728,14 +728,14 @@ function exportExcelJSON() {
 
 .mapping-section h4 {
   font-size: 14px;
-  color: #303133;
+  color: var(--text-1);
   margin-bottom: 8px;
 }
 
 .mapping-hint {
   font-size: 12px;
   font-weight: 400;
-  color: #909399;
+  color: var(--text-3);
 }
 
 .mapping-tags {

@@ -80,13 +80,13 @@ const filteredLogs = computed(() => {
 
 .log-content {
   font-size: 13px;
-  color: #2a3852;
+  color: var(--text-2);
 }
 
 .logs-note {
   margin-top: 14px;
   font-size: 11.5px;
-  color: #8a95a7;
+  color: var(--text-3);
   line-height: 1.7;
 }
 </style>

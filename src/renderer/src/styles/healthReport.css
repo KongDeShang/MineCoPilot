@@ -9,7 +9,7 @@
 
 .health-report {
   font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
-  color: #1f2937;
+  color: var(--text-1);
   font-size: 13px;
   line-height: 1.7;
   background: #fff;
@@ -22,19 +22,19 @@
   font-size: 15px;
   margin: 22px 0 10px;
   padding-left: 8px;
-  border-left: 3px solid #1d4ed8;
-  color: #111827;
+  border-left: 3px solid var(--accent);
+  color: var(--text-1);
 }
 
 .hr-head {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  border-bottom: 2px solid #1d4ed8;
+  border-bottom: 2px solid var(--accent);
   padding-bottom: 12px;
 }
 
-.hr-sub { font-size: 12px; color: #6b7280; margin-top: 4px; }
+.hr-sub { font-size: 12px; color: var(--text-3); margin-top: 4px; }
 
 .hr-badge {
   border: 3px solid;
@@ -52,53 +52,53 @@
 .hr-badge-level { font-size: 11px; margin-top: 2px; }
 
 .hr-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 18px; margin-top: 14px; }
-.hr-meta > div { display: flex; justify-content: space-between; border-bottom: 1px dashed #e5e7eb; padding-bottom: 4px; }
-.hr-meta span { color: #6b7280; }
+.hr-meta > div { display: flex; justify-content: space-between; border-bottom: 1px dashed var(--line); padding-bottom: 4px; }
+.hr-meta span { color: var(--text-3); }
 
-.hr-conclusion { padding: 10px 14px; background: #f8fafc; border-left: 4px solid; font-size: 14px; }
-.hr-history-line { margin-top: 8px; color: #4b5563; font-size: 12px; }
+.hr-conclusion { padding: 10px 14px; background: var(--card-2); border-left: 4px solid; font-size: 14px; }
+.hr-history-line { margin-top: 8px; color: var(--text-2); font-size: 12px; }
 
 .hr-factors { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 20px; }
 .hr-factor-head { display: flex; justify-content: space-between; font-size: 13px; }
 .hr-factor-name { font-weight: 600; }
 /* 颜色由内联样式按分数动态给出，这里只固定字重与字号 */
 .hr-factor-score { font-weight: 700; font-size: 13px; }
-.hr-bar { height: 6px; background: #eef2f7; border-radius: 3px; overflow: hidden; margin: 4px 0; }
-.hr-bar-fill { height: 100%; background: #1d4ed8; border-radius: 3px; }
-.hr-factor-detail { font-size: 12px; color: #4b5563; }
-.hr-factor-formula { font-size: 11px; color: #9ca3af; }
+.hr-bar { height: 6px; background: var(--bg-sunken); border-radius: 3px; overflow: hidden; margin: 4px 0; }
+.hr-bar-fill { height: 100%; background: var(--accent); border-radius: 3px; }
+.hr-factor-detail { font-size: 12px; color: var(--text-2); }
+.hr-factor-formula { font-size: 11px; color: var(--text-mute); }
 
 .hr-trend-svg { width: 100%; height: 110px; }
-.hr-trend-axis { display: flex; justify-content: space-between; font-size: 11px; color: #9ca3af; }
+.hr-trend-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-mute); }
 .hr-trend-summary { margin-top: 6px; font-size: 12px; }
 
 .hr-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.hr-table th, .hr-table td { border: 1px solid #e5e7eb; padding: 6px 8px; text-align: left; vertical-align: top; }
-.hr-table th { background: #f3f6fb; font-weight: 600; }
-.hr-ref { color: #1d4ed8; }
+.hr-table th, .hr-table td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+.hr-table th { background: var(--line-2); font-weight: 600; }
+.hr-ref { color: var(--accent); }
 .hr-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
-.hr-note { font-size: 12px; color: #6b7280; }
+.hr-note { font-size: 12px; color: var(--text-3); }
 
 .hr-estimate-tag {
   font-size: 11px;
   font-weight: 400;
-  color: #b45309;
-  background: #fef3c7;
+  color: var(--warn-ink);
+  background: var(--amber-soft);
   border-radius: 8px;
   padding: 1px 8px;
   margin-left: 8px;
 }
 
 .hr-loss { text-align: center; padding: 14px 0 6px; }
-.hr-loss-value { font-size: 32px; font-weight: 800; color: #b91c1c; }
-.hr-loss-formula { font-size: 12px; color: #4b5563; margin-top: 6px; font-family: Consolas, Monaco, monospace; }
-.hr-urgent { font-size: 10px; color: #fff; background: #f56c6c; border-radius: 6px; padding: 1px 6px; margin-left: 6px; }
-.hr-mono { font-family: Consolas, Monaco, monospace; font-size: 11px; color: #4b5563; }
+.hr-loss-value { font-size: 32px; font-weight: 800; color: var(--danger-ink); }
+.hr-loss-formula { font-size: 12px; color: var(--text-2); margin-top: 6px; font-family: Consolas, Monaco, monospace; }
+.hr-urgent { font-size: 10px; color: var(--accent-contrast); background: var(--danger); border-radius: 6px; padding: 1px 6px; margin-left: 6px; }
+.hr-mono { font-family: Consolas, Monaco, monospace; font-size: 11px; color: var(--text-2); }
 .hr-trace-table td { font-size: 11px; }
 
-.hr-foot { margin-top: 26px; border-top: 1px solid #e5e7eb; padding-top: 14px; }
-.hr-sign { display: flex; justify-content: space-between; font-size: 12px; color: #4b5563; }
-.hr-foot-note { margin-top: 12px; font-size: 11px; color: #9ca3af; text-align: center; }
+.hr-foot { margin-top: 26px; border-top: 1px solid var(--line); padding-top: 14px; }
+.hr-sign { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-2); }
+.hr-foot-note { margin-top: 12px; font-size: 11px; color: var(--text-mute); text-align: center; }
 
 /* 打印容器：默认隐藏，仅在打印或显式激活（.print-doc-active）时渲染，
    避免报告的纸面样式影响屏幕上的其他页面 */

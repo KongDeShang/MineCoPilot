@@ -109,8 +109,8 @@
         <!-- 执行结果 + 撤销 -->
         <div v-if="msg.execResult" class="cmd-result" :class="{ undone: msg.execResult.undone }">
           <div v-for="(r, ri) in msg.execResult.results" :key="ri" class="cmd-result-line">
-            <el-icon v-if="r.ok" color="#67c23a"><CircleCheckFilled /></el-icon>
-            <el-icon v-else color="#f56c6c"><CircleCloseFilled /></el-icon>
+            <el-icon v-if="r.ok" color="var(--emerald)"><CircleCheckFilled /></el-icon>
+            <el-icon v-else color="var(--danger)"><CircleCloseFilled /></el-icon>
             <span>{{ r.ok ? r.summary : ('未能写入：' + r.error) }}</span>
           </div>
           <div v-if="msg.execResult.changes.length" class="cmd-changes">
@@ -191,12 +191,12 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
 }
 
 .message.user .message-avatar {
-  background: #409eff;
+  background: var(--accent);
   color: white;
 }
 
 .message.assistant .message-avatar {
-  background: #67c23a;
+  background: var(--emerald);
   color: white;
 }
 
@@ -217,21 +217,21 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
 }
 
 .message.user .message-text {
-  background: #409eff;
+  background: var(--accent);
   color: white;
   border-top-right-radius: 4px;
 }
 
 .message.assistant .message-text {
   background: white;
-  color: #303133;
+  color: var(--text-1);
   border-top-left-radius: 4px;
   box-shadow: 0 1px 4px rgba(0,0,0,0.08);
 }
 
 .message-time {
   font-size: 11px;
-  color: #c0c4cc;
+  color: var(--text-mute);
   margin-top: 4px;
 }
 
@@ -246,7 +246,7 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #c0c4cc;
+  background: var(--line-strong);
   animation: bounce 1.4s infinite ease-in-out;
 }
 
@@ -261,15 +261,15 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
 /* ===== 口述录入：理解卡与执行结果 ===== */
 .cmd-card {
   margin-top: 10px;
-  border: 1px solid #c6e2ff;
+  border: 1px solid var(--accent-line);
   border-radius: 10px;
-  background: #f4f9ff;
+  background: var(--accent-soft);
   padding: 12px 14px;
 }
 
 .cmd-card.blocked {
-  border-color: #fde2e2;
-  background: #fef7f7;
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
 }
 
 .cmd-head {
@@ -278,16 +278,16 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
   gap: 6px;
   font-size: 13px;
   font-weight: 700;
-  color: #1d4ed8;
+  color: var(--accent);
   margin-bottom: 10px;
 }
 
-.cmd-card.blocked .cmd-head { color: #f56c6c; }
+.cmd-card.blocked .cmd-head { color: var(--danger-ink); }
 
 .cmd-ambiguous {
   padding: 10px;
-  background: #fff7e6;
-  border: 1px solid #ffe0a3;
+  background: var(--amber-soft);
+  border: 1px solid var(--amber-line);
   border-radius: 8px;
   margin-bottom: 10px;
 }
@@ -297,14 +297,14 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #b45309;
+  color: var(--warn-ink);
   margin-bottom: 8px;
 }
 
 .cmd-ambiguous-more {
   margin-left: auto;
   font-size: 11px;
-  color: #d46b08;
+  color: var(--warn-ink);
 }
 
 .cmd-candidates {
@@ -318,9 +318,9 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #f56c6c;
+  color: var(--danger);
   padding: 8px 10px;
-  background: #fef0f0;
+  background: var(--danger-soft);
   border-radius: 8px;
   margin-bottom: 10px;
 }
@@ -328,7 +328,7 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
 .cmd-item {
   padding: 10px 12px;
   background: #fff;
-  border: 1px solid #e4e7ed;
+  border: 1px solid var(--line);
   border-radius: 8px;
   margin-bottom: 8px;
 }
@@ -344,14 +344,14 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
 .cmd-eq {
   font-size: 13px;
   font-weight: 700;
-  color: #303133;
+  color: var(--text-1);
 }
 
 .cmd-detail > div {
   display: flex;
   gap: 8px;
   font-size: 12px;
-  color: #303133;
+  color: var(--text-1);
   padding: 3px 0;
   line-height: 1.6;
 }
@@ -359,26 +359,26 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
 .cmd-detail > div > span:first-child {
   flex-shrink: 0;
   width: 68px;
-  color: #909399;
+  color: var(--text-3);
 }
 
 .cmd-raw {
-  color: #909399 !important;
+  color: var(--text-3) !important;
 }
 
-.cmd-error { color: #f56c6c; font-style: normal; }
+.cmd-error { color: var(--danger-ink); font-style: normal; }
 
 .cmd-impact {
   padding: 10px 12px;
-  background: #f0f9eb;
-  border: 1px solid #d7efc1;
+  background: var(--emerald-soft);
+  border: 1px solid var(--emerald-line);
   border-radius: 8px;
   font-size: 12px;
-  color: #4b5563;
+  color: var(--text-2);
   margin-bottom: 10px;
 }
 
-.cmd-impact-title { font-weight: 700; color: #529b2e; margin-bottom: 4px; }
+.cmd-impact-title { font-weight: 700; color: var(--success-ink); margin-bottom: 4px; }
 
 .cmd-impact ul { margin: 0; padding-left: 18px; }
 .cmd-impact li { line-height: 1.7; }
@@ -390,18 +390,18 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
   flex-wrap: wrap;
 }
 
-.cmd-hint { font-size: 11px; color: #909399; }
+.cmd-hint { font-size: 11px; color: var(--text-3); }
 
 .cmd-result {
   margin-top: 10px;
   padding: 10px 12px;
   border-radius: 8px;
-  background: #f0f9eb;
-  border-left: 3px solid #67c23a;
+  background: var(--emerald-soft);
+  border-left: 3px solid var(--emerald);
 }
 
 .cmd-result.undone {
-  background: #f4f4f5;
+  background: var(--line-2);
   border-left-color: #909399;
 }
 
@@ -410,7 +410,7 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: #303133;
+  color: var(--text-1);
   margin-bottom: 4px;
 }
 
@@ -422,7 +422,7 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
   margin-top: 8px;
 }
 
-.cmd-changes-title { font-size: 12px; color: #909399; }
+.cmd-changes-title { font-size: 12px; color: var(--text-3); }
 
 .cmd-result-actions {
   display: flex;
@@ -435,8 +435,8 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
 .ai-thinking {
   margin-bottom: 8px;
   padding: 10px 14px;
-  background: #f0f5ff;
-  border: 1px solid #d6e4ff;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
   border-radius: 10px;
   font-size: 13px;
 }
@@ -446,7 +446,7 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
   align-items: center;
   gap: 6px;
   font-weight: 600;
-  color: #1d4ed8;
+  color: var(--accent);
   cursor: pointer;
   user-select: none;
   transition: opacity 0.2s;
@@ -457,7 +457,7 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
 .thinking-toggle {
   margin-left: auto;
   font-size: 11px;
-  color: #909399;
+  color: var(--text-3);
   font-weight: 400;
 }
 .ai-thinking-body {
@@ -479,13 +479,13 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
   align-items: center;
   gap: 6px;
   padding: 3px 0;
-  color: #909399;
+  color: var(--text-3);
   font-size: 12px;
   transition: all 0.3s ease;
 }
 
 .ai-thinking-step.done {
-  color: #303133;
+  color: var(--text-1);
 }
 
 .step-icon {
@@ -499,7 +499,7 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
 }
 
 .step-detail {
-  color: #909399;
+  color: var(--text-3);
   font-size: 11px;
 }
 
@@ -511,19 +511,19 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
   gap: 6px;
   margin-top: 6px;
   padding: 6px 10px;
-  background: #f0f9eb;
+  background: var(--emerald-soft);
   border-radius: 6px;
-  border-left: 3px solid #67c23a;
+  border-left: 3px solid var(--emerald);
 }
 
 .refs-label {
   font-size: 11px;
   font-weight: 700;
-  color: #67c23a;
+  color: var(--emerald);
 }
 
 .ref-item {
   font-size: 11px;
-  color: #606266;
+  color: var(--text-2);
 }
 </style>

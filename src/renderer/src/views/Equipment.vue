@@ -85,7 +85,7 @@
       <div class="detail-header">
         <el-button @click="closeDetail" icon="ArrowLeft">返回列表</el-button>
         <h2>{{ selectedEquipment.name }} — 设备画像</h2>
-        <el-tag v-if="selectedHealth" :color="selectedHealth.color" effect="dark" style="border: none; color: #fff">
+        <el-tag v-if="selectedHealth" :color="selectedHealth.color" effect="dark" style="border: none; color: var(--accent-contrast)">
           健康分 {{ selectedHealth.score }} · {{ selectedHealth.level }} {{ selectedHealth.levelLabel }}
         </el-tag>
         <el-button type="primary" @click="openReport(selectedEquipment)">
@@ -146,7 +146,7 @@
             <template #header>
               <div class="card-header">
                 <span>健康分趋势</span>
-                <el-tag :color="healthTrend.color" effect="dark" size="small" style="border: none; color: #fff">
+                <el-tag :color="healthTrend.color" effect="dark" size="small" style="border: none; color: var(--accent-contrast)">
                   {{ healthTrend.label }}
                 </el-tag>
               </div>
@@ -546,7 +546,7 @@ function submitRecord() {
 }
 
 .clickable {
-  color: #409eff;
+  color: var(--accent);
   cursor: pointer;
 }
 .clickable:hover { text-decoration: underline; }
@@ -556,7 +556,7 @@ function submitRecord() {
   gap: 24px;
   margin-bottom: 20px;
   padding: 16px;
-  background: #f8f9fa;
+  background: var(--card-2);
   border-radius: 10px;
 }
 
@@ -583,7 +583,7 @@ function submitRecord() {
 
 .health-label {
   font-size: 13px;
-  color: #606266;
+  color: var(--text-2);
 }
 
 .health-bar-wrapper {
@@ -595,7 +595,7 @@ function submitRecord() {
 .health-bar {
   flex: 1;
   height: 8px;
-  background: #ebeef5;
+  background: var(--line-2);
   border-radius: 4px;
   overflow: hidden;
 }
@@ -622,7 +622,7 @@ function submitRecord() {
 
 .detail-header h2 {
   font-size: 20px;
-  color: #303133;
+  color: var(--text-1);
 }
 
 .health-detail {
@@ -651,7 +651,7 @@ function submitRecord() {
 
 .score-label {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-3);
 }
 
 .health-factors {
@@ -663,7 +663,7 @@ function submitRecord() {
 
 .factor-name {
   font-size: 13px;
-  color: #606266;
+  color: var(--text-2);
   margin-bottom: 2px;
   display: block;
 }
@@ -679,7 +679,7 @@ function submitRecord() {
   align-items: center;
   gap: 10px;
   padding: 10px;
-  background: #f8f9fa;
+  background: var(--card-2);
   border-radius: 8px;
 }
 
@@ -689,16 +689,16 @@ function submitRecord() {
   border-radius: 3px;
   flex-shrink: 0;
 }
-.order-priority.urgent { background: #f56c6c; }
-.order-priority.high { background: #e6a23c; }
-.order-priority.normal { background: #409eff; }
+.order-priority.urgent { background: var(--danger); }
+.order-priority.high { background: var(--amber); }
+.order-priority.normal { background: var(--accent); }
 
 .order-info { flex: 1; }
 
 .order-title {
   font-size: 13px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-1);
 }
 
 .order-meta {
@@ -707,11 +707,11 @@ function submitRecord() {
   gap: 8px;
   margin-top: 4px;
   font-size: 12px;
-  color: #909399;
+  color: var(--text-3);
 }
 
 .timeline-card {
-  border: 1px solid #e4e7ed;
+  border: 1px solid var(--line);
 }
 
 .timeline-card :deep(.el-card__body) {
@@ -727,12 +727,12 @@ function submitRecord() {
 
 .timeline-tech {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-3);
 }
 
 .timeline-desc {
   font-size: 14px;
-  color: #303133;
+  color: var(--text-1);
   margin: 0 0 8px;
   line-height: 1.5;
 }
@@ -742,9 +742,9 @@ function submitRecord() {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #909399;
+  color: var(--text-3);
   padding-top: 8px;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--line-2);
 }
 
 /* 空状态 */
@@ -754,12 +754,12 @@ function submitRecord() {
 }
 .empty-title {
   font-size: 16px;
-  color: #909399;
+  color: var(--text-3);
   margin: 12px 0 6px;
 }
 .empty-desc {
   font-size: 13px;
-  color: #c0c4cc;
+  color: var(--text-mute);
 }
 
 /* ===== 设备卡片网格 ===== */
@@ -773,7 +773,7 @@ function submitRecord() {
   flex: 1 1 300px;
   max-width: 400px;
   min-width: 260px;
-  border: 1px solid #e4e7ed;
+  border: 1px solid var(--line);
   border-radius: 12px;
   overflow: hidden;
   cursor: pointer;
@@ -783,12 +783,12 @@ function submitRecord() {
 .equip-card:hover {
   box-shadow: 0 6px 18px rgba(11, 58, 130, 0.12);
   transform: translateY(-2px);
-  border-color: #0b3a82;
+  border-color: var(--accent);
 }
 .equip-photo {
   position: relative;
   height: 150px;
-  background: #f0f2f5;
+  background: var(--bg-sunken);
 }
 .equip-photo img {
   width: 100%;
@@ -811,9 +811,9 @@ function submitRecord() {
   position: absolute;
   right: 10px;
   top: 10px;
-  font-size: 11px;
+  font-size: 11.5px;
   color: #fff;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.55);
   padding: 3px 9px;
   border-radius: 999px;
   display: flex;
@@ -826,10 +826,14 @@ function submitRecord() {
   border-radius: 50%;
   background: currentColor;
 }
-.equip-status.running { color: #67c23a; }
-.equip-status.maintenance { color: #e6a23c; }
-.equip-status.fault { color: #f56c6c; }
-.equip-status.idle { color: #909399; }
+/* 状态色只给圆点，文字保持白色。
+   这块标签压在设备照片上，照片明暗不可控 —— 深色文字会随照片深浅时好时坏，
+   白字压 55% 黑底才是稳定的。原来颜色直接写在 .equip-status 上（文字与圆点共用
+   currentColor），一旦按状态换色文字就跟着变深，等于把标签读没了。 */
+.equip-status.running .status-dot { background: var(--emerald); }
+.equip-status.maintenance .status-dot { background: var(--amber); }
+.equip-status.fault .status-dot { background: var(--danger); }
+.equip-status.idle .status-dot { background: var(--ink-4); }
 .equip-info { padding: 12px 14px 10px; }
 .equip-name-row {
   display: flex;
@@ -840,20 +844,20 @@ function submitRecord() {
 .equip-name {
   font-size: 15px;
   font-weight: 700;
-  color: #111827;
+  color: var(--text-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .equip-model {
   font-size: 12px;
-  color: #8a95a7;
+  color: var(--text-3);
   margin-top: 2px;
 }
 .equip-healthbar { margin-top: 10px; }
 .equip-healthbar-track {
   height: 6px;
-  background: #eef0f3;
+  background: var(--line-2);
   border-radius: 4px;
   overflow: hidden;
 }
@@ -869,7 +873,7 @@ function submitRecord() {
   gap: 8px;
   margin-top: 8px;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--text-3);
 }
 .equip-actions {
   display: flex;
@@ -877,7 +881,7 @@ function submitRecord() {
   gap: 4px;
   margin-top: 6px;
   padding-top: 8px;
-  border-top: 1px solid #f3f4f6;
+  border-top: 1px solid var(--line-2);
 }
 .equip-actions .el-button + .el-button { margin-left: 0; }
 
@@ -891,7 +895,7 @@ function submitRecord() {
   justify-content: space-between;
   gap: 12px;
   padding: 0 4px 12px;
-  border-bottom: 1px solid #e4e7ed;
+  border-bottom: 1px solid var(--line);
   margin-bottom: 12px;
   position: sticky;
   top: 0;
@@ -905,13 +909,13 @@ function submitRecord() {
   gap: 6px;
   font-size: 15px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-1);
 }
 
 .report-toolbar-sub {
   font-size: 11px;
   font-weight: 400;
-  color: #909399;
+  color: var(--text-3);
 }
 
 .report-toolbar-actions {
@@ -926,7 +930,7 @@ function submitRecord() {
 /* 四因子 */
 .factor-hint {
   font-size: 11px;
-  color: #909399;
+  color: var(--text-3);
   font-weight: 400;
 }
 
@@ -939,16 +943,16 @@ function submitRecord() {
 .factor-penalty {
   font-size: 12px;
   font-weight: 700;
-  color: #f56c6c;
+  color: var(--danger);
 }
 
 .factor-penalty.zero {
-  color: #67c23a;
+  color: var(--emerald);
 }
 
 .factor-detail {
   font-size: 11px;
-  color: #909399;
+  color: var(--text-3);
   margin-top: 2px;
 }
 
@@ -964,7 +968,7 @@ function submitRecord() {
   display: flex;
   justify-content: space-between;
   font-size: 10px;
-  color: #c0c4cc;
+  color: var(--text-mute);
   margin-top: 4px;
 }
 
@@ -979,7 +983,7 @@ function submitRecord() {
   gap: 8px;
   padding: 18px 0;
   font-size: 13px;
-  color: #909399;
+  color: var(--text-3);
 }
 
 .detail-header {

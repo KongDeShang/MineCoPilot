@@ -81,7 +81,7 @@
         <el-button link size="small" class="reset-btn" :loading="resetting" @click="resetDemo">
           重置演示数据
         </el-button>
-        <div class="version">v1.1.0 · UI 升级</div>
+        <div class="version">v1.0.0</div>
       </div>
     </el-aside>
 
@@ -347,7 +347,10 @@ async function resetDemo() {
 
 html, body, #app {
   height: 100%;
-  font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  /* 用令牌里的完整字体栈，而不是只写死微软雅黑：
+     令牌里排在前面的 HarmonyOS Sans SC / PingFang SC 在各自的系统上比雅黑清晰，
+     此前这条覆盖把 --font-sans 整个作废了（实测 computed 只剩 Microsoft YaHei）。 */
+  font-family: var(--font-sans);
 }
 
 .landing-wrapper {
@@ -360,7 +363,7 @@ html, body, #app {
 }
 
 .app-aside {
-  background: linear-gradient(180deg, #0b3a82 0%, #072057 100%);
+  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-dark) 100%);
   border-right: 1px solid rgba(255, 255, 255, 0.06);
   overflow-y: auto;
   display: flex;
@@ -379,10 +382,10 @@ html, body, #app {
 .logo-mark {
   width: 36px;
   height: 36px;
-  border-radius: 10px;
+  border-radius: var(--r-sm);
   background: rgba(11, 180, 196, 0.16);
   border: 1px solid rgba(11, 180, 196, 0.35);
-  color: #7de8f2;
+  color: var(--signal-bright);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -393,13 +396,13 @@ html, body, #app {
   font-size: 17px;
   font-weight: 700;
   letter-spacing: 2px;
-  color: #ffffff;
+  color: var(--accent-contrast);
   line-height: 1.2;
 }
 
 .logo-sub {
-  font-size: 10px;
-  color: rgba(255, 255, 255, 0.55);
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.66);
   letter-spacing: 0.5px;
   margin-top: 2px;
 }
@@ -434,12 +437,12 @@ html, body, #app {
   background: transparent;
   border: none;
   outline: none;
-  color: #ffffff;
+  color: var(--accent-contrast);
   font-size: 12.5px;
 }
 
 .nav-search-input::placeholder {
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.55);
 }
 
 /* 分组标题 */
@@ -447,7 +450,9 @@ html, body, #app {
   padding: 12px 16px 4px;
   font-size: 10.5px;
   letter-spacing: 1.5px;
-  color: rgba(255, 255, 255, 0.38);
+  /* 0.38 的白压在 #0b3a82 上只有 2.9:1 —— 组标题是导航的一半信息量，
+     不该是全站最看不清的文字。提到 0.6 后为 4.9:1（顶部）/ 6.3:1（底部）。 */
+  color: rgba(255, 255, 255, 0.6);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -481,18 +486,18 @@ html, body, #app {
 
 .nav-item:hover {
   background: rgba(255, 255, 255, 0.08);
-  color: #ffffff;
+  color: var(--accent-contrast);
 }
 
 .nav-item.active {
   background: rgba(11, 180, 196, 0.14);
-  color: #ffffff;
-  border-left-color: #0bb4c4;
+  color: var(--accent-contrast);
+  border-left-color: var(--signal);
   font-weight: 600;
 }
 
 .nav-item.active .nav-label {
-  color: #ffffff;
+  color: var(--accent-contrast);
 }
 
 .nav-label {
@@ -522,7 +527,7 @@ html, body, #app {
 
 .nav-pin.pinned {
   opacity: 0.75;
-  color: #f5c77e;
+  color: var(--amber-on-dark);
 }
 
 .nav-item:hover .nav-pin {
@@ -531,7 +536,7 @@ html, body, #app {
 
 .nav-item .nav-pin:hover {
   opacity: 1 !important;
-  color: #f5c77e;
+  color: var(--amber-on-dark);
 }
 
 /* 底部 */
@@ -543,7 +548,7 @@ html, body, #app {
 
 .version {
   font-size: 10.5px;
-  color: rgba(255, 255, 255, 0.32);
+  color: rgba(255, 255, 255, 0.58);
   margin-top: 6px;
 }
 
@@ -553,7 +558,7 @@ html, body, #app {
   justify-content: center;
   gap: 6px;
   font-size: 12px;
-  color: #7de8f2;
+  color: var(--signal-bright);
 }
 
 .storage-line {
@@ -563,34 +568,38 @@ html, body, #app {
   gap: 4px;
   margin-top: 8px;
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.5);
+  /* "数据存在本机"是这一页的卖点之一，看不清等于白写 —— 0.5 → 0.62 */
+  color: rgba(255, 255, 255, 0.62);
 }
 
 .reset-btn {
   margin-top: 4px;
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.62);
 }
 
 .reset-btn:hover {
-  color: #f19a98;
+  /* 深底版的悬停提亮：同色相再亮一档，不必为一次 hover 单开令牌 */
+  color: var(--danger-on-dark);
+  filter: brightness(1.15);
 }
 
 .undo-btn {
   margin-top: 6px;
   font-size: 11px;
-  color: #f5c77e;
+  color: var(--amber-on-dark);
 }
 
 .undo-btn:hover {
-  color: #ffd9a3;
+  color: var(--amber-on-dark);
+  filter: brightness(1.15);
 }
 
 .dot-green {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #12a06b;
+  background: var(--emerald);
   box-shadow: 0 0 0 3px rgba(18, 160, 107, 0.25);
   animation: blink 2s ease-in-out infinite;
 }
@@ -604,8 +613,8 @@ html, body, #app {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #fff;
-  border-bottom: 1px solid #e4e7ed;
+  background: var(--chrome-bg);
+  border-bottom: 1px solid var(--line);
   padding: 0 24px;
   height: 56px;
 }

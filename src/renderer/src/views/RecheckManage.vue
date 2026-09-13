@@ -95,7 +95,7 @@ function markSkip(row) {
 .recheck-note {
   margin-top: 12px;
   font-size: 11.5px;
-  color: #8a95a7;
+  color: var(--text-3);
   line-height: 1.7;
 }
 </style>

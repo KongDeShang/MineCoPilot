@@ -328,14 +328,14 @@ function renderEntry(entry) {
   const steps = entry.steps.map(s => `<li>${s}</li>`).join('')
   return [
     `<strong>${entry.title}</strong>`,
-    `<div style="color:#909399;font-size:12px;margin:6px 0 10px">分类：${entry.category} · 来源：${entry.source}</div>`,
+    `<div style="color:var(--text-3);font-size:12px;margin:6px 0 10px">分类：${entry.category} · 来源：${entry.source}</div>`,
     `<div style="margin-bottom:6px">典型现象：${entry.symptoms}</div>`,
     `<div style="margin:8px 0 4px"><strong>可能原因</strong></div><ul style="margin:0;padding-left:18px">${causes}</ul>`,
     `<div style="margin:10px 0 4px"><strong>排查与处置步骤</strong></div><ol style="margin:0;padding-left:18px">${steps}</ol>`,
     entry.caveat
-      ? `<div style="margin-top:10px;padding:6px 10px;background:#fdf6ec;border-radius:6px;color:#b45309;font-size:12px">口径说明：${entry.caveat}</div>`
+      ? `<div style="margin-top:10px;padding:6px 10px;background:var(--amber-soft);border-radius:6px;color:var(--warn-ink);font-size:12px">口径说明：${entry.caveat}</div>`
       : '',
-    `<div style="margin-top:10px;color:#909399;font-size:12px">※ 本条目不给出具体规格数值，扭矩、压力与油品规格一律以随机手册为准。</div>`
+    `<div style="margin-top:10px;color:var(--text-3);font-size:12px">※ 本条目不给出具体规格数值，扭矩、压力与油品规格一律以随机手册为准。</div>`
   ].join('')
 }
 
@@ -396,14 +396,14 @@ function answerEquipmentDetail(store, matched) {
 
   const lines = [
     `<strong>${matched.name}</strong>（${matched.model || '型号未录入'}）`,
-    `<div style="color:#909399;font-size:12px;margin:6px 0 10px">位置：${matched.location || '未录入'} · 类别：${matched.category || '未录入'}</div>`,
+    `<div style="color:var(--text-3);font-size:12px;margin:6px 0 10px">位置：${matched.location || '未录入'} · 类别：${matched.category || '未录入'}</div>`,
     `<ul style="margin:0;padding-left:18px">`,
     `<li>上次维保：<strong>${matched.last_maintenance_date || '无记录'}</strong>${days !== null ? `（${days} 天前）` : ''}</li>`,
     `<li>维保周期：${matched.maintenance_cycle_days} 天</li>`,
     `<li>${until === null
       ? '暂无足够数据判断维保状态'
       : until < 0
-        ? `<span style="color:#f56c6c">已超期 ${-until} 天，建议立即安排</span>`
+        ? `<span style="color:var(--danger-ink)">已超期 ${-until} 天，建议立即安排</span>`
         : `距下次维保还剩 <strong>${until}</strong> 天`}</li>`,
     age !== null ? `<li>设备机龄：约 ${age.toFixed(1)} 年</li>` : '',
     `</ul>`
@@ -417,10 +417,10 @@ function answerEquipmentDetail(store, matched) {
     }
     lines.push('</ul>')
   } else {
-    lines.push('<div style="margin-top:8px;color:#e6a23c">该设备暂无维保记录，建议先建立保养基线。</div>')
+    lines.push('<div style="margin-top:8px;color:var(--warn-ink)">该设备暂无维保记录，建议先建立保养基线。</div>')
   }
   if (until !== null && until < 0) {
-    lines.push('<div style="margin-top:8px;color:#f56c6c">⚠️ 该设备已超期，可在维保日历中一键创建工单。</div>')
+    lines.push('<div style="margin-top:8px;color:var(--danger-ink)">⚠️ 该设备已超期，可在维保日历中一键创建工单。</div>')
   }
   return lines.join('')
 }
@@ -443,18 +443,18 @@ function answerHealth(store, eq) {
 
   for (const factor of health.factors) {
     const sign = factor.penalty > 0 ? `扣 ${factor.penalty} 分` : '不扣分'
-    lines.push(`<li>${factor.name}：${factor.detail} <span style="color:#909399">（${sign}）</span></li>`)
+    lines.push(`<li>${factor.name}：${factor.detail} <span style="color:var(--text-3)">（${sign}）</span></li>`)
   }
   lines.push('</ul>')
 
   if (health.overdueDays !== null && health.overdueDays > 0) {
-    lines.push(`<div style="margin-top:8px;color:#f56c6c">⚠️ 维保已超期 ${health.overdueDays} 天，建议立即安排保养</div>`)
+    lines.push(`<div style="margin-top:8px;color:var(--danger-ink)">⚠️ 维保已超期 ${health.overdueDays} 天，建议立即安排保养</div>`)
   }
   if (eq.status === 'fault') {
-    lines.push('<div style="margin-top:6px;color:#f56c6c">⚠️ 设备当前处于故障状态，建议立即安排检修</div>')
+    lines.push('<div style="margin-top:6px;color:var(--danger-ink)">⚠️ 设备当前处于故障状态，建议立即安排检修</div>')
   }
   if (health.escalateReasons.length) {
-    lines.push(`<div style="margin-top:6px;color:#e6a23c">等级调整依据：${health.escalateReasons.join('；')}</div>`)
+    lines.push(`<div style="margin-top:6px;color:var(--warn-ink)">等级调整依据：${health.escalateReasons.join('；')}</div>`)
   }
 
   if (trend) {
@@ -463,9 +463,9 @@ function answerHealth(store, eq) {
     )
   }
 
-  lines.push(`<div style="margin-top:8px;color:#4b5563">处置建议：${health.conclusion}</div>`)
+  lines.push(`<div style="margin-top:8px;color:var(--text-2)">处置建议：${health.conclusion}</div>`)
   lines.push(
-    `<div style="margin-top:8px;font-size:12px;color:#909399">` +
+    `<div style="margin-top:8px;font-size:12px;color:var(--text-3)">` +
     `以上数字均由本地台账实时计算（共 ${health.factors.length} 个因子，每个因子都带计算式）；` +
     `可在设备台账中一键生成《设备体检报告》查看完整溯源。</div>`
   )
@@ -510,7 +510,7 @@ function answerFromStore(store, question) {
       lines.push(`当前有 <strong>${overdue.length} 台</strong>设备维保已超期：`)
       lines.push('<ol style="margin:6px 0 0;padding-left:20px">')
       for (const eq of overdue) {
-        lines.push(`<li><strong>${eq.name}</strong>（${eq.model}）— 超期 <span style="color:#f56c6c">${eq.overdueDays} 天</span>，上次维保 ${eq.last_maintenance_date}</li>`)
+        lines.push(`<li><strong>${eq.name}</strong>（${eq.model}）— 超期 <span style="color:var(--danger-ink)">${eq.overdueDays} 天</span>，上次维保 ${eq.last_maintenance_date}</li>`)
       }
       lines.push('</ol>')
     } else {
@@ -572,7 +572,7 @@ function answerFromStore(store, question) {
     return [
       `本地台账共 <strong>${stats.equipmentCount}</strong> 台设备：运行中 ${stats.runningCount} 台，维保中 ${stats.maintenanceCount} 台，故障 ${stats.faultCount} 台，闲置 ${stats.idleCount} 台。`,
       `<div style="margin-top:8px">维保超期 ${store.overdueList.length} 台，14 天内到期 ${store.upcomingList.length} 台。</div>`,
-      `<div style="margin-top:8px;color:#909399;font-size:12px">以上数字均由本地台账实时计算，未上传任何数据。</div>`
+      `<div style="margin-top:8px;color:var(--text-3);font-size:12px">以上数字均由本地台账实时计算，未上传任何数据。</div>`
     ].join('')
   }
 
@@ -599,7 +599,7 @@ function answerComparison(store, q, explicitEquipment) {
       const maintenance = store.getMaintenanceByEquipmentId(eq.id)
       const faultOrders = orders.filter(o => o.type === 'repair' && o.status === 'completed')
       const trend = store.getTrend ? store.getTrend(eq.id) : null
-      return `<div style="flex:1;min-width:180px;padding:12px;background:#f5f7fa;border-radius:8px;border:1px solid #e4e7ed">` +
+      return `<div style="flex:1;min-width:180px;padding:12px;background:var(--line-2);border-radius:8px;border:1px solid var(--line)">` +
         `<div style="font-weight:700;margin-bottom:8px">${eq.name}</div>` +
         `<div>健康分：<strong style="color:${health.color}">${health.score}</strong>（${health.level} ${health.levelLabel}）</div>` +
         `<div>工单数：${orders.length}（故障 ${faultOrders.length}）</div>` +
@@ -608,7 +608,7 @@ function answerComparison(store, q, explicitEquipment) {
         (trend ? `<div>趋势：<span style="color:${trend.color}">${trend.label}</span></div>` : '') +
         `</div>`
     }).join('')
-      + `<div style="margin-top:12px;padding:8px 12px;background:#ecf5ff;border-radius:6px;font-size:13px;color:#1d4ed8">` +
+      + `<div style="margin-top:12px;padding:8px 12px;background:var(--accent-soft);border-radius:6px;font-size:13px;color:var(--accent)">` +
       `<strong>📊 AI 对比结论：</strong>` +
       (() => {
         const sorted = [...eqs].sort((a, b) => evaluateHealth(b).score - evaluateHealth(a).score)
@@ -659,29 +659,29 @@ function answerRanking(store, q) {
   const lines = [
     `<div style="margin-bottom:8px">按<strong>${metricLabel}</strong>${isAscending ? '从低到高' : '从高到低'}排列的 TOP${limit} 设备：</div>`,
     '<table style="width:100%;border-collapse:collapse;font-size:13px">',
-    '<tr style="background:#f5f7fa"><th style="padding:6px 8px;text-align:left;border-bottom:1px solid #e4e7ed">排名</th>',
-    '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid #e4e7ed">设备</th>',
-    '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid #e4e7ed">型号</th>',
-    '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid #e4e7ed">工单数</th>',
-    '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid #e4e7ed">故障数</th>',
-    '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid #e4e7ed">故障率</th>',
-    '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid #e4e7ed">健康分</th></tr>'
+    '<tr style="background:var(--line-2)"><th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--line)">排名</th>',
+    '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--line)">设备</th>',
+    '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--line)">型号</th>',
+    '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--line)">工单数</th>',
+    '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--line)">故障数</th>',
+    '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--line)">故障率</th>',
+    '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--line)">健康分</th></tr>'
   ]
   for (let i = 0; i < top.length; i++) {
     const s = top[i]
     const healthColor = levelMeta(s.healthLevel).color
     lines.push(
-      `<tr><td style="padding:6px 8px;border-bottom:1px solid #ebeef5">${i + 1}</td>` +
-      `<td style="padding:6px 8px;border-bottom:1px solid #ebeef5;font-weight:600">${s.name}</td>` +
-      `<td style="padding:6px 8px;border-bottom:1px solid #ebeef5;color:#909399">${s.model || '-'}</td>` +
-      `<td style="padding:6px 8px;text-align:center;border-bottom:1px solid #ebeef5">${s.orderCount}</td>` +
-      `<td style="padding:6px 8px;text-align:center;border-bottom:1px solid #ebeef5">${s.faultCount}</td>` +
-      `<td style="padding:6px 8px;text-align:center;border-bottom:1px solid #ebeef5;color:${s.faultRate > 30 ? '#f56c6c' : '#303133'}">${s.faultRate}%</td>` +
-      `<td style="padding:6px 8px;text-align:center;border-bottom:1px solid #ebeef5;color:${healthColor};font-weight:700">${s.healthScore}</td></tr>`
+      `<tr><td style="padding:6px 8px;border-bottom:1px solid var(--line-2)">${i + 1}</td>` +
+      `<td style="padding:6px 8px;border-bottom:1px solid var(--line-2);font-weight:600">${s.name}</td>` +
+      `<td style="padding:6px 8px;border-bottom:1px solid var(--line-2);color:var(--text-3)">${s.model || '-'}</td>` +
+      `<td style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--line-2)">${s.orderCount}</td>` +
+      `<td style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--line-2)">${s.faultCount}</td>` +
+      `<td style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--line-2);color:${s.faultRate > 30 ? 'var(--danger-ink)' : 'var(--text-1)'}">${s.faultRate}%</td>` +
+      `<td style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--line-2);color:${healthColor};font-weight:700">${s.healthScore}</td></tr>`
     )
   }
   lines.push('</table>')
-  lines.push('<div style="margin-top:8px;color:#909399;font-size:12px">以上数字均来自本地工单与维保记录实时统计。</div>')
+  lines.push('<div style="margin-top:8px;color:var(--text-3);font-size:12px">以上数字均来自本地工单与维保记录实时统计。</div>')
   return lines.join('')
 }
 
@@ -709,27 +709,27 @@ function answerCategoryStats(store, q) {
   const lines = [
     '<div style="margin-bottom:10px">各设备类别综合表现对比：</div>',
     '<table style="width:100%;border-collapse:collapse;font-size:13px">',
-    '<tr style="background:#f5f7fa">',
-    '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid #e4e7ed">类别</th>',
-    '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid #e4e7ed">数量</th>',
-    '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid #e4e7ed">平均健康分</th>',
-    '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid #e4e7ed">总工单数</th>',
-    '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid #e4e7ed">故障率</th></tr>'
+    '<tr style="background:var(--line-2)">',
+    '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--line)">类别</th>',
+    '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--line)">数量</th>',
+    '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--line)">平均健康分</th>',
+    '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--line)">总工单数</th>',
+    '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--line)">故障率</th></tr>'
   ]
   for (const r of rows) {
     // 平均健康分同样走系统可调的阈值，不再写死 85/70/55
     const color = levelMeta(levelOf(r.avgHealth)).color
     lines.push(
-      `<tr><td style="padding:6px 8px;border-bottom:1px solid #ebeef5;font-weight:600">${r.category}</td>` +
-      `<td style="padding:6px 8px;text-align:center;border-bottom:1px solid #ebeef5">${r.count} 台</td>` +
-      `<td style="padding:6px 8px;text-align:center;border-bottom:1px solid #ebeef5;color:${color};font-weight:700">${r.avgHealth}</td>` +
-      `<td style="padding:6px 8px;text-align:center;border-bottom:1px solid #ebeef5">${r.totalOrders}</td>` +
-      `<td style="padding:6px 8px;text-align:center;border-bottom:1px solid #ebeef5">${r.faultRate}%</td></tr>`
+      `<tr><td style="padding:6px 8px;border-bottom:1px solid var(--line-2);font-weight:600">${r.category}</td>` +
+      `<td style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--line-2)">${r.count} 台</td>` +
+      `<td style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--line-2);color:${color};font-weight:700">${r.avgHealth}</td>` +
+      `<td style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--line-2)">${r.totalOrders}</td>` +
+      `<td style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--line-2)">${r.faultRate}%</td></tr>`
     )
   }
   lines.push('</table>')
   if (rows.length > 1) {
-    lines.push(`<div style="margin-top:10px;padding:8px 12px;background:#ecf5ff;border-radius:6px;font-size:13px;color:#1d4ed8">` +
+    lines.push(`<div style="margin-top:10px;padding:8px 12px;background:var(--accent-soft);border-radius:6px;font-size:13px;color:var(--accent)">` +
       `<strong>📊 AI 分析：</strong>${rows[0].category}类设备表现最优（平均健康分 ${rows[0].avgHealth}），` +
       `${rows[rows.length - 1].category}类最需关注（平均 ${rows[rows.length - 1].avgHealth} 分，故障率 ${rows[rows.length - 1].faultRate}%）。` +
       `</div>`)
@@ -763,7 +763,7 @@ function answerMaintenanceStats(store, q) {
     const latest = allRecords.sort((a, b) => String(b.date).localeCompare(String(a.date)))[0]
     lines.push(`<div style="margin-top:8px">最近一次维保：${latest.date} · ${latest.type} · ${latest.description || '无描述'}</div>`)
   }
-  lines.push('<div style="margin-top:8px;color:#909399;font-size:12px">以上统计基于本地维保记录实时计算。</div>')
+  lines.push('<div style="margin-top:8px;color:var(--text-3);font-size:12px">以上统计基于本地维保记录实时计算。</div>')
   return lines.join('')
 }
 
@@ -782,7 +782,7 @@ function answerWorsening(store) {
     lines.push(`<li><strong>${item.name}</strong>（${item.model}）— 健康分 <span style="color:${item.trend.color}">${snapText}</span>，${item.trend.summary}</li>`)
   }
   lines.push('</ol>')
-  lines.push('<div style="margin-top:10px;padding:8px 12px;background:#fef0f0;border-radius:6px;color:#f56c6c;font-size:13px">' +
+  lines.push('<div style="margin-top:10px;padding:8px 12px;background:var(--danger-soft);border-radius:6px;color:var(--danger-ink);font-size:13px">' +
     '<strong>⚠️ 建议：</strong>健康分连续下降通常意味着设备正在恶化，建议尽快安排全面检修，避免趴窝停机。</div>')
   return lines.join('')
 }
@@ -810,7 +810,7 @@ export function answerQuestion(store, question, items = KNOWLEDGE_BASE) {
   if (hits.length) {
     const html = hits.map((hit, index) => {
       const block = renderEntry(hit.entry)
-      return index === 0 ? block : `<div style="margin-top:14px;padding-top:12px;border-top:1px dashed #e4e7ed">${block}</div>`
+      return index === 0 ? block : `<div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)">${block}</div>`
     }).join('')
     return {
       html,
@@ -826,7 +826,7 @@ export function answerQuestion(store, question, items = KNOWLEDGE_BASE) {
       `本地知识库中没有检索到与「${escapeHtml(question)}」直接匹配的条目。`,
       `<div style="margin-top:8px">当前本地维保知识库覆盖：<strong>${categories.join('、')}</strong>，共 ${source.length} 条可溯源规程。</div>`,
       `<div style="margin-top:8px">你可以换一种说法，或直接问某台设备的型号、位置、上次维保时间、健康状况与超期情况。</div>`,
-      `<div style="margin-top:10px;color:#909399;font-size:12px">说明：系统不会编造答案。未命中时明确告知"查不到"，这也是矿山现场需要的可审计 AI。</div>`
+      `<div style="margin-top:10px;color:var(--text-3);font-size:12px">说明：系统不会编造答案。未命中时明确告知"查不到"，这也是矿山现场需要的可审计 AI。</div>`
     ].join(''),
     source: 'none',
     refs: []

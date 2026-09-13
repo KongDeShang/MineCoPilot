@@ -289,7 +289,7 @@ function renderFactorRow(factor) {
 }
 
 function renderRiskItem(item) {
-  const colors = { high: '#f56c6c', medium: '#e6a23c', low: '#909399' }
+  const colors = { high: 'var(--danger)', medium: 'var(--amber)', low: 'var(--ink-4)' }
   return `
     <tr>
       <td><span class="hr-dot" style="background:${colors[item.level]}"></span>${escapeHtml(item.title)}</td>

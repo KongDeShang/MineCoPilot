@@ -183,7 +183,7 @@ function quickPickType(q) {
 
 .quick-label {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-3);
 }
 
 .quick-tag {
@@ -193,24 +193,24 @@ function quickPickType(q) {
 }
 
 .quick-tag:hover {
-  background: #ecf5ff;
-  border-color: #409eff;
-  color: #409eff;
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* 口述录入的用法提示（紧跟在示例标签下方，一句话说清怎么用） */
 .cmd-tip {
   margin-top: 10px;
   padding: 8px 12px;
-  background: #fffbf0;
-  border: 1px solid #ffe0a3;
+  background: var(--amber-soft);
+  border: 1px solid var(--amber-line);
   border-radius: 8px;
   font-size: 12px;
   line-height: 1.7;
-  color: #8a6d3b;
+  color: var(--warn-ink);
 }
 
 .cmd-tip strong {
-  color: #b45309;
+  color: var(--warn-ink);
 }
 </style>
