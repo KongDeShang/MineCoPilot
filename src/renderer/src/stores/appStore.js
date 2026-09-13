@@ -16,13 +16,14 @@ import {
 } from '../utils/dates'
 import { buildDemoDataset, auditDataset, DEFAULT_FLEET_SIZE } from '../utils/fleetData'
 import { evaluateHealth, evaluateTrend, computeOverdueDays as healthComputeOverdueDays,
-  configureHealth, resetHealthConfig, DAILY_OUTPUT_LOSS } from '../utils/health'
+  resetHealthConfig } from '../utils/health'
 import { buildFaultStats } from '../utils/faultStats'
 import { buildDefaultKnowledge, extractKnowledgeFromOrders } from '../utils/knowledgeBase'
 import { createNlActions } from './nlActions'
 import { createPersistence } from './persistence'
 import { createPartsDomain } from './partsDomain'
 import { createDocumentDomain } from './documentDomain'
+import { createSettingsDomain } from './settingsDomain'
 
 // 界面文案字典（设备/工单状态、优先级、类型、维保类型样式）统一放在 utils/dictionaries.js。
 // 这里只做转发，不保留第二份实现 —— 之前那份躺在这里，一个页面都没用上。
@@ -161,99 +162,19 @@ export const useAppStore = defineStore('app', () => {
     persistAll, scheduleSave, saveNow, hydrateFromDb, applySeedData
   } = persistence
 
-  // ---------- 演示参数设置（可审计：所有估算口径可在系统设置中调整并落盘） ----------
+  // ---------- 演示参数设置 / meta / 告警处置 ----------
   const settings = ref(null)
 
-  const defaultSettings = () => ({
-    dailyOutputLoss: { ...DAILY_OUTPUT_LOSS },
-    riskFactor: { A: 0.1, B: 0.3, C: 0.5, D: 0.7 },
-    bounds: { A: 85, B: 70, C: 55 },
-    llmEnabled: true
+  // 领域逻辑在 stores/settingsDomain.js。三者的共同点是"存在库的 meta 表里、
+  // 不属于任何业务实体"。这里建在持久化层之后——scheduleSave 已经就绪；
+  // addLog 是函数声明（提升），当成闭包传进去即可。
+  const {
+    defaultSettings, loadSettings, updateSettings, resetSettings,
+    getAlertDispositions, setAlertDispositions, clearAlertDispositions
+  } = createSettingsDomain({
+    settings, dbReady, scheduleSave,
+    addLog: (...args) => addLog(...args)
   })
-
-  function applySettings(cfg) {
-    if (!cfg) return
-    configureHealth({
-      dailyOutputLoss: cfg.dailyOutputLoss,
-      riskFactor: cfg.riskFactor,
-      bounds: cfg.bounds
-    })
-  }
-
-  /** 从本地库 meta 恢复设置（启动时调用） */
-  function loadSettings() {
-    try {
-      const raw = db.getMeta('app_settings')
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        settings.value = { ...defaultSettings(), ...parsed, dailyOutputLoss: { ...DAILY_OUTPUT_LOSS, ...(parsed.dailyOutputLoss || {}) } }
-        applySettings(settings.value)
-        return
-      }
-    } catch (error) {
-      console.warn('[设置] 读取失败，使用默认参数：', error)
-    }
-    settings.value = defaultSettings()
-  }
-
-  /** 更新设置并立即生效（健康分/停机损失/等级分档全部实时重算） */
-  function updateSettings(patch) {
-    if (!settings.value) settings.value = defaultSettings()
-    settings.value = {
-      ...settings.value,
-      ...(patch.dailyOutputLoss ? { dailyOutputLoss: { ...settings.value.dailyOutputLoss, ...patch.dailyOutputLoss } } : {}),
-      ...(patch.riskFactor ? { riskFactor: { ...settings.value.riskFactor, ...patch.riskFactor } } : {}),
-      ...(patch.bounds ? { bounds: { ...settings.value.bounds, ...patch.bounds } } : {})
-    }
-    applySettings(settings.value)
-    setMetaSafe('app_settings', JSON.stringify(settings.value))
-    scheduleSave()
-    addLog({ content: '更新演示参数设置（日产出/风险系数/健康分档）', source: '设置', type: 'info', tagType: 'info' })
-  }
-
-  /** 恢复默认演示参数 */
-  function resetSettings() {
-    resetHealthConfig()
-    settings.value = defaultSettings()
-    setMetaSafe('app_settings', JSON.stringify(settings.value))
-    scheduleSave()
-    addLog({ content: '恢复默认演示参数', source: '设置', type: 'info', tagType: 'info' })
-  }
-
-  // ---------- 告警处置记录 ----------
-  //
-  // 为什么从 localStorage 搬到本地库 meta：
-  //   1) 备份包（.mbak）只带数据库字节 + 聊天记录，放 localStorage 的处置记录换机就丢了，
-  //      新电脑上已处理的告警会"复活"，与"数据全带走"的说法不一致；
-  //   2) 「重置演示数据」清库时无法一并清除，导致重置后告警仍是已处理状态。
-  const ALERT_DONE_META_KEY = 'alert_done'
-
-  function getAlertDispositions() {
-    try {
-      const raw = db.getMeta(ALERT_DONE_META_KEY)
-      const parsed = raw ? JSON.parse(raw) : null
-      return parsed && typeof parsed === 'object' ? parsed : {}
-    } catch (error) {
-      console.warn('[告警] 处置记录读取失败，按未处理处理：', error)
-      return {}
-    }
-  }
-
-  function setAlertDispositions(map) {
-    setMetaSafe(ALERT_DONE_META_KEY, JSON.stringify(map || {}))
-    scheduleSave()
-  }
-
-  function clearAlertDispositions() {
-    setMetaSafe(ALERT_DONE_META_KEY, '{}')
-    scheduleSave()
-  }
-
-  /** 写 meta：数据库不可用（纯内存演示）时静默跳过，不打断用户操作 */
-  function setMetaSafe(key, value) {
-    if (!dbReady.value) return
-    db.setMeta(key, value)
-  }
 
   /**
    * 启动时调用：打开本地数据库 → 有数据就恢复，没有就写入演示数据
