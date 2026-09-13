@@ -397,8 +397,18 @@ function applyQuery() {
   router.replace({ path: '/workorder' })
 }
 
-onMounted(applyQuery)
+/** 支持从全局搜索结果直接跳进来并打开那一条工单（否则用户跳过来还得自己再找一遍） */
+function applyFocusQuery() {
+  const id = route.query.focus
+  if (!id) return
+  const hit = store.workOrders.find(o => String(o.id) === String(id))
+  if (hit) openDetail(hit)
+  router.replace({ path: '/workorder' })
+}
+
+onMounted(() => { applyQuery(); applyFocusQuery() })
 watch(() => route.query.new, applyQuery)
+watch(() => route.query.focus, applyFocusQuery)
 
 // ---------- 标签映射 ----------
 function typeLabel(type) {

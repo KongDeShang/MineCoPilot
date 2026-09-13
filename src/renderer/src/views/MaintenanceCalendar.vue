@@ -98,13 +98,14 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAppStore } from '../stores/appStore'
 import { dueDate, daysUntilDue } from '../utils/dates'
 
 const store = useAppStore()
+const route = useRoute()
 const router = useRouter()
 const weekdays = ['日', '一', '二', '三', '四', '五', '六']
 
@@ -250,6 +251,30 @@ function selectDate(cell) {
     : `${currentYear.value}-${String(currentMonth.value).padStart(2, '0')}-${String(cell.day).padStart(2, '0')}`
   selectedDate.value = { dateStr, events: cell.events }
 }
+
+/**
+ * 支持从全局搜索结果直达：跳到该设备的应保养月份并选中那一天。
+ * 不做这一步的话，用户搜到一条记录点进来，只会看到"当月"的日历，
+ * 而目标设备的到期日可能在好几个月之后 —— 等于什么都没定位到。
+ */
+function applyFocusQuery() {
+  const name = route.query.focus
+  if (!name) return
+  const target = maintenanceSchedule.value.find(s => s.equipment === String(name))
+  router.replace({ path: '/maintenance-calendar' })
+  if (!target || !target.dueDate) return
+  const [y, m] = String(target.dueDate).split('-').map(Number)
+  if (!y || !m) return
+  currentYear.value = y
+  currentMonth.value = m
+  selectedDate.value = {
+    dateStr: target.dueDate,
+    events: maintenanceSchedule.value.filter(s => s.dueDate === target.dueDate)
+  }
+}
+
+onMounted(applyFocusQuery)
+watch(() => route.query.focus, applyFocusQuery)
 
 /** 一键把维保计划变成工单，带到工单页并自动预填 */
 function createWorkOrder(event) {

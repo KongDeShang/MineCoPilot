@@ -570,6 +570,44 @@ async function main() {
     })()`)
     check('钉住常用：可钉入"常用"区并还原', navPin.ok, JSON.stringify(navPin))
 
+    // ---------- 7c. 顶栏全局搜索：正则元字符不能把页面炸掉 ----------
+    // 搜索词直接拼进 new RegExp，输入 "(" 这类字符会抛 Invalid regular expression；
+    // 而高亮是在模板渲染里调的，一抛就是整页白屏 —— 当时验收全绿也没发现。
+    await session.goto(`${BASE}/#/dashboard`, 2400)
+    const regexSearch = await session.eval(`(async () => {
+      const input = document.querySelector('.global-search .el-input__inner')
+      if (!input) return { ok: false, reason: '找不到顶栏搜索框' }
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+      const type = async (text) => {
+        setter.call(input, text)
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        await new Promise(r => setTimeout(r, 350))
+      }
+      const results = {}
+      for (const bad of ['(', '[', '*', '\\\\', '?', 'a(b']) {
+        await type(bad)
+        results[bad] = {
+          panelAlive: !!document.querySelector('.search-panel'),
+          // 页面还在渲染 = 没白屏
+          pageAlive: !!document.querySelector('.global-search')
+        }
+      }
+      // 正常词仍要能搜到东西，别为了不崩就干脆不工作
+      await type('挖掘机')
+      const items = document.querySelectorAll('.search-item').length
+      // 高亮不能把 HTML 注入进去
+      await type('<img src=x onerror=alert(1)>')
+      const injected = document.querySelectorAll('.search-panel img').length
+      await type('')
+      return { ok: true, results, items, injected }
+    })()`)
+    const regexBad = Object.entries(regexSearch.results || {})
+    check('顶栏搜索输入正则元字符不白屏（( [ * \\\\ ? 等）',
+      regexSearch.ok && regexBad.length > 0 && regexBad.every(([, r]) => r.pageAlive),
+      JSON.stringify(regexSearch.results))
+    check('顶栏搜索正常词仍能搜到结果', regexSearch.items > 0, `命中 ${regexSearch.items} 条`)
+    check('顶栏搜索不会把输入当 HTML 注入', regexSearch.injected === 0, `注入 img=${regexSearch.injected}`)
+
     // ---------- 8. 知识库管理页：新增条目即时生效（验收 #14） ----------
     await session.goto(`${BASE}/#/knowledge-base`, 2400)
     const kbFlow = await session.eval(`(async () => {

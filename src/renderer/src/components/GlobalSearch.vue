@@ -62,8 +62,11 @@ const statusMap = { running: '运行中', idle: '闲置', maintenance: '维保�
 const priorityMap = { urgent: '紧急', high: '高', normal: '普通', low: '低' }
 const orderStatusMap = { pending: '待处理', processing: '处理中', completed: '已完成' }
 
+/** 统一转小写并压成字符串：台账字段可能缺失（如 technician 未填），直接 .includes 会抛 */
+const lower = (value) => String(value ?? '').toLowerCase()
+
 const searchResults = computed(() => {
-  const keyword = searchText.value.toLowerCase()
+  const keyword = lower(searchText.value.trim())
   if (!keyword) return []
 
   const allMaintenance = []
@@ -79,33 +82,37 @@ const searchResults = computed(() => {
       title: '设备',
       icon: 'SetUp',
       items: store.equipmentList
-        .filter(e => e.name.toLowerCase().includes(keyword) || e.model.toLowerCase().includes(keyword) || e.location.includes(keyword))
+        .filter(e => lower(e.name).includes(keyword) || lower(e.model).includes(keyword) || lower(e.location).includes(keyword))
         .map(e => ({
           title: `${e.name} (${e.model})`,
           meta: `${e.location} · ${statusMap[e.status] || e.status}`,
-          route: '/equipment'
+          route: '/equipment',
+          // 复用设备台账已有的 ?id= 直达画像，而不是跳到列表让用户自己再找一遍
+          focus: { path: '/equipment', query: { id: String(e.id) } }
         }))
     },
     {
       title: '工单',
       icon: 'EditPen',
       items: store.workOrders
-        .filter(o => o.title.includes(keyword) || o.equipment_name.includes(keyword))
+        .filter(o => lower(o.title).includes(keyword) || lower(o.equipment_name).includes(keyword))
         .map(o => ({
           title: `#${o.id} ${o.title}`,
-          meta: `${o.equipment_name} · ${orderStatusMap[o.status]} · ${priorityMap[o.priority]}`,
-          route: '/workorder'
+          meta: `${o.equipment_name} · ${orderStatusMap[o.status] || o.status} · ${priorityMap[o.priority] || o.priority}`,
+          route: '/workorder',
+          focus: { path: '/workorder', query: { focus: String(o.id) } }
         }))
     },
     {
       title: '维保记录',
       icon: 'Calendar',
       items: allMaintenance
-        .filter(m => m.equipment.includes(keyword) || m.description.includes(keyword) || m.technician.includes(keyword))
+        .filter(m => lower(m.equipment).includes(keyword) || lower(m.description).includes(keyword) || lower(m.technician).includes(keyword))
         .map(m => ({
-          title: `${m.equipment} - ${m.typeLabel}`,
-          meta: `${m.date} · ${m.technician}`,
-          route: '/maintenance-calendar'
+          title: `${m.equipment} - ${m.typeLabel || m.type || '维保'}`,
+          meta: `${m.date} · ${m.technician || '未填'} · ${m.description || ''}`,
+          route: '/maintenance-calendar',
+          focus: { path: '/maintenance-calendar', query: { focus: m.equipment } }
         }))
     }
   ]
@@ -119,14 +126,27 @@ function doSearch() {
   showPanel.value = searchText.value.length > 0
 }
 
+/** 正则元字符转义：搜索框直接吃用户输入，( [ * \ 这些字符会让 new RegExp 抛
+ *  Invalid regular expression，而 highlight 是在模板渲染里调的 —— 一抛就是整页白屏。 */
+function escapeRegExp(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 function highlight(text) {
-  if (!searchText.value) return text
-  const regex = new RegExp(`(${searchText.value})`, 'gi')
-  return text.replace(regex, '<span class="highlight">$1</span>')
+  const keyword = searchText.value.trim()
+  if (!keyword) return text
+  // 再兜一层 try/catch：万一还有转义覆盖不到的情况，退化成不高亮，而不是把页面炸掉
+  try {
+    const regex = new RegExp(`(${escapeRegExp(keyword)})`, 'gi')
+    return text.replace(regex, '<span class="highlight">$1</span>')
+  } catch {
+    return text
+  }
 }
 
 function navigateTo(item) {
-  router.push(item.route)
+  // 优先带上定位参数：跳到目标页并直接打开/高亮那一条，而不是丢用户在列表里自己找
+  router.push(item.focus || item.route)
   showPanel.value = false
   searchText.value = ''
 }
