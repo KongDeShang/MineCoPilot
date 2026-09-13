@@ -620,6 +620,124 @@ async function main() {
     // 说明：口述录入（自然语言→结构化写入）的端到端验收已拆分到独立文件，
     // 由 scripts/e2e-nl.mjs 承载（npm run e2e:nl），覆盖率更全且避免单文件过长。
 
+    // ---------- 9. 备件扣减链：记录里写了换件 → 库存必须真的减 ----------
+    // 这条链曾经静默失效：维保记录里的件名（"机油+三滤套装"）与备件台账的标准件名
+    // （"机油滤芯"）对不上，consumePartsFromText 匹配不到就 continue，
+    // 结果是"记录里明明换了件，库存分文未动"，而且不报错、界面上看不出来。
+    const PART_NAME = '液压油46号'
+
+    /** 读某备件的当前库存（从台账行文本里取"库存"那一格） */
+    const readStockExpr = `(() => {
+      const row = Array.from(document.querySelectorAll('.el-table__row'))
+        .find(r => r.textContent.includes(${JSON.stringify(PART_NAME)}))
+      if (!row) return null
+      const cell = row.querySelector('.stock-ok, .stock-low')
+      return cell ? Number(cell.textContent.trim()) : null
+    })()`
+
+    await session.goto(`${BASE}/#/parts-inventory`, 2600)
+    const stockBefore = await session.eval(readStockExpr)
+
+    // 去设备台账，给第一台设备记一条"带配件"的维保
+    await session.goto(`${BASE}/#/equipment`, 2600)
+    const recorded = await session.eval(`(async () => {
+      const btn = Array.from(document.querySelectorAll('.equip-actions button')).find(b => /记录维保/.test(b.textContent))
+      if (!btn) return { ok: false, reason: '找不到记录维保按钮' }
+      btn.click()
+      await new Promise(r => setTimeout(r, 600))
+      const dlg = document.querySelector('.el-dialog')
+      if (!dlg) return { ok: false, reason: '维保对话框未打开' }
+      const setVal = (el, val) => {
+        const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype
+        Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, val)
+        el.dispatchEvent(new Event('input', { bubbles: true }))
+      }
+      const byPh = (ph) => Array.from(dlg.querySelectorAll('input, textarea')).find(e => e.placeholder && e.placeholder.includes(ph))
+      const desc = byPh('更换液压油')
+      const parts = byPh('液压油46号 200L')
+      if (!desc || !parts) return { ok: false, reason: '找不到维保内容或领用备件输入框' }
+      setVal(desc, '更换液压油及液压油滤芯，检查液压系统压力')
+      setVal(parts, ${JSON.stringify(PART_NAME)})
+      await new Promise(r => setTimeout(r, 300))
+      const save = Array.from(dlg.querySelectorAll('button')).find(b => /保存|确定|提交/.test(b.textContent))
+      if (!save) return { ok: false, reason: '找不到保存按钮' }
+      save.click()
+      await new Promise(r => setTimeout(r, 1600))
+      // 以"弹出的是成功提示"为准：只点了按钮不算数
+      const toasts = Array.from(document.querySelectorAll('.el-message')).map(e => e.textContent.trim())
+      return { ok: true, saved: toasts.some(t => /已为.*记录维保/.test(t)), toasts }
+    })()`)
+    check('设备台账可记录一条带配件的维保', recorded.ok && recorded.saved === true, JSON.stringify(recorded).slice(0, 200))
+
+    await session.goto(`${BASE}/#/parts-inventory`, 2600)
+    const stockAfter = await session.eval(readStockExpr)
+    check('记录维保后对应备件库存真的扣减了 1 件',
+      typeof stockBefore === 'number' && typeof stockAfter === 'number' && stockAfter === stockBefore - 1,
+      `${PART_NAME}：${stockBefore} → ${stockAfter}`)
+
+    // 流水里能查到这次领用（不是只改了数字，而是留了痕）
+    const flow = await session.eval(`(async () => {
+      const row = Array.from(document.querySelectorAll('.el-table__row'))
+        .find(r => r.textContent.includes(${JSON.stringify(PART_NAME)}))
+      if (!row) return { ok: false, reason: '找不到备件行' }
+      const btn = Array.from(row.querySelectorAll('button')).find(b => /流水/.test(b.textContent))
+      if (!btn) return { ok: false, reason: '找不到流水按钮' }
+      btn.click()
+      await new Promise(r => setTimeout(r, 900))
+      const dlg = document.querySelector('.el-dialog')
+      const rows = Array.from((dlg || document).querySelectorAll('.el-table__row')).map(r => r.textContent.replace(/\\s+/g, ' ').trim())
+      const texts = (dlg || document).textContent
+      return { ok: /领用|出库/.test(texts), rows: rows.length }
+    })()`)
+    check('备件流水留下领用记录（扣减可追溯）', flow.ok === true, JSON.stringify(flow).slice(0, 160))
+
+    // ---------- 10. 操作日志：写入留痕 + 刷新仍在 ----------
+    // 日志此前只活在内存里，刷新即清空，"全量留痕"名不副实。
+    await session.goto(`${BASE}/#/logs`, 2600)
+    const logsBefore = await session.eval(`(() => {
+      const items = Array.from(document.querySelectorAll('.log-content')).map(e => e.textContent.trim())
+      return { count: items.length, hasMaintenance: items.some(t => /记录维保/.test(t)) }
+    })()`)
+    check('操作日志页能看到刚才那次维保记录', logsBefore.hasMaintenance === true, JSON.stringify(logsBefore))
+
+    await session.goto(`${BASE}/#/logs`, 2600)
+    const logsReloaded = await session.eval(`(() => {
+      const items = Array.from(document.querySelectorAll('.log-content')).map(e => e.textContent.trim())
+      return { count: items.length, hasMaintenance: items.some(t => /记录维保/.test(t)) }
+    })()`)
+    check('刷新后操作日志仍在（日志已真正落库，不只在内存）',
+      logsReloaded.hasMaintenance === true && logsReloaded.count === logsBefore.count,
+      `刷新前 ${logsBefore.count} 条 / 刷新后 ${logsReloaded.count} 条`)
+
+    // ---------- 10b. 告警处置：标记后刷新仍在 ----------
+    // 处置状态此前存在 localStorage，导入/重置后与库里的数据对不上。
+    await session.goto(`${BASE}/#/alert-center`, 2800)
+    const alertMarked = await session.eval(`(async () => {
+      const before = document.querySelectorAll('.alert-row').length
+      const btn = Array.from(document.querySelectorAll('.alert-actions button')).find(b => /标记已处理/.test(b.textContent))
+      if (!btn) return { ok: false, reason: '找不到标记已处理按钮', before }
+      btn.click()
+      await new Promise(r => setTimeout(r, 1200))
+      return {
+        ok: true,
+        before,
+        after: document.querySelectorAll('.alert-row').length,
+        dashText: (document.querySelector('.alert-dash') || {}).textContent || ''
+      }
+    })()`)
+    check('告警中心：标记已处理后该条从列表移除',
+      alertMarked.ok && alertMarked.after === alertMarked.before - 1,
+      JSON.stringify(alertMarked).slice(0, 200))
+
+    await session.goto(`${BASE}/#/alert-center`, 2800)
+    const alertReloaded = await session.eval(`(() => ({
+      rows: document.querySelectorAll('.alert-row').length,
+      dashText: (document.querySelector('.alert-dash') || {}).textContent || ''
+    }))()`)
+    check('刷新后处置状态仍在（告警处置已随库持久化）',
+      alertReloaded.rows === alertMarked.after,
+      `刷新前 ${alertMarked.after} 行 / 刷新后 ${alertReloaded.rows} 行`)
+
     // ---------- 11. 重置演示数据仍可用 ----------
     await session.goto(`${BASE}/#/dashboard`, 2400)
     const reset = await session.eval(`(async () => {
