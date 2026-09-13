@@ -267,10 +267,17 @@ function check(name, condition, detail = '') {
   // 列建好了却永远写不进去，重启后归档标记全丢 —— 「完成 → 退回处理中 → 再完成」
   // 于是又把病历/快照/复诊/案例卡重做一遍。同一会话内一切正常，所以行为测试抓不到，
   // 只能对源码做结构校验。
-  const source = readFileSync(join(root, 'src/renderer/src/stores/appStore.js'), 'utf8')
+  // 行映射集中在 stores/persistence.js；appStore 也一起扫，
+  // 免得哪天有人图省事又在 store 里就地拼一份映射，从这道检查底下溜过去。
+  const SOURCES = ['src/renderer/src/stores/persistence.js', 'src/renderer/src/stores/appStore.js']
+    .map(rel => ({ rel, code: readFileSync(join(root, rel), 'utf8') }))
+
   const bodyOf = (name) => {
-    const m = source.match(new RegExp(`function ${name}\\(\\)\\s*\\{([\\s\\S]*?)\\n  \\}`))
-    return m ? m[1] : ''
+    for (const { code } of SOURCES) {
+      const m = code.match(new RegExp(`function ${name}\\(\\)\\s*\\{([\\s\\S]*?)\\n  \\}`))
+      if (m) return { body: m[1] }
+    }
+    return null
   }
 
   // 只校验**写库**这一侧。读库那侧有正当的省略（created_at / updated_at 只是审计字段，
@@ -281,17 +288,21 @@ function check(name, condition, detail = '') {
     ['equipment', 'equipmentToRows'],
     ['maintenance_records', 'maintenanceToRows'],
     ['parts_inventory', 'partsToRows'],
-    ['operation_logs', 'logsToRows']
+    ['operation_logs', 'logsToRows'],
+    ['parts_transactions', 'partTxToRows'],
+    ['health_snapshots', 'healthSnapshotsToRows'],
+    ['fault_cases', 'faultCasesToRows']
   ]
 
   for (const [table, writeFn] of mappers) {
-    const writeBody = bodyOf(writeFn)
-    if (!writeBody) {
-      check(`${table} 的写库映射 ${writeFn} 可被定位`, false, '正则没匹配到函数体')
+    const found = bodyOf(writeFn)
+    if (!found) {
+      check(`${table} 的写库映射 ${writeFn} 可被定位`, false,
+        `在 ${SOURCES.map(s => s.rel).join('、')} 里都没找到函数体`)
       continue
     }
     const columns = database.query(`PRAGMA table_info(${table})`).map(r => r.name)
-    const missWrite = columns.filter(c => !writeBody.includes(`${c}:`))
+    const missWrite = columns.filter(c => !found.body.includes(`${c}:`))
     check(`${table} 的每一列都接进了写库映射（${writeFn}）`,
       missWrite.length === 0, missWrite.join('、') || `${columns.length} 列齐全`)
   }
