@@ -314,7 +314,14 @@ const router = useRouter()
 const statusFilter = ref('')
 const showAddDialog = ref(false)
 const showDetail = ref(false)
-const current = ref(null)
+// 抽屉里显示的工单：只记 id，内容每次都从 store 取最新那条。
+// 之前是直接把 row 存进 ref，而派单/复诊分支又用 {...row} 覆盖成一份复制品——
+// 复制出来的快照与 store 脱钩，store 随后写入的字段（派单时间、复诊状态…）
+// 都不会反映到抽屉上，用户看到的是派单前那份，会以为操作没生效。
+const currentId = ref(null)
+const current = computed(() => currentId.value === null
+  ? null
+  : store.workOrders.find(o => o.id === currentId.value) || null)
 
 const newOrder = ref({
   title: '', equipment_name: '', type: 'maintenance', priority: 'normal', description: ''
@@ -366,14 +373,15 @@ const knowledgeRecommendations = computed(() => {
 function copyToNote(entry) {
   const note = `【知识库参考】${entry.title}\n现象：${entry.symptoms}\n排查步骤：${entry.steps.join('；')}\n来源：${entry.source}`
   if (current.value) {
-    current.value.description = (current.value.description || '') + '\n\n' + note
-    store.updateWorkOrder(current.value.id, { description: current.value.description })
+    // 先算好再交给 store 写，不直接改 store 里的对象
+    const merged = (current.value.description || '') + '\n\n' + note
+    store.updateWorkOrder(current.value.id, { description: merged })
     ElMessage.success('已引用到工单备注')
   }
 }
 
 function openDetail(row) {
-  current.value = row
+  currentId.value = row.id
   showDetail.value = true
 }
 
@@ -434,9 +442,15 @@ function sourceLabel(s) {
 }
 
 function updateStatus(row, newStatus) {
-  store.updateWorkOrderStatus(row.id, newStatus)
+  // store 会做状态机校验，非法流转返回 null。不能不看返回值就报成功——
+  // 那样用户以为改好了，实际什么都没发生。
+  const updated = store.updateWorkOrderStatus(row.id, newStatus)
+  if (!updated) {
+    ElMessage.warning(`「${statusLabel(row.status)}」不能直接变更为「${statusLabel(newStatus)}」`)
+    return
+  }
   if (newStatus === 'completed') {
-    const interval = row.recheck_date ? `，已生成 ${row.recheck_date} 的复诊任务` : ''
+    const interval = updated.recheck_date ? `，已生成 ${updated.recheck_date} 的复诊任务` : ''
     ElMessage.success(`工单 #${row.id} 已完成，病历已归档${interval}`)
   } else {
     store.addLog({
@@ -453,9 +467,7 @@ function updateStatus(row, newStatus) {
 function completeRecheck(order) {
   store.markRecheckDone(order.id)
   ElMessage.success(`「${order.equipment_name}」复诊完成，闭环率已更新`)
-  if (current.value && current.value.id === order.id) {
-    current.value = { ...order, recheck_status: 'done' }
-  }
+  // 不用手工同步抽屉：current 是从 store 按 id 取的 computed，store 一变它就变
 }
 
 function goToEquipment(name) {
@@ -484,9 +496,7 @@ function confirmDispatch() {
   store.dispatchWorkOrder(dispatchTarget.value.id, dispatchTo.value)
   ElMessage.success(`工单 #${dispatchTarget.value.id} 已派单给 ${dispatchTo.value}，等待开工`)
   showDispatch.value = false
-  if (current.value && current.value.id === dispatchTarget.value.id) {
-    current.value = { ...dispatchTarget.value, assigned_to: dispatchTo.value, status: 'assigned' }
-  }
+  // 同上：不手工改抽屉，store 写入后 computed 自动跟上
 }
 
 // ---------- 工单生命周期链路（报修→派单→维修→复检→归档） ----------

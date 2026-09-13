@@ -54,6 +54,29 @@ export const RECHECK_INTERVAL = {
 }
 
 /**
+ * 工单状态机：只允许这些流转，其余一律拒绝（返回 null）。
+ *
+ * 为什么 completed 还能退回 processing：
+ *   口述录入的"撤销上一步"要把已完成的工单退回去（nlCommand.js 的 undo）。
+ *   退回**不会**清掉 archived_at，所以再次完成时不会重复归档 ——
+ *   幂等性靠 archived_at 保证，不靠状态回退路径。
+ */
+export const WORK_ORDER_TRANSITIONS = {
+  pending: ['assigned', 'processing', 'completed'],
+  assigned: ['processing', 'completed', 'pending'],
+  processing: ['completed', 'assigned'],
+  completed: ['processing']
+}
+
+/** 工单状态中文名（界面与日志共用一份） */
+export const WORK_ORDER_STATUS_LABELS = {
+  pending: '待处理',
+  assigned: '已派单',
+  processing: '处理中',
+  completed: '已完成'
+}
+
+/**
  * 生成演示数据：委托给数据工厂（utils/fleetData.js）
  * 工厂负责规模、机型白名单、分布与可复现性；这里只做一次分布审计并打印，
  * 便于开发期及时发现"演示数据撑不起画面"的问题。
@@ -1153,12 +1176,17 @@ export const useAppStore = defineStore('app', () => {
   function updateWorkOrderStatus(id, newStatus) {
     const order = workOrders.value.find(o => o.id === id)
     if (!order) return null
+    if (newStatus === order.status) return order   // 同状态重复设置视为无操作
+    if (!WORK_ORDER_TRANSITIONS[order.status]?.includes(newStatus)) return null
 
-    const wasCompleted = order.status === 'completed'
     order.status = newStatus
     order.completed_at = newStatus === 'completed' ? now() : undefined
 
-    if (newStatus === 'completed' && !wasCompleted) {
+    // 归档只做一次：以 archived_at 这个**落库的**标记为准，而不是看当前 status。
+    // 否则"完成 → 改回处理中 → 再完成"会把病历、健康快照、复诊任务、
+    // 知识草案、故障案例卡、日志各再生产一份，而且没有任何报错。
+    if (newStatus === 'completed' && !order.archived_at) {
+      order.archived_at = now()
       archiveWorkOrder(order)
     }
     persistAll()

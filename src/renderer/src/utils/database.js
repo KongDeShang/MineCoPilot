@@ -87,7 +87,8 @@ const TABLES = {
       completed_at TEXT,
       updated_at TEXT,
       recheck_date TEXT,
-      recheck_status TEXT DEFAULT 'not_needed'
+      recheck_status TEXT DEFAULT 'not_needed',
+      archived_at TEXT
     )`,
   health_snapshots: `
     CREATE TABLE IF NOT EXISTS health_snapshots (
@@ -205,7 +206,10 @@ function runMigrations() {
   const required = {
     work_orders: [
       ['recheck_date', 'TEXT'],
-      ['recheck_status', "TEXT DEFAULT 'not_needed'"]
+      ['recheck_status', "TEXT DEFAULT 'not_needed'"],
+      // 归档标记：工单一旦"完成并归档"，其病历/快照/复诊/案例卡/日志都已生成。
+      // 只看 status 会误判——完成 → 改回处理中 → 再完成，会把上面这些副作用全部再做一遍。
+      ['archived_at', 'TEXT']
     ],
     knowledge_base: [
       ['status', "TEXT DEFAULT 'confirmed'"],

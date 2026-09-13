@@ -407,6 +407,47 @@ async function main() {
       completeFlow.ok && !!completeFlow.recheckDate && completeFlow.recheckStatus === 'pending',
       `复诊日期=${completeFlow.recheckDate} 状态=${completeFlow.recheckStatus}`)
 
+    // ---------- 8. 归档幂等 + 状态机 ----------
+    // 归档一次会连带写病历、健康快照、复诊任务、知识草案、故障案例卡、日志六样东西。
+    // 原来判断"是否已归档"看的是当前 status，于是"完成 → 退回处理中 → 再完成"
+    // 会把上面六样全部再做一遍，而且不报错。
+    const archiveFlow = await session.eval(`(async () => {
+      const app = document.querySelector('#app').__vue_app__
+      const store = app.config.globalProperties.$pinia._s.get('app')
+      const target = store.workOrders.find(o => o.status === 'pending' || o.status === 'processing')
+      if (!target) return { ok: false, reason: '没有未完成工单' }
+      const count = () => (store.getMaintenanceByEquipmentId(target.equipment_id) || []).length
+
+      const before = count()
+      store.updateWorkOrderStatus(target.id, 'completed')
+      const afterFirst = count()
+      const reverted = store.updateWorkOrderStatus(target.id, 'processing')   // 口述撤销走的就是这条
+      store.updateWorkOrderStatus(target.id, 'completed')
+      const afterSecond = count()
+
+      const completed = store.workOrders.find(o => o.status === 'completed')
+      const illegal = completed ? store.updateWorkOrderStatus(completed.id, 'pending') : 'skip'
+      const garbage = store.updateWorkOrderStatus(target.id, '压根不存在的状态')
+
+      return {
+        ok: true, before, afterFirst, afterSecond,
+        reverted: !!reverted,
+        firstArchived: afterFirst === before + 1,
+        secondNoop: afterSecond === afterFirst,
+        illegalRejected: illegal === null, illegal,
+        garbageRejected: garbage === null
+      }
+    })()`)
+    check('工单完成会归档病历（维保记录 +1）',
+      archiveFlow.ok && archiveFlow.firstArchived === true, JSON.stringify(archiveFlow).slice(0, 200))
+    check('退回处理中再完成，不会重复归档（归档幂等）',
+      archiveFlow.ok && archiveFlow.reverted && archiveFlow.secondNoop === true,
+      `首次后 ${archiveFlow.afterFirst} 条 / 再完成后 ${archiveFlow.afterSecond} 条`)
+    check('状态机拒绝非法流转（已完成不能直接退回待处理）',
+      archiveFlow.ok && archiveFlow.illegalRejected === true, `返回 ${JSON.stringify(archiveFlow.illegal)}`)
+    check('状态机拒绝不存在的状态值',
+      archiveFlow.ok && archiveFlow.garbageRejected === true, '返回 null 即为拒绝')
+
     // ---------- 汇总 ----------
     console.log('')
     for (const c of checks) console.log(`${c.ok ? 'PASS' : 'FAIL'}  ${c.name}${c.detail ? `  [${c.detail}]` : ''}`)
