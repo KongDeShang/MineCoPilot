@@ -1,0 +1,16 @@
+node_modules/
+dist/
+release/
+.tmp-selfcheck/
+.DS_Store
+*.log
+
+# 临时/中间文件
+*.tmp
+*.bak
+.vite/
+
+# 大体积本地资源（不入库，见 README 的获取说明）
+resources/models/
+资料/
+释放演示数据/

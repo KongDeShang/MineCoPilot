@@ -1,0 +1,217 @@
+<template>
+  <div class="global-search">
+    <el-input
+      v-model="searchText"
+      placeholder="搜索设备、工单、维保记录..."
+      clearable
+      @focus="showPanel = true"
+      @input="doSearch"
+    >
+      <template #prefix>
+        <el-icon><Search /></el-icon>
+      </template>
+      <template #append>
+        <el-button @click="showPanel = !showPanel">
+          <el-icon><Search /></el-icon>
+        </el-button>
+      </template>
+    </el-input>
+
+    <!-- 搜索结果面板 -->
+    <div v-if="showPanel && searchText" class="search-panel">
+      <div class="search-section" v-for="(section, i) in searchResults" :key="i">
+        <div class="section-title">
+          <el-icon><component :is="section.icon" /></el-icon>
+          {{ section.title }}
+          <el-tag size="small" type="info">{{ section.items.length }}</el-tag>
+        </div>
+        <div
+          v-for="(item, j) in section.items"
+          :key="j"
+          class="search-item"
+          @click="navigateTo(item)"
+        >
+          <div class="item-title" v-html="highlight(item.title)"></div>
+          <div class="item-meta">{{ item.meta }}</div>
+        </div>
+        <el-empty v-if="section.items.length === 0" :description="`未找到匹配的${section.title}`" :image-size="40" />
+      </div>
+
+      <div v-if="totalResults === 0" class="no-results">
+        <el-icon :size="32" color="#c0c4cc"><Search /></el-icon>
+        <p>未找到匹配结果</p>
+      </div>
+    </div>
+
+    <!-- 遮罩 -->
+    <div v-if="showPanel" class="search-overlay" @click="showPanel = false"></div>
+  </div>
+</template>
+
+<script setup>
+import { ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAppStore } from '../stores/appStore'
+
+const store = useAppStore()
+const router = useRouter()
+const searchText = ref('')
+const showPanel = ref(false)
+
+const statusMap = { running: '运行中', idle: '闲置', maintenance: '维保中', fault: '故障' }
+const priorityMap = { urgent: '紧急', high: '高', normal: '普通', low: '低' }
+const orderStatusMap = { pending: '待处理', processing: '处理中', completed: '已完成' }
+
+const searchResults = computed(() => {
+  const keyword = searchText.value.toLowerCase()
+  if (!keyword) return []
+
+  const allMaintenance = []
+  for (const eq of store.equipmentList) {
+    const records = store.getMaintenanceByEquipmentId(eq.id)
+    records.forEach(r => {
+      allMaintenance.push({ equipment: eq.name, ...r })
+    })
+  }
+
+  return [
+    {
+      title: '设备',
+      icon: 'SetUp',
+      items: store.equipmentList
+        .filter(e => e.name.toLowerCase().includes(keyword) || e.model.toLowerCase().includes(keyword) || e.location.includes(keyword))
+        .map(e => ({
+          title: `${e.name} (${e.model})`,
+          meta: `${e.location} · ${statusMap[e.status] || e.status}`,
+          route: '/equipment'
+        }))
+    },
+    {
+      title: '工单',
+      icon: 'EditPen',
+      items: store.workOrders
+        .filter(o => o.title.includes(keyword) || o.equipment_name.includes(keyword))
+        .map(o => ({
+          title: `#${o.id} ${o.title}`,
+          meta: `${o.equipment_name} · ${orderStatusMap[o.status]} · ${priorityMap[o.priority]}`,
+          route: '/workorder'
+        }))
+    },
+    {
+      title: '维保记录',
+      icon: 'Calendar',
+      items: allMaintenance
+        .filter(m => m.equipment.includes(keyword) || m.description.includes(keyword) || m.technician.includes(keyword))
+        .map(m => ({
+          title: `${m.equipment} - ${m.typeLabel}`,
+          meta: `${m.date} · ${m.technician}`,
+          route: '/maintenance-calendar'
+        }))
+    }
+  ]
+})
+
+const totalResults = computed(() => {
+  return searchResults.value.reduce((sum, s) => sum + s.items.length, 0)
+})
+
+function doSearch() {
+  showPanel.value = searchText.value.length > 0
+}
+
+function highlight(text) {
+  if (!searchText.value) return text
+  const regex = new RegExp(`(${searchText.value})`, 'gi')
+  return text.replace(regex, '<span class="highlight">$1</span>')
+}
+
+function navigateTo(item) {
+  router.push(item.route)
+  showPanel.value = false
+  searchText.value = ''
+}
+</script>
+
+<style scoped>
+.global-search {
+  position: relative;
+  width: 320px;
+}
+
+.search-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+}
+
+.search-panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  margin-top: 4px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.search-section {
+  padding: 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.search-section:last-child {
+  border-bottom: none;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #909399;
+  margin-bottom: 8px;
+}
+
+.search-item {
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.search-item:hover {
+  background: #ecf5ff;
+}
+
+.item-title {
+  font-size: 14px;
+  color: #303133;
+}
+
+.item-title :deep(.highlight) {
+  color: #409eff;
+  font-weight: 700;
+}
+
+.item-meta {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 2px;
+}
+
+.no-results {
+  text-align: center;
+  padding: 24px;
+  color: #c0c4cc;
+}
+
+.no-results p {
+  margin: 8px 0 0;
+  font-size: 14px;
+}
+</style>

@@ -1,0 +1,247 @@
+/* ============================================================
+   矿山智工 · 设计令牌与 Element Plus 主题层（tokens.css）
+   ------------------------------------------------------------
+   借鉴：辅导员工作台 v5.2.0 base.css 的已验证设计令牌体系
+   定位：工程机械 · 离线 · 可审计 —— 深空航蓝 + 信号青（工业蓝）
+   用法：main.js 中先于业务样式引入；组件内可直接 var(--xx)
+   ============================================================ */
+
+:root {
+  /* ===== 字体与排版 ===== */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --fs-h1: 24px;
+  --fs-h2: 18px;
+  --fs-h3: 16px;
+  --fs-body: 15px;
+  --fs-sm: 13.5px;
+  --fs-xs: 12.5px;
+  --fs-2xs: 11.5px;
+  --lh-tight: 1.3;
+  --lh-body: 1.66;
+  --weight-md: 500;
+  --weight-sb: 600;
+  --weight-bd: 700;
+
+  /* ===== 主色：深空航蓝（品牌） ===== */
+  --accent: #0b3a82;
+  --accent-hover: #0a328f;
+  --accent-active: #082a78;
+  --accent-soft: #e8effb;
+  --accent-line: #c7d6ef;
+  --accent-dark: #072057;
+  --accent-contrast: #ffffff;
+
+  /* ===== 信号青：链接 / 高亮 / 进度 ===== */
+  --signal: #0bb4c4;
+  --signal-hover: #0aa2b1;
+  --signal-soft: #e3f7f9;
+  --signal-line: #a6e3e9;
+
+  /* ===== 琥珀：警示（超期） ===== */
+  --amber: #e0a020;
+  --amber-soft: #fdf3dc;
+  --amber-line: #f1d99a;
+
+  /* ===== 翠绿：成功（健康/已复诊） ===== */
+  --emerald: #12a06b;
+  --emerald-soft: #e7f7f0;
+  --emerald-line: #aee7cf;
+
+  /* ===== 危险 ===== */
+  --danger: #e0413e;
+  --danger-soft: #fdecec;
+  --danger-line: #f6c9c8;
+
+  /* ===== 文字层级（统一蓝灰） ===== */
+  --ink: #0a1326;
+  --ink-2: #2a3852;
+  --ink-3: #5a6779;
+  --ink-4: #8a95a7;
+  --ink-on-accent: #ffffff;
+
+  /* ===== 表面与边界（蓝图质感） ===== */
+  --bg: #eef2f8;
+  --bg-sunken: #e6ecf5;
+  --card: #ffffff;
+  --card-2: #fafcff;
+  --line: #dde4ef;
+  --line-2: #ebf0f7;
+  --line-strong: #c8d2e2;
+
+  /* ===== 顶栏 / 侧栏 外壳 ===== */
+  --chrome-bg: #ffffff;
+  --chrome-bg-2: #fafcff;
+  --chrome-border: #dde4ef;
+  --chrome-ink: #0a1326;
+  --chrome-ink-2: #2a3852;
+  --chrome-ink-3: #8a95a7;
+  --chrome-hover: #eef3fc;
+  --chrome-sub: #e6ecf5;
+
+  /* ===== 蓝图网格（装饰） ===== */
+  --grid-color: rgba(11, 58, 130, 0.045);
+
+  /* ===== 圆角 ===== */
+  --r-lg: 18px;
+  --r: 13px;
+  --r-sm: 10px;
+  --r-xs: 7px;
+  --r-pill: 999px;
+
+  /* ===== 阴影（轻柔分层） ===== */
+  --sh-xs: 0 1px 2px rgba(16, 24, 40, .04);
+  --sh-sm: 0 1px 2px rgba(16, 24, 40, .04), 0 4px 12px rgba(16, 24, 40, .06);
+  --sh-md: 0 6px 14px -3px rgba(16, 24, 40, .08), 0 14px 32px -8px rgba(16, 24, 40, .10);
+  --sh-kpi: 0 1px 3px rgba(16, 24, 40, .04), 0 8px 22px -8px rgba(16, 24, 40, .08);
+  --sh-focus: 0 0 0 3px rgba(11, 58, 130, .26);
+
+  /* ===== 动效 ===== */
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --dur-fast: 130ms;
+  --dur: 200ms;
+
+  /* ===== 间距（8pt 栅格） ===== */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 20px; --sp-6: 24px; --sp-8: 32px; --sp-10: 40px;
+
+  /* ============================================================
+     Element Plus 主题覆盖：一次替换全站组件库默认蓝 #409eff
+     ============================================================ */
+  --el-color-primary: #0b3a82;
+  --el-color-primary-light-3: #3d5f9c;
+  --el-color-primary-light-5: #6d86b8;
+  --el-color-primary-light-7: #9db0d3;
+  --el-color-primary-light-8: #b9c6e2;
+  --el-color-primary-light-9: #e8effb;
+  --el-color-primary-dark-2: #082a78;
+
+  --el-color-success: #12a06b;
+  --el-color-success-light-3: #4db68d;
+  --el-color-success-light-5: #7fcbb0;
+  --el-color-success-light-7: #b2e0d2;
+  --el-color-success-light-8: #cdebe1;
+  --el-color-success-light-9: #e7f7f0;
+  --el-color-success-dark-2: #0e8055;
+
+  --el-color-warning: #e0a020;
+  --el-color-warning-light-3: #e8b64f;
+  --el-color-warning-light-5: #eecc82;
+  --el-color-warning-light-7: #f5e1b5;
+  --el-color-warning-light-8: #f9ecd2;
+  --el-color-warning-light-9: #fdf3dc;
+  --el-color-warning-dark-2: #b38019;
+
+  --el-color-danger: #e0413e;
+  --el-color-danger-light-3: #e86f6d;
+  --el-color-danger-light-5: #ee9d9b;
+  --el-color-danger-light-7: #f5c6c5;
+  --el-color-danger-light-8: #f9dad9;
+  --el-color-danger-light-9: #fdecec;
+  --el-color-danger-dark-2: #b33431;
+
+  --el-color-info: #8a95a7;
+  --el-color-info-light-3: #a5adbc;
+  --el-color-info-light-5: #c0c6d1;
+  --el-color-info-light-7: #dadde5;
+  --el-color-info-light-8: #e9ebf0;
+  --el-color-info-light-9: #f4f5f8;
+  --el-color-info-dark-2: #6e7786;
+
+  /* 文字 / 边框 / 背景 */
+  --el-text-color-primary: #0a1326;
+  --el-text-color-regular: #2a3852;
+  --el-text-color-secondary: #5a6779;
+  --el-text-color-placeholder: #8a95a7;
+  --el-text-color-disabled: #c0c6d1;
+
+  --el-border-color: #dde4ef;
+  --el-border-color-light: #ebf0f7;
+  --el-border-color-lighter: #f0f4fa;
+  --el-border-color-extra-light: #f4f7fb;
+
+  --el-fill-color: #f0f4fa;
+  --el-fill-color-light: #f4f7fb;
+  --el-fill-color-lighter: #f7fafd;
+  --el-fill-color-blank: #ffffff;
+
+  --el-bg-color: #ffffff;
+  --el-bg-color-page: #eef2f8;
+  --el-bg-color-overlay: #ffffff;
+
+  /* 圆角 / 字体 */
+  --el-border-radius-base: 10px;
+  --el-border-radius-small: 8px;
+  --el-border-radius-round: 999px;
+  --el-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif;
+}
+
+/* ===== 全局基础 ===== */
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 蓝图网格装饰（用于侧边栏/登录页等深色区域） */
+.blueprint-grid {
+  background-image:
+    linear-gradient(var(--grid-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* ===== 卡片统一：圆角 + 轻阴影 + 细边框 ===== */
+.el-card {
+  --el-card-border-color: var(--line);
+  border-radius: var(--r);
+  box-shadow: var(--sh-xs);
+}
+
+.el-card.is-always-shadow {
+  box-shadow: var(--sh-xs);
+}
+
+.el-card__header {
+  border-bottom: 1px solid var(--line-2);
+}
+
+/* ===== 按钮圆角 ===== */
+.el-button {
+  border-radius: var(--r-sm);
+}
+
+/* ===== 表格：斑马纹更柔和 ===== */
+.el-table {
+  --el-table-border-color: var(--line-2);
+  --el-table-header-bg-color: var(--chrome-sub);
+  --el-table-header-text-color: var(--ink-2);
+  --el-table-row-hover-bg-color: var(--chrome-hover);
+  border-radius: var(--r-sm);
+}
+
+/* ===== 顶栏 / 侧栏微调 ===== */
+.app-header {
+  border-bottom: 1px solid var(--line) !important;
+}
+
+/* ===== 滚动条（细、蓝灰） ===== */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: var(--r-pill);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-4);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}

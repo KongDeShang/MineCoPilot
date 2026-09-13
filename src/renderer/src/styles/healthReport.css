@@ -1,0 +1,128 @@
+/**
+ * 矿山智工 - 设备体检报告样式（全局单一样式源）
+ *
+ * 为什么单独成文件、并在 main.js 里 import 一次：
+ *   报告 HTML 由 utils/healthReport.js 在运行时拼接（v-html 渲染 + window.print() 打印），
+ *   这份样式既服务屏幕预览也服务 A4 打印。放在组件 scoped 里会因作用域属性错配，
+ *   复制到组件里则会产生"改了一处忘了另一处"的漂移——所以全局只保留这一份。
+ */
+
+.health-report {
+  font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  color: #1f2937;
+  font-size: 13px;
+  line-height: 1.7;
+  background: #fff;
+  padding: 4px 2px;
+}
+
+.health-report h1 { font-size: 22px; margin: 0; letter-spacing: 2px; }
+
+.health-report h2 {
+  font-size: 15px;
+  margin: 22px 0 10px;
+  padding-left: 8px;
+  border-left: 3px solid #1d4ed8;
+  color: #111827;
+}
+
+.hr-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 2px solid #1d4ed8;
+  padding-bottom: 12px;
+}
+
+.hr-sub { font-size: 12px; color: #6b7280; margin-top: 4px; }
+
+.hr-badge {
+  border: 3px solid;
+  border-radius: 50%;
+  width: 92px;
+  height: 92px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.hr-badge-score { font-size: 30px; font-weight: 800; line-height: 1; }
+.hr-badge-level { font-size: 11px; margin-top: 2px; }
+
+.hr-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 18px; margin-top: 14px; }
+.hr-meta > div { display: flex; justify-content: space-between; border-bottom: 1px dashed #e5e7eb; padding-bottom: 4px; }
+.hr-meta span { color: #6b7280; }
+
+.hr-conclusion { padding: 10px 14px; background: #f8fafc; border-left: 4px solid; font-size: 14px; }
+.hr-history-line { margin-top: 8px; color: #4b5563; font-size: 12px; }
+
+.hr-factors { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 20px; }
+.hr-factor-head { display: flex; justify-content: space-between; font-size: 13px; }
+.hr-factor-name { font-weight: 600; }
+/* 颜色由内联样式按分数动态给出，这里只固定字重与字号 */
+.hr-factor-score { font-weight: 700; font-size: 13px; }
+.hr-bar { height: 6px; background: #eef2f7; border-radius: 3px; overflow: hidden; margin: 4px 0; }
+.hr-bar-fill { height: 100%; background: #1d4ed8; border-radius: 3px; }
+.hr-factor-detail { font-size: 12px; color: #4b5563; }
+.hr-factor-formula { font-size: 11px; color: #9ca3af; }
+
+.hr-trend-svg { width: 100%; height: 110px; }
+.hr-trend-axis { display: flex; justify-content: space-between; font-size: 11px; color: #9ca3af; }
+.hr-trend-summary { margin-top: 6px; font-size: 12px; }
+
+.hr-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.hr-table th, .hr-table td { border: 1px solid #e5e7eb; padding: 6px 8px; text-align: left; vertical-align: top; }
+.hr-table th { background: #f3f6fb; font-weight: 600; }
+.hr-ref { color: #1d4ed8; }
+.hr-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.hr-note { font-size: 12px; color: #6b7280; }
+
+.hr-estimate-tag {
+  font-size: 11px;
+  font-weight: 400;
+  color: #b45309;
+  background: #fef3c7;
+  border-radius: 8px;
+  padding: 1px 8px;
+  margin-left: 8px;
+}
+
+.hr-loss { text-align: center; padding: 14px 0 6px; }
+.hr-loss-value { font-size: 32px; font-weight: 800; color: #b91c1c; }
+.hr-loss-formula { font-size: 12px; color: #4b5563; margin-top: 6px; font-family: Consolas, Monaco, monospace; }
+.hr-urgent { font-size: 10px; color: #fff; background: #f56c6c; border-radius: 6px; padding: 1px 6px; margin-left: 6px; }
+.hr-mono { font-family: Consolas, Monaco, monospace; font-size: 11px; color: #4b5563; }
+.hr-trace-table td { font-size: 11px; }
+
+.hr-foot { margin-top: 26px; border-top: 1px solid #e5e7eb; padding-top: 14px; }
+.hr-sign { display: flex; justify-content: space-between; font-size: 12px; color: #4b5563; }
+.hr-foot-note { margin-top: 12px; font-size: 11px; color: #9ca3af; text-align: center; }
+
+/* 打印容器：默认隐藏，仅在打印或显式激活（.print-doc-active）时渲染，
+   避免报告的纸面样式影响屏幕上的其他页面 */
+.print-doc { display: none; }
+.print-doc-active .print-doc { display: block; }
+
+@media print {
+  /* 只保留报告本体，隐藏应用外壳与工具栏 */
+  body * { visibility: hidden; }
+  .print-doc, .print-doc * { visibility: visible; }
+  .print-doc { display: block !important; position: absolute; left: 0; top: 0; width: 100%; }
+
+  .report-toolbar { display: none !important; }
+
+  .el-drawer,
+  .el-drawer__body { position: static !important; overflow: visible !important; height: auto !important; }
+
+  .health-report { padding: 0; }
+  .health-report h2 { break-after: avoid; }
+
+  .hr-table { break-inside: auto; }
+  .hr-table tr { break-inside: avoid; }
+  .hr-table thead { display: table-header-group; }
+  .hr-trace, .hr-foot { break-inside: avoid; }
+
+  @page { size: A4; margin: 20mm 15mm; }
+}

@@ -1,0 +1,108 @@
+{
+  "name": "kuangshan-zhigong",
+  "version": "1.0.0",
+  "description": "矿山智工 - 工程机械运维AI工作台",
+  "main": "src/main/index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "self-check": "node scripts/self-check.mjs",
+    "coverage": "node scripts/coverage.mjs",
+    "e2e": "node scripts/e2e.mjs",
+    "e2e:nl": "node scripts/e2e-nl.mjs",
+    "verify": "npm run self-check && npm run coverage && npm run build && npm run e2e && npm run e2e:nl",
+    "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:build": "vite build && electron-builder",
+    "electron:build:dir": "vite build && electron-builder --dir"
+  },
+  "keywords": [
+    "mining",
+    "machinery",
+    "ai",
+    "maintenance",
+    "offline"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.2",
+    "@vueuse/core": "^14.4.0",
+    "element-plus": "^2.14.5",
+    "node-llama-cpp": "^3.21.0",
+    "pdfjs-dist": "^6.3.289",
+    "pinia": "^4.0.3",
+    "sql.js": "^1.14.2",
+    "vue": "^3.5.42",
+    "vue-router": "^4.6.4",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.8",
+    "concurrently": "^9.2.4",
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3",
+    "vite": "^8.2.2",
+    "wait-on": "^8.0.5"
+  },
+  "build": {
+    "appId": "com.kuangshan.zhigong",
+    "productName": "矿山智工",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/main/**/*",
+      "src/preload/**/*",
+      "dist/**/*",
+      "package.json",
+      "!node_modules/@node-llama-cpp/win-arm64/**",
+      "!node_modules/@node-llama-cpp/win-x64/**",
+      "!node_modules/@node-llama-cpp/win-x64-cuda/**",
+      "!node_modules/@node-llama-cpp/win-x64-cuda-ext/**"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/node-llama-cpp/**/*",
+      "node_modules/@node-llama-cpp/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/models",
+        "to": "models"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "矿山智工"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.business"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Office"
+    }
+  }
+}
