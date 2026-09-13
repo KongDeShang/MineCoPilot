@@ -156,6 +156,7 @@ import { useAppStore } from '../stores/appStore'
 import { now } from '../utils/dates'
 import { llmAvailable, llmLoad } from '../utils/llmClient'
 import { htmlToText, narrateConclusionStream } from '../utils/narrate'
+import { statusLabel, priorityLabel } from '../utils/dictionaries'
 import { escapeHtml } from '../utils/html'
 
 const store = useAppStore()
@@ -674,7 +675,7 @@ function describeImpact(plan) {
   const lines = []
   for (const item of plan.items) {
     if (item.intent === INTENTS.REPORT_FAULT) {
-      lines.push(`新建 1 张维修工单（状态：待处理，优先级：${item.priority === 'urgent' ? '紧急' : item.priority === 'high' ? '高' : '普通'}）`)
+      lines.push(`新建 1 张维修工单（状态：${statusLabel('pending')}，优先级：${priorityLabel(item.priority)}）`)
     } else if (item.intent === INTENTS.COMPLETE_ORDER) {
       lines.push(`工单 #${item.order?.id} 标记为已完成`)
       lines.push('自动归档一条维保记录到该设备病历')

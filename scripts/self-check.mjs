@@ -27,7 +27,7 @@ const mirrorDir = join(root, '.tmp-selfcheck')
 // ---- 生成 ESM 镜像，让 Node 能直接导入项目真实模块 ----
 rmSync(mirrorDir, { recursive: true, force: true })
 mkdirSync(mirrorDir, { recursive: true })
-for (const name of ['dates', 'html', 'storage', 'database', 'excelParser', 'synonyms', 'knowledgeBase', 'health', 'equipmentCatalog', 'fleetData', 'healthReport', 'faultStats', 'nlCommand', 'llmClient', 'narrate', 'reportGenerator']) {
+for (const name of ['dates', 'html', 'storage', 'database', 'excelParser', 'synonyms', 'knowledgeBase', 'health', 'equipmentCatalog', 'fleetData', 'healthReport', 'faultStats', 'nlCommand', 'llmClient', 'narrate', 'reportGenerator', 'dictionaries']) {
   const code = readFileSync(join(srcDir, `${name}.js`), 'utf8')
     .replace(/(from\s+['"]\.\/[a-zA-Z0-9_-]+)(['"])/g, '$1.mjs$2')
   writeFileSync(join(mirrorDir, `${name}.mjs`), code, 'utf8')
@@ -1259,6 +1259,68 @@ function check(name, condition, detail = '') {
 
   const fb = await narrate.narrateConclusion('<p>结论</p>')
   check('narrateConclusion Node 环境回退 fallback', fb.mode === 'fallback' && fb.reason === 'browser', fb.reason)
+}
+
+// ============ N 界面文案字典必须是单一来源 ============
+{
+  // 回归：工单状态的中文名一度在四个地方各写一份 —— Store、全局搜索、
+  // 设备台账、工单页。结果同一个 pending 在工单页叫「待派单」，
+  // 在搜索面板和设备病历里叫「待处理」，用户会以为是两个状态；
+  // 副本还各缺一块（设备台账的工单状态配色表没有 assigned 分支）。
+  // 光靠自觉统一，下次加状态时还会冒出新的副本，所以这里做源码级扫描。
+  const dict = await import(pathToFileURL(join(mirrorDir, 'dictionaries.mjs')).href)
+
+  check('字典：已知工单状态给出中文名', dict.statusLabel('pending') === '待派单' && dict.statusLabel('completed') === '已完成')
+  check('字典：未知工单状态回退为原值（不显示 undefined）', dict.statusLabel('weird') === 'weird')
+  check('字典：每个工单状态都配了中文名与配色',
+    ['pending', 'assigned', 'processing', 'completed', 'cancelled'].every(k =>
+      dict.WORK_ORDER_STATUS[k] && dict.WORK_ORDER_STATUS[k].label && dict.WORK_ORDER_STATUS[k].tagType))
+  check('字典：设备状态齐全', ['running', 'idle', 'maintenance', 'fault'].every(k => dict.EQUIPMENT_STATUS[k].label))
+  check('字典：优先级文案与配色齐全', dict.priorityLabel('urgent') === '紧急' && dict.priorityTagType('urgent') === 'danger')
+  check('字典：维保类型样式有兜底（未知类型不炸）', dict.maintenanceStyle('不存在的类型').tagType === 'info')
+
+  // 源码扫描：除字典本身外，任何页面/组件都不得自建"状态 key → 文案"的表。
+  // 只认「枚举 key 冒号后紧跟字符串字面量」这一种形态，所以状态机
+  // （pending: ['processing']）之类的合法对象不会被误伤。
+  const ENUM_KEYS = ['pending', 'processing', 'assigned', 'completed', 'cancelled', 'urgent', 'running', 'idle', 'fault']
+  const labelMapRe = new RegExp(`(^|[^\\w$])(${ENUM_KEYS.join('|')})\\s*:\\s*['"\`]`)
+
+  // 同名不同义的白名单：只放行列出的 key，多出现一个就算违规。
+  // 不整份文件豁免 —— 否则这些文件以后真的抄一份设备状态表也查不出来。
+  const KEYSPACE_EXEMPTIONS = {
+    // 模型加载状态 idle → loading → ready，跟设备闲置的 idle 只是同名
+    'views/ModelHub.vue': ['idle']
+  }
+
+  // 探测器本身先验一遍。这不是多余的：这段正则最初把 \\s 写成了 \s，
+  // 在模板字符串里退化成字母 s，于是永远扫不出东西——断言照样全绿，
+  // 用"没有违规"的假象骗过了自己。凡是靠扫描实现的守卫，都得先证明它会响。
+  check('自建状态表探测器：能命中真实违规写法',
+    labelMapRe.test("const m = { pending: '待处理', urgent: '紧急' }"))
+  check('自建状态表探测器：不误伤状态机与取值表达式',
+    !labelMapRe.test("const t = { pending: ['processing'], completed: [] } status: row.status"))
+
+  const offenders = []
+  for (const dir of ['views', 'components']) {
+    for (const entry of readdirSync(join(root, 'src/renderer/src', dir), { withFileTypes: true })) {
+      if (!entry.isFile() || !/\.(js|vue)$/.test(entry.name)) continue
+      const rel = `${dir}/${entry.name}`
+      const code = readFileSync(join(root, 'src/renderer/src', rel), 'utf8')
+      const allowed = KEYSPACE_EXEMPTIONS[rel] || []
+      const hit = ENUM_KEYS.filter(k =>
+        new RegExp(`(^|[^\\w$])${k}\\s*:\\s*['"\`]`).test(code) && !allowed.includes(k))
+      if (hit.length) offenders.push(`${rel}(${hit.join('/')})`)
+    }
+  }
+  check('除 utils/dictionaries.js 外，没有页面再自建状态文案表',
+    offenders.length === 0, offenders.join('、') || '无')
+
+  // 删掉本地表还不够，还得真的接上共享的那份
+  const wired = ['views/WorkOrder.vue', 'views/Equipment.vue', 'components/GlobalSearch.vue']
+  const notWired = wired.filter(rel =>
+    !readFileSync(join(root, 'src/renderer/src', rel), 'utf8').includes("utils/dictionaries"))
+  check('状态文案已改用共享字典（工单页/设备台账/全局搜索）',
+    notWired.length === 0, notWired.join('、') || '全部已接入')
 }
 
 // ============ 汇总 ============

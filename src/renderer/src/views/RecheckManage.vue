@@ -1,32 +1,7 @@
 <template>
   <div class="recheck-page">
     <!-- 闭环率指标 -->
-    <el-row :gutter="16" class="recheck-stats">
-      <el-col :xs="12" :sm="6">
-        <div class="stat-card">
-          <div class="stat-label">应复诊任务</div>
-          <div class="stat-value">{{ recheckStats.due || 0 }}</div>
-        </div>
-      </el-col>
-      <el-col :xs="12" :sm="6">
-        <div class="stat-card">
-          <div class="stat-label">已完成复诊</div>
-          <div class="stat-value" style="color: #12a06b">{{ recheckStats.done || 0 }}</div>
-        </div>
-      </el-col>
-      <el-col :xs="12" :sm="6">
-        <div class="stat-card">
-          <div class="stat-label">待复诊</div>
-          <div class="stat-value" style="color: #e0a020">{{ recheckStats.pending || 0 }}</div>
-        </div>
-      </el-col>
-      <el-col :xs="12" :sm="6">
-        <div class="stat-card">
-          <div class="stat-label">复诊闭环率</div>
-          <div class="stat-value" style="color: #0bb4c4">{{ recheckStats.rate != null ? recheckStats.rate + '%' : '—' }}</div>
-        </div>
-      </el-col>
-    </el-row>
+    <StatCards :items="statItems" :span="6" />
 
     <el-card shadow="never">
       <template #header>
@@ -65,12 +40,23 @@
 import { computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useAppStore } from '../stores/appStore'
+import StatCards from '../components/StatCards.vue'
 import { now } from '../utils/dates'
 
 const store = useAppStore()
 
 const recheckList = computed(() => store.recheckList)
 const recheckStats = computed(() => store.recheckStats)
+
+const statItems = computed(() => {
+  const s = recheckStats.value
+  return [
+    { label: '应复诊任务', value: s.due || 0 },
+    { label: '已完成复诊', value: s.done || 0, color: '#12a06b' },
+    { label: '待复诊', value: s.pending || 0, color: '#e0a020' },
+    { label: '复诊闭环率', value: s.rate != null ? s.rate + '%' : '—', color: '#0bb4c4' }
+  ]
+})
 
 function todayStr() {
   return now().slice(0, 10)
@@ -96,31 +82,6 @@ function markSkip(row) {
   display: flex;
   flex-direction: column;
   gap: 16px;
-}
-
-.recheck-stats {
-  margin-bottom: 0;
-}
-
-.stat-card {
-  background: #fff;
-  border: 1px solid #dde4ef;
-  border-radius: 13px;
-  padding: 14px 16px;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
-  margin-bottom: 4px;
-}
-
-.stat-label {
-  font-size: 12px;
-  color: #8a95a7;
-}
-
-.stat-value {
-  font-size: 24px;
-  font-weight: 700;
-  color: #0a1326;
-  margin-top: 4px;
 }
 
 .card-header {

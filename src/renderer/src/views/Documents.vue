@@ -1,26 +1,7 @@
 <template>
   <div class="documents-page">
     <!-- 顶部统计 -->
-    <el-row :gutter="16" class="doc-stats">
-      <el-col :xs="12" :sm="8">
-        <div class="stat-card">
-          <div class="stat-label">手册资料</div>
-          <div class="stat-value">{{ stats.total }} <span class="stat-unit">份</span></div>
-        </div>
-      </el-col>
-      <el-col :xs="12" :sm="8">
-        <div class="stat-card">
-          <div class="stat-label">可问答（已提取文字层）</div>
-          <div class="stat-value" style="color: #12a06b">{{ stats.ready }} <span class="stat-unit">份</span></div>
-        </div>
-      </el-col>
-      <el-col :xs="12" :sm="8">
-        <div class="stat-card">
-          <div class="stat-label">累计页数</div>
-          <div class="stat-value" style="color: #0b3a82">{{ stats.pages }} <span class="stat-unit">页</span></div>
-        </div>
-      </el-col>
-    </el-row>
+    <StatCards :items="statItems" />
 
     <el-card shadow="never">
       <template #header>
@@ -124,6 +105,7 @@
 import { ref, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useAppStore } from '../stores/appStore'
+import StatCards from '../components/StatCards.vue'
 
 const store = useAppStore()
 const showAdd = ref(false)
@@ -134,6 +116,15 @@ const form = reactive({ title: '', model: '', docType: '使用手册' })
 // 包一层 computed：Pinia 会把 setup store 的 computed 解包成取值那一刻的普通对象，
 // 直接别名等于拍快照——新增手册后页面上的份数/页数不会跟着变。
 const stats = computed(() => store.documentStats)
+
+const statItems = computed(() => {
+  const s = stats.value
+  return [
+    { label: '手册资料', value: s.total, unit: '份' },
+    { label: '可问答（已提取文字层）', value: s.ready, unit: '份', color: '#12a06b' },
+    { label: '累计页数', value: s.pages, unit: '页', color: '#0b3a82' }
+  ]
+})
 
 function fmtSize(bytes) {
   if (!bytes) return '—'
@@ -184,37 +175,6 @@ async function removeDoc(row) {
   display: flex;
   flex-direction: column;
   gap: 16px;
-}
-
-.doc-stats {
-  margin-bottom: 0;
-}
-
-.stat-card {
-  background: #fff;
-  border: 1px solid #dde4ef;
-  border-radius: 13px;
-  padding: 14px 16px;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
-  margin-bottom: 4px;
-}
-
-.stat-label {
-  font-size: 12px;
-  color: #8a95a7;
-}
-
-.stat-value {
-  font-size: 24px;
-  font-weight: 700;
-  color: #0a1326;
-  margin-top: 4px;
-}
-
-.stat-unit {
-  font-size: 12px;
-  color: #8a95a7;
-  font-weight: 400;
 }
 
 .card-header {

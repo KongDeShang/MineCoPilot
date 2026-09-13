@@ -52,15 +52,14 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/appStore'
+import { statusLabel, priorityLabel, equipmentStatusLabel } from '../utils/dictionaries'
 
 const store = useAppStore()
 const router = useRouter()
 const searchText = ref('')
 const showPanel = ref(false)
 
-const statusMap = { running: '运行中', idle: '闲置', maintenance: '维保中', fault: '故障' }
-const priorityMap = { urgent: '紧急', high: '高', normal: '普通', low: '低' }
-const orderStatusMap = { pending: '待处理', processing: '处理中', completed: '已完成' }
+// 工单状态/优先级的中文名统一取自 utils/dictionaries.js（单一来源）
 
 /** 统一转小写并压成字符串：台账字段可能缺失（如 technician 未填），直接 .includes 会抛 */
 const lower = (value) => String(value ?? '').toLowerCase()
@@ -85,7 +84,7 @@ const searchResults = computed(() => {
         .filter(e => lower(e.name).includes(keyword) || lower(e.model).includes(keyword) || lower(e.location).includes(keyword))
         .map(e => ({
           title: `${e.name} (${e.model})`,
-          meta: `${e.location} · ${statusMap[e.status] || e.status}`,
+          meta: `${e.location} · ${equipmentStatusLabel(e.status)}`,
           route: '/equipment',
           // 复用设备台账已有的 ?id= 直达画像，而不是跳到列表让用户自己再找一遍
           focus: { path: '/equipment', query: { id: String(e.id) } }
@@ -98,7 +97,7 @@ const searchResults = computed(() => {
         .filter(o => lower(o.title).includes(keyword) || lower(o.equipment_name).includes(keyword))
         .map(o => ({
           title: `#${o.id} ${o.title}`,
-          meta: `${o.equipment_name} · ${orderStatusMap[o.status] || o.status} · ${priorityMap[o.priority] || o.priority}`,
+          meta: `${o.equipment_name} · ${statusLabel(o.status)} · ${priorityLabel(o.priority)}`,
           route: '/workorder',
           focus: { path: '/workorder', query: { focus: String(o.id) } }
         }))

@@ -316,7 +316,14 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { useAppStore, MAINTENANCE_TYPES, maintenanceStyle } from '../stores/appStore'
+import { useAppStore } from '../stores/appStore'
+// 设备状态与工单状态的文案/配色统一取自 utils/dictionaries.js（单一来源）。
+// 模板里沿用旧函数名，这里用 import 别名对上，避免为改名而改模板。
+import {
+  MAINTENANCE_TYPES, maintenanceStyle,
+  equipmentStatusLabel as statusLabel, equipmentStatusTagType as statusType,
+  statusLabel as statusLabel2, statusTagType as statusTag
+} from '../utils/dictionaries'
 import { now, daysSince } from '../utils/dates'
 import { evaluateHealth, getHealthColor, getHealthScore, getHealthLevel, levelMeta, levelBounds, buildTrendPath, RISK_LEVELS } from '../utils/health'
 import { equipmentPhoto } from '../utils/equipmentPhoto'
@@ -479,18 +486,7 @@ function openFromQuery() {
 onMounted(openFromQuery)
 watch(() => route.query.id, openFromQuery)
 
-function statusType(status) {
-  return { running: 'success', idle: 'info', maintenance: 'warning', fault: 'danger' }[status] || 'info'
-}
-function statusLabel(status) {
-  return { running: '运行中', idle: '闲置', maintenance: '维保中', fault: '故障' }[status] || status
-}
-function statusTag(s) {
-  return { pending: 'warning', processing: 'primary', completed: 'success' }[s] || 'info'
-}
-function statusLabel2(s) {
-  return { pending: '待处理', processing: '处理中', completed: '已完成' }[s] || s
-}
+// 状态文案/配色见 utils/dictionaries.js（原本这里另有两份，且工单状态配色缺 assigned 分支）
 
 function maintenanceStatus(row) {
   const since = daysSince(row.last_maintenance_date)

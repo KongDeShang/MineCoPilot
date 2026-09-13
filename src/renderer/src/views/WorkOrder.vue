@@ -312,7 +312,15 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
-import { useAppStore, maintenanceStyle, computeOverdueDays } from '../stores/appStore'
+import { useAppStore, computeOverdueDays } from '../stores/appStore'
+// 状态/优先级/类型/来源的文案与配色统一取自 utils/dictionaries.js（单一来源）。
+// 模板里沿用旧函数名，这里用 import 别名对上，避免为改名而改十几处模板。
+import {
+  statusLabel, statusTagType as statusTag,
+  priorityLabel, priorityTagType as priorityTag,
+  orderTypeLabel as typeLabel, orderTypeTagType as typeTag,
+  orderSourceLabel as sourceLabel, maintenanceStyle
+} from '../utils/dictionaries'
 import { getHealthScore, levelOf, levelMeta } from '../utils/health'
 import { recommendKnowledge } from '../utils/knowledgeBase'
 
@@ -428,27 +436,7 @@ watch(() => route.query.new, applyQuery)
 watch(() => route.query.focus, applyFocusQuery)
 
 // ---------- 标签映射 ----------
-function typeLabel(type) {
-  return { maintenance: '维保', repair: '维修', inspection: '巡检' }[type] || type
-}
-function typeTag(type) {
-  return { maintenance: 'primary', repair: 'danger', inspection: 'success' }[type] || 'info'
-}
-function priorityLabel(p) {
-  return { urgent: '紧急', high: '高', normal: '普通', low: '低' }[p] || p
-}
-function priorityTag(p) {
-  return { urgent: 'danger', high: 'warning', normal: '', low: 'info' }[p] || ''
-}
-function statusLabel(s) {
-  return { pending: '待派单', assigned: '已派单', processing: '处理中', completed: '已完成', cancelled: '已取消' }[s] || s
-}
-function statusTag(s) {
-  return { pending: 'warning', assigned: 'warning', processing: 'primary', completed: 'success', cancelled: 'info' }[s] || ''
-}
-function sourceLabel(s) {
-  return { manual: '手动', voice: '语音', ocr: '拍照', excel: 'Excel' }[s] || s
-}
+// 实现见 utils/dictionaries.js：原本这里另有一份，且 pending 的文案与其他页面不一致
 
 function updateStatus(row, newStatus) {
   // store 会做状态机校验，非法流转返回 null。不能不看返回值就报成功——

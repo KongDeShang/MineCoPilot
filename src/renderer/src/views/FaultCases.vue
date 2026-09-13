@@ -1,26 +1,7 @@
 <template>
   <div class="fault-page">
     <!-- 顶部统计 -->
-    <el-row :gutter="16" class="fault-stats">
-      <el-col :xs="12" :sm="8">
-        <div class="stat-card">
-          <div class="stat-label">自动分类样本（本地真实记录）</div>
-          <div class="stat-value">{{ faultStats.total || 0 }} <span class="stat-unit">条</span></div>
-        </div>
-      </el-col>
-      <el-col :xs="12" :sm="8">
-        <div class="stat-card">
-          <div class="stat-label">系统分类</div>
-          <div class="stat-value">{{ faultStats.top?.length || 0 }} <span class="stat-unit">类</span></div>
-        </div>
-      </el-col>
-      <el-col :xs="12" :sm="8">
-        <div class="stat-card">
-          <div class="stat-label">TOP1 系统</div>
-          <div class="stat-value" style="font-size: 18px; color: #0b3a82">{{ top1?.system || '—' }}</div>
-        </div>
-      </el-col>
-    </el-row>
+    <StatCards :items="statItems" />
 
     <!-- 自动沉淀案例（工单完工自动归档：症状 → 原因 → 处理） -->
     <el-card v-if="recentCases.length" shadow="never">
@@ -99,12 +80,22 @@
 import { ref, computed } from 'vue'
 import { Warning, MagicStick, Link } from '@element-plus/icons-vue'
 import { useAppStore } from '../stores/appStore'
+import StatCards from '../components/StatCards.vue'
 
 const store = useAppStore()
 const expanded = ref(null)
 
 const faultStats = computed(() => store.faultTopStats)
 const top1 = computed(() => faultStats.value.top?.[0] || null)
+
+const statItems = computed(() => {
+  const s = faultStats.value
+  return [
+    { label: '自动分类样本（本地真实记录）', value: s.total || 0, unit: '条' },
+    { label: '系统分类', value: s.top?.length || 0, unit: '类' },
+    { label: 'TOP1 系统', value: top1.value?.system || '—', color: '#0b3a82', small: true }
+  ]
+})
 const expandedItem = computed(() =>
   expanded.value ? faultStats.value.top.find(s => s.system === expanded.value) || null : null
 )
@@ -129,37 +120,6 @@ function barColor(i) {
   display: flex;
   flex-direction: column;
   gap: 16px;
-}
-
-.fault-stats {
-  margin-bottom: 0;
-}
-
-.stat-card {
-  background: #fff;
-  border: 1px solid #dde4ef;
-  border-radius: 13px;
-  padding: 14px 16px;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
-  margin-bottom: 4px;
-}
-
-.stat-label {
-  font-size: 12px;
-  color: #8a95a7;
-}
-
-.stat-value {
-  font-size: 24px;
-  font-weight: 700;
-  color: #0a1326;
-  margin-top: 4px;
-}
-
-.stat-unit {
-  font-size: 12px;
-  color: #8a95a7;
-  font-weight: 400;
 }
 
 .card-header {

@@ -25,22 +25,19 @@ import { extractPdfText } from '../utils/pdfExtract'
 import { createNlActions } from './nlActions'
 import { createPersistence } from './persistence'
 
+// 界面文案字典（设备/工单状态、优先级、类型、维保类型样式）统一放在 utils/dictionaries.js。
+// 这里只做转发，不保留第二份实现 —— 之前那份躺在这里，一个页面都没用上。
+export {
+  MAINTENANCE_TYPES,
+  MAINTENANCE_TYPE_STYLE,
+  maintenanceStyle,
+  WORK_ORDER_STATUS,
+  statusLabel as orderStatusLabel,
+  statusTagType as orderStatusTagType
+} from '../utils/dictionaries'
+
 const SEED_VERSION = '3'
 const FLEET_SIZE = DEFAULT_FLEET_SIZE
-
-/** 维保类型 → 展示样式（入库存中文类型，展示层映射颜色） */
-export const MAINTENANCE_TYPES = ['定期保养', '故障维修', '部件更换', '巡检']
-
-export const MAINTENANCE_TYPE_STYLE = {
-  定期保养: { tagType: 'success', timelineType: 'success' },
-  故障维修: { tagType: 'danger', timelineType: 'warning' },
-  部件更换: { tagType: 'warning', timelineType: 'primary' },
-  巡检: { tagType: 'info', timelineType: 'info' }
-}
-
-export function maintenanceStyle(type) {
-  return MAINTENANCE_TYPE_STYLE[type] || { tagType: 'info', timelineType: 'info' }
-}
 
 /** 超期天数：未超期返回 null（统一由 utils/health.js 提供，此处转发以保持旧调用可用） */
 export function computeOverdueDays(eq) {
@@ -67,14 +64,6 @@ export const WORK_ORDER_TRANSITIONS = {
   assigned: ['processing', 'completed', 'pending'],
   processing: ['completed', 'assigned'],
   completed: ['processing']
-}
-
-/** 工单状态中文名（界面与日志共用一份） */
-export const WORK_ORDER_STATUS_LABELS = {
-  pending: '待处理',
-  assigned: '已派单',
-  processing: '处理中',
-  completed: '已完成'
 }
 
 /**
