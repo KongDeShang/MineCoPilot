@@ -11,6 +11,7 @@
  *   - 导出时间与版本号，导入时校验
  */
 import * as db from './database'
+import { formatDate } from './dates'
 
 const BACKUP_KIND = 'kuangshan-zhigong-backup'
 const CHAT_KEY = 'ai_chat_messages'
@@ -41,7 +42,8 @@ export async function buildBackup() {
 /** 一键导出备份：Electron 弹保存框；浏览器模式直接下载 */
 export async function exportBackup() {
   const json = await buildBackup()
-  const defaultName = `矿山智工备份_${new Date().toISOString().slice(0, 10)}.mbak`
+  // 文件名用本地日期：早 8 点前导出，toISOString 会写成前一天
+  const defaultName = `矿山智工备份_${formatDate(new Date())}.mbak`
 
   if (isElectron()) {
     const r = await window.electronAPI.backup.export({ content: json, defaultName })

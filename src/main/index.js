@@ -83,7 +83,10 @@ function registerIpc() {
   // 导出：弹保存对话框，把备份 JSON 写入用户选择的位置
   ipcMain.handle('backup:export', async (event, payload) => {
     const content = payload && payload.content
-    const defaultName = (payload && payload.defaultName) || `矿山智工备份_${new Date().toISOString().slice(0, 10)}.mbak`
+    // 本地日期，不用 toISOString（会转 UTC，东八区早 8 点前会写成前一天）
+    const d = new Date()
+    const localDay = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const defaultName = (payload && payload.defaultName) || `矿山智工备份_${localDay}.mbak`
     if (typeof content !== 'string') return { ok: false, error: '备份内容为空' }
     try {
       const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {

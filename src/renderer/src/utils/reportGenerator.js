@@ -4,21 +4,28 @@
  * 从 store 实时数据聚合生成结构化报告，支持导出为 HTML/PDF。
  * 所有数字均由本地台账实时计算，不编造。
  */
-import { now } from './dates'
+import { now, formatDate } from './dates'
 
 /**
  * 获取本周/本月的时间范围
+ *
+ * ⚠️ 日期一律走 formatDate（按本地时区取年月日），**不要先 toISOString 再截前 10 位**：
+ * toISOString 会先转 UTC，东八区下每天 00:00–07:59 之间算出来的是「昨天」。
+ * 更隐蔽的是月初 —— new Date(y, m, 1) 是本地零点，转 UTC 后落在上个月最后一天，
+ * 于是 9 月月报的范围会变成 8-31 ~ 9-13，凭空多出一天上个月的数据。
+ *
+ * （self-check 的 A2 组会在源码层扫这个写法，注释里也别写出完整调用，否则会被自己拦下。）
+ *
  * @param {'week'|'month'} period
  * @returns {{start: string, end: string, label: string}}
  */
 export function getPeriodRange(period = 'week') {
   const today = new Date()
-  const end = today.toISOString().slice(0, 10)
+  const end = formatDate(today)
 
   if (period === 'month') {
-    const start = new Date(today.getFullYear(), today.getMonth(), 1)
     return {
-      start: start.toISOString().slice(0, 10),
+      start: formatDate(new Date(today.getFullYear(), today.getMonth(), 1)),
       end,
       label: `${today.getFullYear()}年${today.getMonth() + 1}月`
     }
@@ -28,9 +35,17 @@ export function getPeriodRange(period = 'week') {
   const dayOfWeek = today.getDay() || 7 // 周日=7
   const monday = new Date(today)
   monday.setDate(today.getDate() - dayOfWeek + 1)
-  const weekNum = Math.ceil((today.getDate() + new Date(today.getFullYear(), today.getMonth(), 1).getDay()) / 7)
+
+  // 周次按「含 1 号的那一周是第 1 周、周一起算」推导，和上面的 start 同一套口径；
+  // 原来用 (日 + 1号星期) / 7 估算，是"周日起算"的算法，与 start 的周一起点对不上，
+  // 同一天会被算进不同的周。
+  const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
+  const firstMonday = new Date(firstOfMonth)
+  firstMonday.setDate(firstOfMonth.getDate() - ((firstOfMonth.getDay() + 6) % 7))
+  const weekNum = Math.max(1, Math.floor((monday - firstMonday) / (7 * 86400000)) + 1)
+
   return {
-    start: monday.toISOString().slice(0, 10),
+    start: formatDate(monday),
     end,
     label: `${today.getFullYear()}年${today.getMonth() + 1}月第${weekNum}周`
   }

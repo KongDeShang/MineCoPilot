@@ -15,7 +15,7 @@
  */
 import initSqlJsImport from 'sql.js'
 import * as XLSX from 'xlsx'
-import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
 
@@ -27,7 +27,7 @@ const mirrorDir = join(root, '.tmp-selfcheck')
 // ---- 生成 ESM 镜像，让 Node 能直接导入项目真实模块 ----
 rmSync(mirrorDir, { recursive: true, force: true })
 mkdirSync(mirrorDir, { recursive: true })
-for (const name of ['dates', 'html', 'storage', 'database', 'excelParser', 'synonyms', 'knowledgeBase', 'health', 'equipmentCatalog', 'fleetData', 'healthReport', 'faultStats', 'nlCommand', 'llmClient', 'narrate']) {
+for (const name of ['dates', 'html', 'storage', 'database', 'excelParser', 'synonyms', 'knowledgeBase', 'health', 'equipmentCatalog', 'fleetData', 'healthReport', 'faultStats', 'nlCommand', 'llmClient', 'narrate', 'reportGenerator']) {
   const code = readFileSync(join(srcDir, `${name}.js`), 'utf8')
     .replace(/(from\s+['"]\.\/[a-zA-Z0-9_-]+)(['"])/g, '$1.mjs$2')
   writeFileSync(join(mirrorDir, `${name}.mjs`), code, 'utf8')
@@ -74,6 +74,7 @@ const faultStats = await import(mirror('faultStats'))
 const nl = await import(mirror('nlCommand'))
 const llmC = await import(mirror('llmClient'))
 const narrate = await import(mirror('narrate'))
+const reportGen = await import(mirror('reportGenerator'))
 
 const results = []
 function check(name, condition, detail = '') {
@@ -96,6 +97,47 @@ function check(name, condition, detail = '') {
   check('daysUntilDue 超期计算正确', until === -10, `until=${until}`)
   const soon = dates.daysUntilDue(dates.daysAgoDate(86), 90)
   check('daysUntilDue 即将到期计算正确', soon === 4, `soon=${soon}`)
+}
+
+// ============ A2 日期范围必须按本地时区（UTC 差一回归） ============
+{
+  // 这类 bug 白天跑测试永远发现不了：toISOString() 会先转 UTC，
+  // 东八区下「今天」在 00:00–07:59 之间会被算成昨天；
+  // 月初更隐蔽 —— new Date(y, m, 1) 是本地零点，转 UTC 落在上个月最后一天，
+  // 于是 9 月月报的范围变成 8-31 ~ 9-13，凭空多出一天上个月的数据。
+  const week = reportGen.getPeriodRange('week')
+  const month = reportGen.getPeriodRange('month')
+  const todayStr = dates.formatDate(new Date())
+
+  check('周报范围结束于今天（本地时区，非 UTC）', week.end === todayStr, `${week.end} vs ${todayStr}`)
+  check('月报范围结束于今天（本地时区，非 UTC）', month.end === todayStr, `${month.end} vs ${todayStr}`)
+  check('月报范围从本月 1 号开始（不是上个月最后一天）',
+    month.start.slice(0, 7) === todayStr.slice(0, 7) && month.start.endsWith('-01'),
+    `start=${month.start}，期望 ${todayStr.slice(0, 7)}-01`)
+
+  const weekStartDay = new Date(`${week.start}T00:00:00`).getDay()
+  check('周报范围从周一开始', weekStartDay === 1, `start=${week.start}，星期${weekStartDay}`)
+  check('周报起始日不晚于今天', week.start <= todayStr, `${week.start} <= ${todayStr}`)
+  check('周报标签含年月与周次', /^\d{4}年\d{1,2}月第\d+周$/.test(week.label), week.label)
+  check('月报标签含年月', /^\d{4}年\d{1,2}月$/.test(month.label), month.label)
+
+  // 源码级防回归：全仓不允许再出现 toISOString().slice(0,10) 这种"假装是本地日期"的写法。
+  // 生成完整时间戳（不带 slice）是合法的，只有截成日期串才是 bug。
+  const offenders = []
+  for (const dir of ['src/renderer/src', 'src/main', 'src/preload']) {
+    const walk = (d) => {
+      for (const entry of readdirSync(join(root, dir, d), { withFileTypes: true })) {
+        const rel = d ? `${d}/${entry.name}` : entry.name
+        if (entry.isDirectory()) { walk(rel); continue }
+        if (!/\.(js|mjs|vue)$/.test(entry.name)) continue
+        const code = readFileSync(join(root, dir, rel), 'utf8')
+        if (/toISOString\(\)\.slice\(\s*0\s*,\s*10\s*\)/.test(code)) offenders.push(`${dir}/${rel}`)
+      }
+    }
+    walk('')
+  }
+  check('全仓不再用 toISOString().slice(0,10) 冒充本地日期',
+    offenders.length === 0, offenders.join('、') || '无')
 }
 
 // ============ B sql.js 持久化 ============

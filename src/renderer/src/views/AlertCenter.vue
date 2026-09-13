@@ -81,6 +81,7 @@ import { Warning, AlarmClock, Bell, ChatLineRound, DocumentAdd, Refresh, Box } f
 import { useAppStore } from '../stores/appStore'
 import { evaluateHealth } from '../utils/health'
 import { equipmentPhoto } from '../utils/equipmentPhoto'
+import { formatDate } from '../utils/dates'
 
 const store = useAppStore()
 const router = useRouter()
@@ -103,7 +104,9 @@ const doneCount = computed(() => Object.keys(doneMap.value).length)
 /** 规则引擎实时扫描全部告警 */
 const alerts = computed(() => {
   const list = []
-  const todayStr = new Date().toISOString().slice(0, 10)
+  // 必须用本地日期：toISOString 会先转 UTC，东八区早 8 点前算出来的是昨天，
+  // 于是"今天到期"的复诊不会被判为逾期——漏提醒，而且是静默的。
+  const todayStr = formatDate(new Date())
 
   // 1) D 级设备（最高优先级）
   for (const e of store.criticalList) {
