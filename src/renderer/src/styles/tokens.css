@@ -71,12 +71,15 @@
        --text-1  主正文/标题   白底 18.5:1
        --text-2  次要文字      白底  8.8:1
        --text-3  弱化文字/标签 白底  6.0:1
-       --text-mute 占位符/装饰：白底 4.34:1 —— 只允许用于 placeholder、分隔符、
-                  图表网格、禁用态等"非必须读"的位置，不得当正文        */
+       --text-mute 占位符/装饰：白底 4.69:1
+                   原为 #6e7a8f（4.34:1），差一点点不达 AA。既然它被用在
+                   "—" 这类占位符上（全站 120 处），与其为它开一条永久豁免，
+                   不如把它压深一档到 4.69:1 —— 视觉上几乎看不出差别，
+                   但从此不需要"这个是允许不达标的"这类例外。              */
   --text-1: #0a1326;
   --text-2: #3d4b63;
   --text-3: #57647a;
-  --text-mute: #6e7a8f;
+  --text-mute: #67738a;
 
   /* ===== 状态色 · 文字版（用于彩色文字，全部 ≥ AA） =====
      原来的做法是把 tag 的底色色值直接拿来写文字（如 #e0a020 当字色，2.28:1）。
@@ -185,7 +188,11 @@
 
   --el-color-danger: #e0413e;
   --el-color-danger-light-3: #e86f6d;
-  --el-color-danger-light-5: #ee9d9b;
+  /* light-5 是 EP "禁用态 plain 按钮"的文字色（.is-disabled.is-plain）。
+     原值 #ee9d9b 压在 light-9 上只有 1.85:1 —— 严格说 WCAG 1.4.3 对
+     非活动控件是豁免的，这里改深只是让它读得出来：#a35554 实测 4.77:1，
+     仍是明显的灰砖色，不会把禁用态看成可点。 */
+  --el-color-danger-light-5: #a35554;
   --el-color-danger-light-7: #f5c6c5;
   --el-color-danger-light-8: #f9dad9;
   --el-color-danger-light-9: #fdecec;
@@ -203,7 +210,11 @@
   --el-text-color-primary: #0a1326;
   --el-text-color-regular: #2a3852;
   --el-text-color-secondary: #5a6779;
-  --el-text-color-placeholder: #8a95a7;
+  /* 与 --text-mute 同源：占位符文字白底 4.69:1。
+     原先硬编码的 #8a95a7（=--ink-4）只有 3.03:1 —— el-select 的"全部来源"
+     这类**可用**控件的占位符不在 WCAG 1.4.3 的 inactive 豁免里，是实打实的不达标；
+     is-disabled 的按钮文字取的是同一个令牌，一并抬高（禁用态本就免检，抬高只赚不亏）。 */
+  --el-text-color-placeholder: var(--text-mute);
   --el-text-color-disabled: #c0c6d1;
 
   --el-border-color: #dde4ef;
@@ -385,3 +396,73 @@ body {
   font-size: var(--fs-body);
   line-height: 1.5;
 }
+
+/* ============================================================
+   Element Plus 组件内部：状态色分"面"与"字"
+   ------------------------------------------------------------
+   EP 把 --el-color-* 同时当两种用途：浅色"面"（底色）和文字色。
+   于是 #12a06b / #e0a020 / #e0413e / #0bb4c4 这些面色被直接拿去写字，
+   实测 2.06~4.20:1，全站最大一类不达标来源（如"标记复诊"3.35:1 ×129、
+   "派单"2.17:1、"体检"按钮 2.28:1）。项目规范早就写明要用 --*-ink，
+   但一直没人接线——这里把它接上。
+
+   做法：不去覆盖 EP 的 --el-tag-text-color / --el-button-text-color 这类
+   下游变量（EP 自己的规则写作 `.el-tag.el-tag--warning{...}`，0,2,0，
+   同级或更低拿不下来，实测无效），改为在组件作用域内重定上游的
+   --el-color-*（0,1,0，与 EP 的 .el-tag / .el-button 同级；tokens.css 在
+   main.js 里晚于 element-plus/dist/index.css 引入，同特异度按引入顺序取胜）。
+
+   一次覆盖同时修好三种情形，因为它们都从同一个变量取值：
+     · plain / link / text 变体的文字  → —*-ink（>5.36:1）
+     · solid 变体的实心底（白字）      → —*-ink（>5.36:1）
+     · plain 变体的描边                → —*-ink
+   浅色底（-light-9 等）在 tokens.css 里是各自写死的绝对色值，不参与推导，
+   所以浅底观感层级不变。
+   依赖引入顺序：改动 main.js 里那两条 import 的先后会让它静默失效。
+   实测效果：16 条路由的不达标组合由 135 处降到 95 处（仅 .el-tag 一项）。
+   ============================================================ */
+.el-tag,
+.el-button,
+.el-link,
+.el-message,
+.el-alert,
+.el-badge {
+  --el-color-success: var(--success-ink);
+  --el-color-warning: var(--warn-ink);
+  --el-color-danger: var(--danger-ink);
+  --el-color-info: var(--text-3);
+}
+
+/* 面包屑分隔符取的是 --el-text-color-placeholder（--ink-4，3.03:1）——
+   它是分隔符不是占位符，按正文标准取 --text-3。 */
+.el-breadcrumb__separator {
+  color: var(--text-3);
+}
+
+/* ============================================================
+   健康等级实色 A/B/C/D
+   ------------------------------------------------------------
+   一套值服务两个场景：
+     1) 实色徽标底 + 白字（equip-level / focus-level / fault-rank / worsen-score）
+     2) 白底上的彩色文字（focus-score / stat-value / health-num）
+   取值直接引用已有 ink，不再写一遍 hex —— ink 的白字对比度与它的
+   "白底对比度"互为镜像，所以同一个值两边同时成立：
+     A --success-ink  白字 5.36:1    B --accent-mid  白字 6.34:1
+     C --warn-ink     白字 5.75:1    D --danger-ink  白字 6.08:1
+   注意：面色（--emerald/--amber/--danger）不能直接承载白字（实测 2.28~4.20:1），
+   但大面积色块（进度条填充、图表条）不受 4.5:1 约束，继续用它。
+   ============================================================ */
+:root {
+  --level-a: var(--success-ink);
+  --level-b: var(--accent-mid);
+  --level-c: var(--warn-ink);
+  --level-d: var(--danger-ink);
+}
+
+/* 等级色工具类：挂上类即得到 --lv，各处按需取用 ——
+   徽标记为 background: var(--lv)，白底上的分数记为 color: var(--lv)，
+   圆环记为 border-color: var(--lv)。一处定义，三个场景同色。 */
+.lv-a { --lv: var(--level-a); }
+.lv-b { --lv: var(--level-b); }
+.lv-c { --lv: var(--level-c); }
+.lv-d { --lv: var(--level-d); }

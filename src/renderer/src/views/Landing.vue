@@ -7,17 +7,23 @@
 
     <!-- 主内容 -->
     <div class="landing-content">
-      <!-- 标题区 -->
+      <!-- 标题区：宽屏左右分栏（文案在左、设备实拍在右），
+           窄屏再堆叠回居中。整块原先只有文字，1100px 宽度里右侧空着一半。 -->
       <div class="hero-section">
-        <div class="logo-big">
-          <el-icon :size="64" color="var(--signal-bright)"><Monitor /></el-icon>
+        <div class="hero-copy">
+          <div class="logo-big">
+            <el-icon :size="64" color="var(--signal-bright)"><Monitor /></el-icon>
+          </div>
+          <h1 class="main-title">矿山智工</h1>
+          <p class="sub-title">工程机械运维 AI 工作台</p>
+          <div class="tagline">
+            <el-tag effect="dark" class="tag-pill">本地优先</el-tag>
+            <el-tag effect="dark" class="tag-pill">离线可用</el-tag>
+            <el-tag effect="dark" class="tag-pill">数据不出设备</el-tag>
+          </div>
         </div>
-        <h1 class="main-title">矿山智工</h1>
-        <p class="sub-title">工程机械运维 AI 工作台</p>
-        <div class="tagline">
-          <el-tag effect="dark" class="tag-pill">本地优先</el-tag>
-          <el-tag effect="dark" class="tag-pill">离线可用</el-tag>
-          <el-tag effect="dark" class="tag-pill">数据不出设备</el-tag>
+        <div class="hero-visual">
+          <img :src="heroPhoto" alt="矿用挖掘机" />
         </div>
       </div>
 
@@ -32,7 +38,9 @@
         <!-- 痛点卡片 -->
         <div class="pain-cards">
           <div class="pain-card" v-for="(pain, index) in pains" :key="index" :class="`pain-${index}`">
-            <div class="pain-icon">{{ pain.icon }}</div>
+            <div class="pain-icon">
+              <el-icon :size="32"><component :is="pain.icon" /></el-icon>
+            </div>
             <div class="pain-content">
               <h3>{{ pain.title }}</h3>
               <p class="pain-desc">{{ pain.desc }}</p>
@@ -46,7 +54,9 @@
 
         <!-- 损失高亮 -->
         <div class="loss-highlight">
-          <div class="loss-icon">💥</div>
+          <div class="loss-icon">
+            <el-icon :size="36"><WarningFilled /></el-icon>
+          </div>
           <div class="loss-text">
             <p>去年漏了一台挖掘机的液压油更换</p>
             <p class="loss-number">停机 3 天，损失 <span>¥400,000</span></p>
@@ -63,15 +73,20 @@
 
         <div class="compare-grid">
           <div class="compare-item" v-for="(item, index) in solutions" :key="index">
+            <div class="compare-index">{{ `0${index + 1}` }}</div>
             <div class="compare-before">
-              <div class="compare-label">❌ 以前</div>
+              <div class="compare-label">
+                <el-icon><CircleCloseFilled /></el-icon>以前
+              </div>
               <p>{{ item.before }}</p>
             </div>
             <div class="compare-arrow">
               <el-icon :size="24"><Right /></el-icon>
             </div>
             <div class="compare-after">
-              <div class="compare-label">✅ 现在</div>
+              <div class="compare-label">
+                <el-icon><CircleCheckFilled /></el-icon>现在
+              </div>
               <p>{{ item.after }}</p>
             </div>
           </div>
@@ -94,7 +109,7 @@
           <div class="stat-text">中国工程机械保有量</div>
         </div>
         <div class="stat-item">
-          <div class="stat-num">5000亿</div>
+          <div class="stat-num">5000亿+</div>
           <div class="stat-text">后市场规模/年</div>
         </div>
         <div class="stat-item">
@@ -116,33 +131,39 @@
 
 <script setup>
 import { useRouter } from 'vue-router'
+import { equipmentPhoto } from '../utils/equipmentPhoto'
 
 const router = useRouter()
 
+// 首屏右侧的设备实拍取本地已有图（离线可用，不引任何外部资源）
+const heroPhoto = equipmentPhoto('挖掘机')
+
+// icon 存的是 Element Plus 图标组件名（main.js 已全量注册），
+// 模板里用 <component :is> 渲染 —— 原先存的是 emoji 字符。
 const pains = [
   {
-    icon: '📋',
+    icon: 'Files',
     title: '多部门 Excel 混乱',
     desc: '生产部、维修部、安全部各发一份表格，格式不统一，字段冲突',
     value: '5',
     unit: '个部门，5种格式'
   },
   {
-    icon: '🧠',
+    icon: 'Cpu',
     title: '维保靠人脑记忆',
     desc: '200 台设备的保养周期、历史故障、配件更换全凭经验',
     value: '200+',
     unit: '台设备靠人脑记'
   },
   {
-    icon: '📝',
+    icon: 'EditPen',
     title: '纸笔记录二次录入',
     desc: '现场巡检只能手写，回办公室再花 2 小时录系统',
     value: '2h',
     unit: '每天重复录入'
   },
   {
-    icon: '🔒',
+    icon: 'Lock',
     title: '工业数据不能上云',
     desc: '设备参数、产量数据、故障记录属于商业机密和安全数据',
     value: '0',
@@ -229,10 +250,33 @@ function enterApp() {
   padding: 40px 24px 104px;
 }
 
-/* 标题区 */
+/* 标题区：宽屏左右分栏，文案在左、设备实拍在右 */
 .hero-section {
-  text-align: center;
-  margin-bottom: 36px;
+  display: flex;
+  align-items: center;
+  gap: 48px;
+  margin-bottom: 44px;
+}
+
+.hero-copy {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.hero-visual {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.hero-visual img {
+  display: block;
+  width: 100%;
+  height: 268px;
+  object-fit: cover;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  /* 照片压深色渐变上，给一点投影让高光边缘不"飘" */
+  box-shadow: 0 18px 40px rgba(3, 12, 30, 0.55);
 }
 
 .logo-big {
@@ -272,7 +316,7 @@ function enterApp() {
 
 .tagline {
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 12px;
 }
 
@@ -321,20 +365,27 @@ function enterApp() {
   gap: 14px;
   padding: 18px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
+  /* 面板底色用"压暗"而不是"提亮"（原来是 rgba(255,255,255,0.04)）。
+     --on-dark-* / --danger-on-dark 这套令牌是按**深底**标定的（注释里记的
+     4.6~12.0:1 都是对 #061530 一族算的），可白色叠加层把面板实际抬到了 #153261，
+     文字落到 3.85~4.49:1 全线不达标。深色叠加层把面板压回令牌的标定区间，
+     一个改动同时解决 .pain-content h3 / .pain-desc / .metric-unit 三类。 */
+  background: rgba(3, 12, 30, 0.45);
   border: 1px solid rgba(255, 255, 255, 0.08);
   transition: all 0.3s;
 }
 
 .pain-card:hover {
-  background: rgba(255, 255, 255, 0.08);
+  /* 悬停仍是"提亮一档"，只是方向改在深底这一侧：0.45 → 0.30 就是变浅 */
+  background: rgba(3, 12, 30, 0.3);
   border-color: rgba(11, 180, 196, 0.3);
   transform: translateY(-2px);
 }
 
 .pain-icon {
-  font-size: 36px;
   flex-shrink: 0;
+  /* 图标与标题、数字同色，三者读成一个"痛点"信号 */
+  color: var(--danger-on-dark);
 }
 
 .pain-content h3 {
@@ -385,7 +436,9 @@ function enterApp() {
 }
 
 .loss-icon {
-  font-size: 40px;
+  flex-shrink: 0;
+  display: flex;
+  color: var(--danger-on-dark);
 }
 
 .loss-text p {
@@ -427,13 +480,25 @@ function enterApp() {
 
 .compare-item {
   display: grid;
-  grid-template-columns: 1fr 40px 1fr;
+  /* 首列是序号：四行内容本是同一个"以前→现在"的句式，加个 01–04
+     让它读成一串序列（与上方痛点卡片一一对应），而不是四张一样的卡 */
+  grid-template-columns: auto 1fr 40px 1fr;
   align-items: center;
   gap: 12px;
   padding: 14px 20px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
+  /* 同 .pain-card：白叠层换成压暗层。这行是"以前/现在"的底座，
+     再叠 10% 的红/绿仍然远高于 4.5:1（.compare-label 实测 3.85 → 5.0 左右）。 */
+  background: rgba(3, 12, 30, 0.5);
   border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.compare-index {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  font-variant-numeric: tabular-nums;
+  color: var(--on-dark-3);
 }
 
 .compare-before, .compare-after {
@@ -452,6 +517,9 @@ function enterApp() {
 }
 
 .compare-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   font-size: 12px;
   font-weight: 700;
   margin-bottom: 6px;
@@ -537,6 +605,24 @@ function enterApp() {
    注意：这里原先写的 .comparison-grid / .market-stats 两个类在模板里不存在，
    三个 *-section 的 padding 也压在没设置 padding 的元素上 —— 四条规则全是空转的，
    窄屏下对比区仍是 1fr 40px 1fr 三列，正文被挤成一列字。类名已对齐实际模板。 */
+/* 中等宽度以下分栏会挤成一团，收回居中堆叠 */
+@media (max-width: 900px) {
+  .hero-section {
+    flex-direction: column;
+    gap: 28px;
+    text-align: center;
+  }
+  .hero-visual {
+    width: 100%;
+  }
+  .hero-visual img {
+    height: 200px;
+  }
+  .tagline {
+    justify-content: center;
+  }
+}
+
 @media (max-width: 768px) {
   .pain-cards {
     grid-template-columns: 1fr;

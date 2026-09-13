@@ -14,12 +14,14 @@
         <!-- AI 思考过程可视化（默认展开，可点击收起） -->
         <div v-if="msg.thinkingSteps && msg.thinkingSteps.length" class="ai-thinking">
           <div class="ai-thinking-title" @click="$emit('toggle-thinking')">
-            <span class="ai-thinking-icon">🤔</span> 智工分析过程
+            <span class="ai-thinking-icon"><el-icon :size="16"><MagicStick /></el-icon></span> 智工分析过程
             <span class="thinking-toggle">{{ msg.thinkingCollapsed ? '展开 ▾' : '收起 ▴' }}</span>
           </div>
           <div v-if="!msg.thinkingCollapsed" class="ai-thinking-body">
             <div v-for="(step, si) in msg.thinkingSteps" :key="si" class="ai-thinking-step" :class="{ done: step.status === 'done' }">
-              <span class="step-icon">{{ step.status === 'done' ? '✅' : '⏳' }}</span>
+              <span class="step-icon">
+                <el-icon :size="13"><component :is="step.status === 'done' ? 'CircleCheckFilled' : 'Clock'" /></el-icon>
+              </span>
               <span class="step-label">{{ step.label }}</span>
               <span v-if="step.detail" class="step-detail"> → {{ step.detail }}</span>
             </div>
@@ -231,7 +233,7 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
 
 .message-time {
   font-size: 11px;
-  color: var(--text-mute);
+  color: var(--text-3);
   margin-top: 4px;
 }
 
@@ -318,7 +320,7 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: var(--danger);
+  color: var(--danger-ink);
   padding: 8px 10px;
   background: var(--danger-soft);
   border-radius: 8px;
@@ -489,10 +491,17 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
 }
 
 .step-icon {
-  font-size: 12px;
+  /* 原来是 emoji「✅ / ⏳」，字号管不住 emoji 的实际大小；改 el-icon 后
+     尺寸由 :size 定，这里只负责占位与对齐 */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
   width: 16px;
-  text-align: center;
 }
+
+.ai-thinking-step .step-icon { color: var(--text-3); }
+.ai-thinking-step.done .step-icon { color: var(--success-ink); }
 
 .step-label {
   font-weight: 500;
@@ -519,7 +528,7 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
 .refs-label {
   font-size: 11px;
   font-weight: 700;
-  color: var(--emerald);
+  color: var(--success-ink);
 }
 
 .ref-item {

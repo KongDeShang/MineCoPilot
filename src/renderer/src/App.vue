@@ -37,7 +37,7 @@
         >
           <el-icon :size="16"><component :is="item.icon" /></el-icon>
           <span class="nav-label">{{ item.label }}</span>
-          <span class="nav-pin" @click.stop="togglePin(item)">📌</span>
+          <span class="nav-pin pinned" @click.stop="togglePin(item)"><el-icon><StarFilled /></el-icon></span>
         </div>
       </div>
 
@@ -55,7 +55,9 @@
             <el-icon :size="16"><component :is="item.icon" /></el-icon>
             <span class="nav-label">{{ item.label }}</span>
             <el-tag v-if="item.badge" size="small" effect="dark" class="nav-badge">{{ item.badge }}</el-tag>
-            <span class="nav-pin" :class="{ pinned: item.pin }" @click.stop="togglePin(item)">{{ item.pin ? '📌' : '＋' }}</span>
+            <span class="nav-pin" :class="{ pinned: item.pin }" @click.stop="togglePin(item)">
+              <el-icon><component :is="item.pin ? 'StarFilled' : 'Star'" /></el-icon>
+            </span>
           </div>
         </template>
       </nav>
@@ -447,7 +449,7 @@ html, body, #app {
 
 /* 分组标题 */
 .nav-group-title {
-  padding: 12px 16px 4px;
+  padding: 7px 16px 4px;
   font-size: 10.5px;
   letter-spacing: 1.5px;
   /* 0.38 的白压在 #0b3a82 上只有 2.9:1 —— 组标题是导航的一半信息量，
@@ -461,7 +463,7 @@ html, body, #app {
 .nav-groups {
   flex: 1;
   overflow-y: auto;
-  padding-bottom: 8px;
+  padding-bottom: 2px;
 }
 
 .nav-pinned {
@@ -472,8 +474,10 @@ html, body, #app {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 8px 16px;
-  margin: 2px 8px;
+  /* 由 8px 16px / margin 2px 收成 6px 14px / margin 1px，配合组标题的内边距
+     收紧，900px 视口下 15 个导航项刚好全部露出、不必滚动 */
+  padding: 6px 14px;
+  margin: 1px 8px;
   border-radius: 9px;
   color: rgba(255, 255, 255, 0.72);
   font-size: 13.5px;
@@ -508,7 +512,10 @@ html, body, #app {
 }
 
 .nav-badge {
-  background: rgba(11, 180, 196, 0.85);
+  /* 原本是 rgba(11,180,196,0.85) 配白字，实测 2.52:1。
+     徽标承担的是"分类标签"语义（体检/告警/闭环…），不是严重度，
+     所以不按类型分色，只把底色压深到 --signal-ink（白字 5.82:1）。 */
+  background: var(--signal-ink);
   border: none;
   border-radius: 999px;
   font-size: 10px;
@@ -518,7 +525,11 @@ html, body, #app {
 }
 
 .nav-pin {
-  font-size: 11px;
+  /* 原来放的是 emoji「📌 / ＋」，emoji 不受 font-size 约束、天生比文字大；
+     换成 el-icon 后 font-size 即图标尺寸，11px 太小，抬到 13px 并居中对齐 */
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
   opacity: 0;
   cursor: pointer;
   transition: opacity 0.15s;
@@ -572,25 +583,33 @@ html, body, #app {
   color: rgba(255, 255, 255, 0.62);
 }
 
-.reset-btn {
+/* 选择器必须带上 .aside-footer 再配 .el-button（0,3,0）。
+   只写 .reset-btn 是 0,1,0，会被 Element Plus 自带的
+   `.el-button.is-link { color: var(--el-button-text-color) }`（0,2,0）整个盖掉 ——
+   实测这两个按钮因此渲染成 --el-text-color-regular #2a3852 压在侧栏 #072159 上，
+   对比度 1.3:1，等于隐形。导入顺序救不了它：这里输的是特异度，不是先后。 */
+.aside-footer .el-button.reset-btn {
   margin-top: 4px;
   font-size: 11px;
   color: rgba(255, 255, 255, 0.62);
 }
 
-.reset-btn:hover {
+.aside-footer .el-button.reset-btn:hover {
   /* 深底版的悬停提亮：同色相再亮一档，不必为一次 hover 单开令牌 */
   color: var(--danger-on-dark);
   filter: brightness(1.15);
 }
 
-.undo-btn {
+/* .undo-btn 有一模一样的缺陷（同样被 .el-button.is-link 盖掉）。
+   它挂在 v-if="lastUndo" 后面，没有撤销记录时不进 DOM，所以审计扫不到它 ——
+   一旦有历史就会和重置按钮一样隐形。同一处修掉。 */
+.aside-footer .el-button.undo-btn {
   margin-top: 6px;
   font-size: 11px;
   color: var(--amber-on-dark);
 }
 
-.undo-btn:hover {
+.aside-footer .el-button.undo-btn:hover {
   color: var(--amber-on-dark);
   filter: brightness(1.15);
 }

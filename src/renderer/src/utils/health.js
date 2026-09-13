@@ -34,11 +34,21 @@ import { parseDate, daysUntilDue, equipmentAgeYears } from './dates'
  * 旧值是 Element Plus 默认色板（#67c23a/#409eff/#e6a23c/#f56c6c）——
  * 与本项目的品牌蓝并排放是两套绿、两套蓝，故统一到品牌色板。
  */
+/**
+ * 等级色板。color 是"面"、ink 是"字"，两者不可互换：
+ *   color —— 面积的色（进度条填充、图表条、SVG 描边、图例圆点）。
+ *             大面积不受 4.5:1 约束，饱和度高才好看。SVG 的 :stroke 只认
+ *             字面 hex（不认 var()），所以这里是 hex 而不是 CSS 变量。
+ *   ink   —— 落在浅底上的文字色 / 承载白字的实色底（等级徽标、分数、圆环）。
+ *             与 tokens.css 的 --level-a/b/c/d 同值，白字 5.36~6.34:1、
+ *             白底 5.36~6.34:1，两个方向同时成立。
+ * 新增 ink 是纯增量：color 一个字节没动，图表与描边行为不变。
+ */
 export const RISK_LEVELS = {
-  A: { label: '优', desc: '状态良好，按计划执行即可', color: '#12a06b', factor: 0.1 },
-  B: { label: '良', desc: '需关注，建议本周期内安排', color: '#3d5f9c', factor: 0.3 },
-  C: { label: '预警', desc: '建议尽快安排处置', color: '#e0a020', factor: 0.5 },
-  D: { label: '严重', desc: '需立即处置，存在停机风险', color: '#e0413e', factor: 0.7 }
+  A: { label: '优', desc: '状态良好，按计划执行即可', color: '#12a06b', ink: '#0b7a51', factor: 0.1 },
+  B: { label: '良', desc: '需关注，建议本周期内安排', color: '#3d5f9c', ink: '#3d5f9c', factor: 0.3 },
+  C: { label: '预警', desc: '建议尽快安排处置', color: '#e0a020', ink: '#8a5d0a', factor: 0.5 },
+  D: { label: '严重', desc: '需立即处置，存在停机风险', color: '#e0413e', ink: '#b33431', factor: 0.7 }
 }
 
 /** 各等级健康分下限（用于 health.js 内部判定，与 §2.B 表格一致） */

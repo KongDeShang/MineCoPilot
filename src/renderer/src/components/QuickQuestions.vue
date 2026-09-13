@@ -154,9 +154,14 @@ const quickPicks = computed(() => {
   if (knowledgeQuestions[0]) picks.push(knowledgeQuestions[0])
   return picks
 })
-const QUICK_TYPE_MAP = { 0: '', 1: 'danger', 2: 'warning', 3: 'success' }
+/* el-tag 的 type 只认 primary/success/info/warning/danger 五个值，
+   传 '' 会被 prop 校验拦下并在控制台刷警告（每个未配色的标签一条）。
+   没有配色就直接返回 undefined —— 缺省值不参与校验，警告消失，而外观不变：
+   EP 内部是 `ns.m(type || "primary")`，'' 和 undefined 同样落到 el-tag--primary，
+   改前改后渲染出的 class 完全一致。 */
+const QUICK_TYPE_MAP = { 1: 'danger', 2: 'warning', 3: 'success' }
 function quickPickType(q) {
-  return QUICK_TYPE_MAP[quickPicks.value.indexOf(q)] || ''
+  return QUICK_TYPE_MAP[quickPicks.value.indexOf(q)]
 }
 </script>
 

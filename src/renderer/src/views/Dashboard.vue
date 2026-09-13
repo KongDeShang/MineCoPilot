@@ -3,21 +3,21 @@
     <!-- 首屏信息条（痛点一句话呈现，不做大色块） -->
     <div class="status-strip">
       <div class="strip-item">
-        <span class="strip-ico">💰</span>
+        <span class="strip-ico"><el-icon><Money /></el-icon></span>
         <div class="strip-txt">
           <b>预计停机损失 {{ lossLabel }}</b>
           <span>D 级设备逐台现算</span>
         </div>
       </div>
       <div class="strip-item warn">
-        <span class="strip-ico">⚠️</span>
+        <span class="strip-ico"><el-icon><WarningFilled /></el-icon></span>
         <div class="strip-txt">
           <b>{{ store.criticalList.length }} 台需立即处置</b>
           <span>{{ store.overdueList.length }} 台维保超期</span>
         </div>
       </div>
       <div class="strip-item safe">
-        <span class="strip-ico">🔒</span>
+        <span class="strip-ico"><el-icon><Lock /></el-icon></span>
         <div class="strip-txt">
           <b>数据本地不出网</b>
           <span>规则引擎实时计算</span>
@@ -67,12 +67,12 @@
         <div v-for="eq in focusEquipments" :key="eq.id" class="focus-item" @click="goEquipment(eq.id)">
           <div class="focus-photo">
             <img :src="equipmentPhoto(eq.category)" :alt="eq.name" loading="lazy" />
-            <span class="focus-level" :style="{ background: getHealthColor(eq.health.score) }">{{ eq.health.level }} 级</span>
+            <span class="focus-level" :class="'lv-' + eq.health.level.toLowerCase()">{{ eq.health.level }} 级</span>
           </div>
           <div class="focus-body">
             <div class="focus-name">{{ eq.name }} <span class="focus-model">{{ eq.model }}</span></div>
             <div class="focus-meta">
-              <span class="focus-score" :style="{ color: getHealthColor(eq.health.score) }">健康分 {{ eq.health.score }}</span>
+              <span class="focus-score" :class="'lv-' + eq.health.level.toLowerCase()">健康分 {{ eq.health.score }}</span>
               <el-tag :type="eq.status === 'fault' ? 'danger' : eq.status === 'maintenance' ? 'warning' : 'info'" size="small">
                 {{ eq.status === 'fault' ? '故障' : eq.status === 'maintenance' ? '维保中' : eq.status === 'idle' ? '闲置' : '运行中' }}
               </el-tag>
@@ -225,7 +225,7 @@
             </template>
             <div v-else class="empty-inline">
               <el-icon :size="32" color="var(--emerald)"><CircleCheck /></el-icon>
-              <p style="color: var(--emerald)">所有设备维保正常</p>
+              <p style="color: var(--success-ink)">所有设备维保正常</p>
             </div>
           </div>
         </el-card>
@@ -328,7 +328,7 @@
           </template>
           <template v-if="worseningList.length">
             <div v-for="item in worseningList.slice(0, 4)" :key="item.id" class="worsen-item" @click="goEquipment(item)">
-              <div class="worsen-score" :style="{ background: item.health.color }">{{ item.health.score }}</div>
+              <div class="worsen-score" :class="'lv-' + item.health.level.toLowerCase()">{{ item.health.score }}</div>
               <div class="worsen-info">
                 <div class="worsen-name">{{ item.name }}</div>
                 <div class="worsen-meta">{{ item.trend.summary }}</div>
@@ -339,7 +339,7 @@
           </template>
           <div v-else class="empty-inline">
             <el-icon :size="32" color="var(--emerald)"><CircleCheck /></el-icon>
-            <p style="color: var(--emerald)">暂无健康分持续下降的设备</p>
+            <p style="color: var(--success-ink)">暂无健康分持续下降的设备</p>
           </div>
         </el-card>
       </el-col>
@@ -397,7 +397,7 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAppStore } from '../stores/appStore'
-import { estimateLoss, evaluateHealth, getHealthColor, RISK_LEVELS } from '../utils/health'
+import { estimateLoss, evaluateHealth, RISK_LEVELS } from '../utils/health'
 import { equipmentPhoto } from '../utils/equipmentPhoto'
 import { generateReport } from '../utils/reportGenerator'
 import { now } from '../utils/dates'
@@ -616,12 +616,13 @@ function toggleFaultDetail(item) {
   expandedFault.value = expandedFault.value && expandedFault.value.system === item.system ? null : item
 }
 
+// 圆环描边 + 百分比文字，都取 —*-ink（面色在白底只有 2.28~3.26:1）
 const closingColor = computed(() => {
   const rate = recheck.value.rate
   if (rate === null) return 'var(--text-mute)'
-  if (rate >= 80) return 'var(--emerald)'
-  if (rate >= 50) return 'var(--amber)'
-  return 'var(--danger)'
+  if (rate >= 80) return 'var(--success-ink)'
+  if (rate >= 50) return 'var(--warn-ink)'
+  return 'var(--danger-ink)'
 })
 
 function brandPercent(count) {
@@ -926,8 +927,18 @@ function goEquipment(item) {
   vertical-align: middle;
 }
 
-/* 维保超期 */
-.overdue-list { display: flex; flex-direction: column; gap: 10px; }
+/* 维保超期
+   这一列会列出全部超期设备（演示数据 17 台），此前没有上限，
+   于是整行被撑到 1401px，而左边"今日待办"只有 512px —— 下方近 900px
+   是纯空白。封顶后三列等高，超出的部分在本列内滚动。 */
+.overdue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 400px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
 
 .overdue-item {
   display: flex;
@@ -976,12 +987,12 @@ function goEquipment(item) {
 .days-num {
   font-size: 24px;
   font-weight: 800;
-  color: var(--danger);
+  color: var(--danger-ink);
 }
 
 .days-unit {
   font-size: 12px;
-  color: var(--danger);
+  color: var(--danger-ink);
   margin-left: 2px;
 }
 
@@ -1093,6 +1104,7 @@ function goEquipment(item) {
   display: flex;
   align-items: center;
   justify-content: center;
+  background: var(--lv);
   color: #fff;
   font-weight: 800;
   font-size: 15px;
@@ -1193,10 +1205,11 @@ function goEquipment(item) {
   flex-shrink: 0;
 }
 
-.fault-rank.rank-1 { background: var(--danger); }
-.fault-rank.rank-2 { background: var(--amber); }
-.fault-rank.rank-3 { background: var(--accent); }
-.fault-rank.rank-4, .fault-rank.rank-5 { background: var(--ink-4); }
+/* 排名底 + 白字：改用等级实色，rank-2 原本是 --amber（白字 2.28:1） */
+.fault-rank.rank-1 { background: var(--level-d); }
+.fault-rank.rank-2 { background: var(--level-c); }
+.fault-rank.rank-3 { background: var(--level-b); }
+.fault-rank.rank-4, .fault-rank.rank-5 { background: var(--text-3); }
 
 .fault-system {
   width: 76px;
@@ -1314,7 +1327,15 @@ function goEquipment(item) {
   border-right: 1px solid rgba(255, 255, 255, 0.22);
 }
 .strip-item:first-child { padding-left: 0; }
-.strip-ico { font-size: 18px; }
+.strip-ico {
+  /* 原来是 emoji 💰 / ⚠️ / 🔒。换成单色图标后随 .status-strip 的 #fff，
+     色值在 #1c6bd4 一端算 5.12:1 —— 注意这里**不能**用 --amber-on-dark 之类的
+     "on-dark" 令牌：那套是按落地页深底（#061530 系）标定的，放到这条
+     --grad-strip（#0b3a82→#1c6bd4）上实测只有 1.69~2.74:1，过不了 3:1。 */
+  display: inline-flex;
+  align-items: center;
+  font-size: 18px;
+}
 .strip-txt { display: flex; flex-direction: column; }
 .strip-txt b { font-size: 13.5px; font-weight: 700; line-height: 1.3; }
 .strip-txt span { font-size: 11px; opacity: 0.78; line-height: 1.3; }
@@ -1362,6 +1383,9 @@ function goEquipment(item) {
   position: absolute;
   left: 8px;
   top: 8px;
+  /* 底色走 --lv（等级色实色版），白字才压得住；--emerald/--amber 这类"面色"
+     直接配白字只有 2.28~4.20:1，是这次修掉的一类。 */
+  background: var(--lv);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
@@ -1385,7 +1409,8 @@ function goEquipment(item) {
   justify-content: space-between;
   margin-top: 6px;
 }
-.focus-score { font-size: 12.5px; font-weight: 700; }
+/* 白底上的等级色文字走 --lv 的"ink"取值（≥5.36:1），不是面色 */
+.focus-score { font-size: 12.5px; font-weight: 700; color: var(--lv); }
 .focus-reason {
   margin-top: 6px;
   font-size: 12px;

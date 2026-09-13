@@ -337,7 +337,10 @@ function partName(partId) {
   flex-direction: column;
   gap: 4px;
 }
-.dash-item.dash-warn { background: linear-gradient(120deg, #b45309, #d97706); }
+/* 同 AlertCenter 的 .dash-rate：白字带 0.85/0.88 透明度，而 #d97706 太亮，
+   纯白压上去也只有 4.0~4.5:1。叠一层压暗层把底色降下来，保住"警示橙"的色相。
+   压深后标签 5.2:1、单位 4.9:1、数字 6.1:1。 */
+.dash-item.dash-warn { background: linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3)), linear-gradient(120deg, #b45309, #d97706); }
 .dash-item.dash-action {
   background: #fff;
   border: 1px solid var(--line-2);

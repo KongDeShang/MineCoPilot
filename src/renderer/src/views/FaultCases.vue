@@ -163,10 +163,12 @@ function barColor(i) {
   flex-shrink: 0;
 }
 
-.fault-rank.rank-1 { background: var(--danger); }
-.fault-rank.rank-2 { background: var(--amber); }
-.fault-rank.rank-3 { background: var(--accent); }
-.fault-rank.rank-4, .fault-rank.rank-5 { background: var(--ink-4); }
+/* 排名底 + 白字：与 Dashboard 的 .fault-rank 同口径，改用等级实色
+   （原本 rank-2 是 --amber，白字 2.28:1） */
+.fault-rank.rank-1 { background: var(--level-d); }
+.fault-rank.rank-2 { background: var(--level-c); }
+.fault-rank.rank-3 { background: var(--level-b); }
+.fault-rank.rank-4, .fault-rank.rank-5 { background: var(--text-3); }
 
 .fault-system {
   width: 88px;

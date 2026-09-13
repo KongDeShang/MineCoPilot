@@ -10,7 +10,7 @@
             <strong>{{ categoryCount }}</strong> 个分类 ·
             全部存储在本机
             <template v-if="aiDraftCount > 0">
-              · <el-tag type="primary" size="small" effect="dark">🤖 AI 已自动提炼 {{ aiDraftCount }} 条</el-tag>
+              · <el-tag type="primary" size="small" effect="dark"><el-icon><MagicStick /></el-icon> AI 已自动提炼 {{ aiDraftCount }} 条</el-tag>
             </template>
           </div>
         </div>
@@ -42,8 +42,8 @@
           <template #default="{ row }">
             <div style="display:flex;align-items:center;gap:8px">
               <span class="kb-item-title">{{ row.title }}</span>
-              <el-tag v-if="row.status === 'ai_draft'" type="primary" size="small" effect="dark">🤖 AI 草稿</el-tag>
-              <el-tag v-else type="success" size="small" effect="plain">✓ 已确认</el-tag>
+              <el-tag v-if="row.status === 'ai_draft'" type="primary" size="small" effect="dark"><el-icon><MagicStick /></el-icon> AI 草稿</el-tag>
+              <el-tag v-else type="success" size="small" effect="plain"><el-icon><Check /></el-icon> 已确认</el-tag>
             </div>
           </template>
         </el-table-column>

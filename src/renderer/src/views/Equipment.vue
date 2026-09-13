@@ -38,7 +38,7 @@
         <div v-for="eq in filteredEquipment" :key="eq.id" class="equip-card" @click="viewDetail(eq)">
           <div class="equip-photo">
             <img :src="equipmentPhoto(eq.category)" :alt="eq.name" loading="lazy" />
-            <span class="equip-level" :style="{ background: eq.health.color }">
+            <span class="equip-level" :class="'lv-' + eq.health.level.toLowerCase()">
               {{ eq.health.level }} 级 · {{ eq.health.score }} 分
             </span>
             <span class="equip-status" :class="eq.status">
@@ -85,7 +85,12 @@
       <div class="detail-header">
         <el-button @click="closeDetail" icon="ArrowLeft">返回列表</el-button>
         <h2>{{ selectedEquipment.name }} — 设备画像</h2>
-        <el-tag v-if="selectedHealth" :color="selectedHealth.color" effect="dark" style="border: none; color: var(--accent-contrast)">
+        <el-tag
+          v-if="selectedHealth"
+          effect="dark"
+          :class="'lv-' + selectedHealth.level.toLowerCase()"
+          style="border: none; background: var(--lv); color: var(--accent-contrast)"
+        >
           健康分 {{ selectedHealth.score }} · {{ selectedHealth.level }} {{ selectedHealth.levelLabel }}
         </el-tag>
         <el-button type="primary" @click="openReport(selectedEquipment)">
@@ -120,8 +125,8 @@
               </div>
             </template>
             <div class="health-detail">
-              <div class="health-circle-big" :style="{ borderColor: getHealthColor(selectedHealth.score) }">
-                <span class="big-score" :style="{ color: getHealthColor(selectedHealth.score) }">
+              <div class="health-circle-big" :class="'lv-' + selectedHealth.level.toLowerCase()">
+                <span class="big-score">
                   {{ selectedHealth.score }}
                 </span>
                 <span class="score-label">{{ selectedHealth.levelLabel }}</span>
@@ -361,15 +366,16 @@ const equipmentList = computed(() => store.equipmentWithHealth)
 /** 当前选中设备的健康评估（统一走 utils/health.js，评分口径全项目唯一） */
 const selectedHealth = computed(() => (selectedEquipment.value ? evaluateHealth(selectedEquipment.value) : null))
 
-/** 健康度概览：按四级分档统计（区间文案跟随系统设置页的阈值） */
+/** 健康度概览：按四级分档统计（区间文案跟随系统设置页的阈值）
+    色取 ink —— 这一组色只用在圆环描边和数字上，都是"字/细线"场景。 */
 const healthOverview = computed(() => {
   const levels = store.healthLevelStats
   const b = levelBounds()
   return [
-    { label: `优 A（≥${b.A}）`, count: levels.A, color: RISK_LEVELS.A.color },
-    { label: `良 B（${b.B}-${b.A - 1}）`, count: levels.B, color: RISK_LEVELS.B.color },
-    { label: `预警 C（${b.C}-${b.B - 1}）`, count: levels.C, color: RISK_LEVELS.C.color },
-    { label: `严重 D（<${b.C}）`, count: levels.D, color: RISK_LEVELS.D.color }
+    { label: `优 A（≥${b.A}）`, count: levels.A, color: RISK_LEVELS.A.ink },
+    { label: `良 B（${b.B}-${b.A - 1}）`, count: levels.B, color: RISK_LEVELS.B.ink },
+    { label: `预警 C（${b.C}-${b.B - 1}）`, count: levels.C, color: RISK_LEVELS.C.ink },
+    { label: `严重 D（<${b.C}）`, count: levels.D, color: RISK_LEVELS.D.ink }
   ]
 })
 
@@ -639,6 +645,8 @@ function submitRecord() {
   height: 100px;
   border-radius: 50%;
   border: 4px solid;
+  /* 圆环是非文字图形，按 3:1 要求取 ink（--amber 在白底只有 2.17:1） */
+  border-color: var(--lv);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -650,6 +658,7 @@ function submitRecord() {
   font-size: 36px;
   font-weight: 800;
   line-height: 1;
+  color: var(--lv);
 }
 
 .score-label {
@@ -803,6 +812,8 @@ function submitRecord() {
   position: absolute;
   left: 10px;
   top: 10px;
+  /* 面色（--emerald/--amber/--danger）配白字只有 2.28~4.20:1，等级徽标改用实色版 --lv */
+  background: var(--lv);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
@@ -946,11 +957,11 @@ function submitRecord() {
 .factor-penalty {
   font-size: 12px;
   font-weight: 700;
-  color: var(--danger);
+  color: var(--danger-ink);
 }
 
 .factor-penalty.zero {
-  color: var(--emerald);
+  color: var(--success-ink);
 }
 
 .factor-detail {

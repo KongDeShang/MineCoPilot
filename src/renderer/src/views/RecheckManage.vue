@@ -52,9 +52,11 @@ const statItems = computed(() => {
   const s = recheckStats.value
   return [
     { label: '应复诊任务', value: s.due || 0 },
-    { label: '已完成复诊', value: s.done || 0, color: '#12a06b' },
-    { label: '待复诊', value: s.pending || 0, color: '#e0a020' },
-    { label: '复诊闭环率', value: s.rate != null ? s.rate + '%' : '—', color: '#0bb4c4' }
+    // 这三个色是落在白底上当"文字"用的，必须取 —*-ink；
+    // 原来的 #12a06b / #e0a020 / #0bb4c4 是"面色"，实测 2.28~3.26:1
+    { label: '已完成复诊', value: s.done || 0, color: 'var(--success-ink)' },
+    { label: '待复诊', value: s.pending || 0, color: 'var(--warn-ink)' },
+    { label: '复诊闭环率', value: s.rate != null ? s.rate + '%' : '—', color: 'var(--signal-ink)' }
   ]
 })
 

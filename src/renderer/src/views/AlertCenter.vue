@@ -31,7 +31,9 @@
         </div>
       </template>
 
-      <el-empty v-if="alerts.length === 0" description="暂无未处置告警，设备状态良好 🎉" />
+      <!-- 原先描述末尾挂了个 🎉。el-empty 自带的插图已经在表达"空/正常"，
+           文案本身也写全了，这个 emoji 属于纯装饰，删掉即可，不必再配图标。 -->
+      <el-empty v-if="alerts.length === 0" description="暂无未处置告警，设备状态良好" />
 
       <div v-else class="alert-list">
         <div v-for="a in alerts" :key="a.key" class="alert-row" :class="a.level">
@@ -260,7 +262,12 @@ function resetAll() {
 }
 .dash-total { background: linear-gradient(120deg, #0b3a82, #1457b3); }
 .dash-high { background: linear-gradient(120deg, #b91c1c, #e0413e); }
-.dash-rate { background: linear-gradient(120deg, #15803d, #22a55f); }
+/* 白字一律走 .dash-label 的 opacity:0.88 / .dash-unit 的 0.85，
+   而 #22a55f 这一端太亮：即便文字用纯白也只有 3.9:1，是**底色**不达标，改文字色没用。
+   前面叠一层 rgba(0,0,0,.3) 把整条渐变压深一档 —— 用叠层而不是换色标，
+   是为了保住这个"成功绿"的色相（换深色标会滑向墨绿，和 .dash-total 的亮蓝不成一组）。
+   压深后标签 4.9:1、数字 5.8:1。 */
+.dash-rate { background: linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3)), linear-gradient(120deg, #15803d, #22a55f); }
 .dash-action {
   background: #fff;
   border: 1px solid var(--line-2);
@@ -368,7 +375,8 @@ function resetAll() {
 }
 .alert-time {
   font-size: 11px;
-  color: var(--text-mute);
+  /* 时间戳是正文信息，不是占位符 —— --text-mute 规范上只留给占位/分隔/网格线，实测 4.34:1 差一点 */
+  color: var(--text-3);
   flex-shrink: 0;
 }
 .alert-actions {

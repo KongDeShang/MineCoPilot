@@ -222,7 +222,7 @@
 
         <!-- AI 知识推荐：根据工单内容智能推荐相关维保知识 -->
         <div v-if="knowledgeRecommendations.length" class="detail-block">
-          <h4 style="display:flex;align-items:center;gap:6px">🤖 AI 相关知识推荐</h4>
+          <h4 style="display:flex;align-items:center;gap:6px"><el-icon><MagicStick /></el-icon> AI 相关知识推荐</h4>
           <div v-for="(rec, ri) in knowledgeRecommendations" :key="ri" class="kb-recommend-card">
             <div class="kb-rec-head">
               <span class="kb-rec-title">{{ rec.entry.title }}</span>
@@ -385,7 +385,8 @@ const currentEquipment = computed(() => {
 // （只算维保及时性 + 故障 + 机龄），同一个设备在工单页和台账页会显示两个分数。
 // 任何页面都不再自己算分，只做展示。
 const equipHealth = computed(() => (currentEquipment.value ? getHealthScore(currentEquipment.value) : 0))
-const equipHealthColor = computed(() => levelMeta(levelOf(equipHealth.value)).color)
+// 这个色同时用在圆环描边和分数文字上（都是"字 / 细线"场景），取 ink 而不是面色
+const equipHealthColor = computed(() => levelMeta(levelOf(equipHealth.value)).ink)
 
 const equipOverdue = computed(() => computeOverdueDays(currentEquipment.value))
 

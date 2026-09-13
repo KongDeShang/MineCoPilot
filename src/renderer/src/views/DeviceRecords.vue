@@ -29,7 +29,7 @@
       <div v-if="selected" class="record-profile">
         <div class="rp-photo">
           <img :src="equipmentPhoto(selected.category)" :alt="selected.name" />
-          <span class="rp-level" :style="{ background: scoreColor(health?.score ?? 0) }">{{ health?.level ?? '未体检' }} 级</span>
+          <span class="rp-level" :style="{ background: scoreInk(health?.score ?? 0) }">{{ health?.level ?? '未体检' }} 级</span>
         </div>
         <div class="rp-main">
           <div class="rp-name">{{ selected.name }}</div>
@@ -45,7 +45,7 @@
           </div>
         </div>
         <div class="rp-score">
-          <div class="rp-score-num" :style="{ color: scoreColor(health?.score ?? 0) }">{{ health?.score ?? '—' }}</div>
+          <div class="rp-score-num" :style="{ color: scoreInk(health?.score ?? 0) }">{{ health?.score ?? '—' }}</div>
           <div class="rp-score-label">健康分</div>
           <div v-if="spark" class="rp-spark">
             <svg :viewBox="`0 0 ${spark.width} ${spark.height}`" class="rp-spark-svg">
@@ -63,8 +63,8 @@
       <div class="rs-item"><b>{{ recordStats.count }}</b><span>历史体检</span></div>
       <div class="rs-item"><b>{{ recordStats.latest }}</b><span>最近体检</span></div>
       <div class="rs-item"><b>{{ recordStats.first }}</b><span>首次体检</span></div>
-      <div class="rs-item"><b :style="{ color: scoreColor(recordStats.max) }">{{ recordStats.max }}</b><span>历史最高分</span></div>
-      <div class="rs-item"><b :style="{ color: scoreColor(recordStats.min) }">{{ recordStats.min }}</b><span>历史最低分</span></div>
+      <div class="rs-item"><b :style="{ color: scoreInk(recordStats.max) }">{{ recordStats.max }}</b><span>历史最高分</span></div>
+      <div class="rs-item"><b :style="{ color: scoreInk(recordStats.min) }">{{ recordStats.min }}</b><span>历史最低分</span></div>
     </div>
 
     <!-- 主区：报告 + 历史 -->
@@ -98,7 +98,7 @@
           <el-table-column prop="date" label="体检日期" width="120" />
           <el-table-column label="健康分" width="90">
             <template #default="{ row }">
-              <span class="score-cell" :style="{ color: scoreColor(row.score) }">{{ row.score }}</span>
+              <span class="score-cell" :style="{ color: scoreInk(row.score) }">{{ row.score }}</span>
             </template>
           </el-table-column>
           <el-table-column label="等级" width="80">
@@ -217,9 +217,14 @@ function levelTypeByScore(score) {
   return LEVEL_TAG_TYPES[levelOf(score)] || 'info'
 }
 
-/** 分色统一取 RISK_LEVELS，与台账/看板/报告同一套色板 */
+/** 面：面积的色（进度填充、SVG 描边），与台账/看板/报告同一套色板 */
 function scoreColor(score) {
   return levelMeta(levelOf(score)).color
+}
+
+/** 字：落在白底上的文字 / 承载白字的实色底。面色当字用只有 3.03~4.2:1，不达标 */
+function scoreInk(score) {
+  return levelMeta(levelOf(score)).ink
 }
 
 /** 趋势箭头（文案统一用 TREND_KINDS.label，不再手写三元） */
@@ -502,6 +507,6 @@ onMounted(() => {
 .diff-cell.up { color: var(--success-ink); }
 .diff-cell.down { color: var(--danger-ink); }
 .diff-cell.flat { color: var(--text-3); }
-.diff-cell.first { color: var(--text-mute); font-weight: 400; }
+.diff-cell.first { color: var(--text-3); font-weight: 400; }
 
 </style>

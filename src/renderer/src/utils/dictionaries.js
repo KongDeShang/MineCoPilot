@@ -64,7 +64,7 @@ export function statusTagType(status) {
 export const WORK_ORDER_PRIORITY = {
   urgent: { label: '紧急', tagType: 'danger' },
   high: { label: '高', tagType: 'warning' },
-  normal: { label: '普通', tagType: '' },
+  normal: { label: '普通' },
   low: { label: '低', tagType: 'info' }
 }
 
@@ -72,8 +72,13 @@ export function priorityLabel(priority) {
   return (WORK_ORDER_PRIORITY[priority] || {}).label || priority
 }
 
+/* 「普通」刻意不给配色，落到组件库的默认主色（见 WorkOrder.vue 优先级那一列的注释）。
+   但兜底值要用 undefined 而不是空串：el-tag 的 type 只认 primary/success/info/
+   warning/danger，传 '' 会被 prop 校验拦下、每个「普通」标签在控制台刷两条警告。
+   外观不受影响 —— EP 内部是 `ns.m(type || "primary")`，'' 和 undefined 同样落到
+   el-tag--primary，改前改后渲染出的 class 一模一样。 */
 export function priorityTagType(priority) {
-  return (WORK_ORDER_PRIORITY[priority] || {}).tagType || ''
+  return (WORK_ORDER_PRIORITY[priority] || {}).tagType
 }
 
 export const WORK_ORDER_TYPE = {

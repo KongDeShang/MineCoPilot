@@ -406,7 +406,7 @@ function createWorkOrder(event) {
 
 .event-tag.overdue {
   background: var(--danger-soft);
-  color: var(--danger);
+  color: var(--danger-ink);
   border: 1px solid var(--danger-line);
 }
 
@@ -418,7 +418,7 @@ function createWorkOrder(event) {
 
 .event-tag.upcoming {
   background: var(--amber-soft);
-  color: var(--amber);
+  color: var(--warn-ink);
   border: 1px solid var(--amber-soft);
 }
 
