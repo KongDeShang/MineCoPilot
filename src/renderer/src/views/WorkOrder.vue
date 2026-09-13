@@ -5,12 +5,15 @@
         <div class="card-header">
           <span><el-icon><EditPen /></el-icon> 工单管理</span>
           <div>
+            <!-- 用 value 而不是 label 传值：label 当值用是 Element Plus 的旧 API，
+                 3.0 会移除，控制台每次渲染都刷一条弃用警告。文案本来就走插槽，
+                 所以只是把属性名换掉，显示内容不变。KnowledgeBase.vue 已经是 value 写法。 -->
             <el-radio-group v-model="statusFilter" size="small">
-              <el-radio-button label="">全部 ({{ orders.length }})</el-radio-button>
-              <el-radio-button label="pending">待派单 ({{ stats.pending }})</el-radio-button>
-              <el-radio-button label="assigned">已派单 ({{ stats.assigned }})</el-radio-button>
-              <el-radio-button label="processing">处理中 ({{ stats.processing }})</el-radio-button>
-              <el-radio-button label="completed">已完成 ({{ stats.completed }})</el-radio-button>
+              <el-radio-button value="">全部 ({{ orders.length }})</el-radio-button>
+              <el-radio-button value="pending">待派单 ({{ stats.pending }})</el-radio-button>
+              <el-radio-button value="assigned">已派单 ({{ stats.assigned }})</el-radio-button>
+              <el-radio-button value="processing">处理中 ({{ stats.processing }})</el-radio-button>
+              <el-radio-button value="completed">已完成 ({{ stats.completed }})</el-radio-button>
             </el-radio-group>
             <el-button type="primary" style="margin-left: 12px" @click="openCreate">
               <el-icon><Plus /></el-icon> 新建工单

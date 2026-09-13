@@ -9,6 +9,7 @@
 import { daysSince, daysUntilDue, equipmentAgeYears } from './dates'
 import { evaluateHealth, levelMeta, levelOf } from './health'
 import { expandQuery } from './synonyms'
+import { htmlIcon } from './htmlIcons'
 
 export const KNOWLEDGE_BASE = [
   {
@@ -420,7 +421,7 @@ function answerEquipmentDetail(store, matched) {
     lines.push('<div style="margin-top:8px;color:var(--warn-ink)">该设备暂无维保记录，建议先建立保养基线。</div>')
   }
   if (until !== null && until < 0) {
-    lines.push('<div style="margin-top:8px;color:var(--danger-ink)">⚠️ 该设备已超期，可在维保日历中一键创建工单。</div>')
+    lines.push(`<div style="margin-top:8px;color:var(--danger-ink)">${htmlIcon('warning')}该设备已超期，可在维保日历中一键创建工单。</div>`)
   }
   return lines.join('')
 }
@@ -448,10 +449,10 @@ function answerHealth(store, eq) {
   lines.push('</ul>')
 
   if (health.overdueDays !== null && health.overdueDays > 0) {
-    lines.push(`<div style="margin-top:8px;color:var(--danger-ink)">⚠️ 维保已超期 ${health.overdueDays} 天，建议立即安排保养</div>`)
+    lines.push(`<div style="margin-top:8px;color:var(--danger-ink)">${htmlIcon('warning')}维保已超期 ${health.overdueDays} 天，建议立即安排保养</div>`)
   }
   if (eq.status === 'fault') {
-    lines.push('<div style="margin-top:6px;color:var(--danger-ink)">⚠️ 设备当前处于故障状态，建议立即安排检修</div>')
+    lines.push(`<div style="margin-top:6px;color:var(--danger-ink)">${htmlIcon('warning')}设备当前处于故障状态，建议立即安排检修</div>`)
   }
   if (health.escalateReasons.length) {
     lines.push(`<div style="margin-top:6px;color:var(--warn-ink)">等级调整依据：${health.escalateReasons.join('；')}</div>`)
@@ -609,7 +610,7 @@ function answerComparison(store, q, explicitEquipment) {
         `</div>`
     }).join('')
       + `<div style="margin-top:12px;padding:8px 12px;background:var(--accent-soft);border-radius:6px;font-size:13px;color:var(--accent)">` +
-      `<strong>📊 AI 对比结论：</strong>` +
+      `<strong>${htmlIcon('chart')}AI 对比结论：</strong>` +
       (() => {
         const sorted = [...eqs].sort((a, b) => evaluateHealth(b).score - evaluateHealth(a).score)
         const best = sorted[0], worst = sorted[sorted.length - 1]
@@ -730,7 +731,7 @@ function answerCategoryStats(store, q) {
   lines.push('</table>')
   if (rows.length > 1) {
     lines.push(`<div style="margin-top:10px;padding:8px 12px;background:var(--accent-soft);border-radius:6px;font-size:13px;color:var(--accent)">` +
-      `<strong>📊 AI 分析：</strong>${rows[0].category}类设备表现最优（平均健康分 ${rows[0].avgHealth}），` +
+      `<strong>${htmlIcon('chart')}AI 分析：</strong>${rows[0].category}类设备表现最优（平均健康分 ${rows[0].avgHealth}），` +
       `${rows[rows.length - 1].category}类最需关注（平均 ${rows[rows.length - 1].avgHealth} 分，故障率 ${rows[rows.length - 1].faultRate}%）。` +
       `</div>`)
   }
@@ -783,7 +784,7 @@ function answerWorsening(store) {
   }
   lines.push('</ol>')
   lines.push('<div style="margin-top:10px;padding:8px 12px;background:var(--danger-soft);border-radius:6px;color:var(--danger-ink);font-size:13px">' +
-    '<strong>⚠️ 建议：</strong>健康分连续下降通常意味着设备正在恶化，建议尽快安排全面检修，避免趴窝停机。</div>')
+    `<strong>${htmlIcon('warning')}建议：</strong>健康分连续下降通常意味着设备正在恶化，建议尽快安排全面检修，避免趴窝停机。</div>`)
   return lines.join('')
 }
 

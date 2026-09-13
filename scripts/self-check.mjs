@@ -27,7 +27,13 @@ const mirrorDir = join(root, '.tmp-selfcheck')
 // ---- 生成 ESM 镜像，让 Node 能直接导入项目真实模块 ----
 rmSync(mirrorDir, { recursive: true, force: true })
 mkdirSync(mirrorDir, { recursive: true })
-for (const name of ['dates', 'html', 'storage', 'database', 'excelParser', 'synonyms', 'knowledgeBase', 'health', 'equipmentCatalog', 'fleetData', 'healthReport', 'faultStats', 'nlCommand', 'llmClient', 'narrate', 'reportGenerator', 'dictionaries', 'bundledDocs', 'faultCaseDraft']) {
+// 这份清单是**显式**的，不做目录扫描：镜像进来的模块会在 Node 里被真实导入，
+// 而 utils 下将来可能出现依赖浏览器/组件库的文件，扫进来会直接崩在这里。
+// 代价是新增 util 时必须手动登记 —— htmlIcons 就是这么被漏掉的：
+// knowledgeBase / reportGenerator 开始 import 它之后，镜像里没有对应文件，
+// self-check 抛 ERR_MODULE_NOT_FOUND 整个中断（verify 的前置步骤，全链路失败）。
+// 以后再往 utils 加纯函数模块，记得同步加到这里。
+for (const name of ['dates', 'html', 'htmlIcons', 'storage', 'database', 'excelParser', 'synonyms', 'knowledgeBase', 'health', 'equipmentCatalog', 'fleetData', 'healthReport', 'faultStats', 'nlCommand', 'llmClient', 'narrate', 'reportGenerator', 'dictionaries', 'bundledDocs', 'faultCaseDraft']) {
   const code = readFileSync(join(srcDir, `${name}.js`), 'utf8')
     .replace(/(from\s+['"]\.\/[a-zA-Z0-9_-]+)(['"])/g, '$1.mjs$2')
   writeFileSync(join(mirrorDir, `${name}.mjs`), code, 'utf8')

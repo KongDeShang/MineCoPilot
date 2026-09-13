@@ -5,6 +5,7 @@
  * 所有数字均由本地台账实时计算，不编造。
  */
 import { now, formatDate } from './dates'
+import { htmlIcon } from './htmlIcons'
 
 /**
  * 获取本周/本月的时间范围
@@ -182,12 +183,12 @@ export function renderReportHTML(data) {
   const p = data.period === 'week' ? '周' : '月'
 
   // 标题
-  lines.push(`<div style="font-size:16px;font-weight:800;margin-bottom:16px">📊 ${data.label} 设备运维${p}报 <span style="font-size:12px;color:var(--text-3);font-weight:400">[AI 生成 · ${data.generatedAt.slice(0, 16)}]</span></div>`)
+  lines.push(`<div style="font-size:16px;font-weight:800;margin-bottom:16px">${htmlIcon('chart', 18)}${data.label} 设备运维${p}报 <span style="font-size:12px;color:var(--text-3);font-weight:400">[AI 生成 · ${data.generatedAt.slice(0, 16)}]</span></div>`)
 
   // 车队概况
   const ov = data.overview
   lines.push(`<div style="margin-bottom:16px">`)
-  lines.push(`<div style="font-weight:700;margin-bottom:8px">📋 车队概况</div>`)
+  lines.push(`<div style="font-weight:700;margin-bottom:8px">${htmlIcon('list')}车队概况</div>`)
   lines.push(`<ul style="margin:0;padding-left:18px;line-height:2">`)
   lines.push(`<li>在管 <strong>${ov.total}</strong> 台设备，健康均分 <strong>${ov.healthAvg}</strong>（A:${ov.healthLevels.A} B:${ov.healthLevels.B} C:${ov.healthLevels.C} D:${ov.healthLevels.D}）</li>`)
   lines.push(`<li>新增工单 <strong>${ov.newOrderCount}</strong> 单（维修 ${ov.repairCount} / 保养 ${ov.maintenanceCount}）</li>`)
@@ -210,7 +211,7 @@ export function renderReportHTML(data) {
   // 重点预警
   if (data.critical.length || data.worsening.length) {
     lines.push(`<div style="margin-bottom:16px">`)
-    lines.push(`<div style="font-weight:700;margin-bottom:8px">⚠️ 重点关注</div>`)
+    lines.push(`<div style="font-weight:700;margin-bottom:8px">${htmlIcon('warning')}重点关注</div>`)
     lines.push(`<ul style="margin:0;padding-left:18px;line-height:2">`)
     for (const eq of data.critical.slice(0, 3)) {
       lines.push(`<li><span style="color:var(--danger-ink);font-weight:600">${eq.name}</span>（${eq.model || ''}）— ${eq.reason}</li>`)
@@ -224,7 +225,7 @@ export function renderReportHTML(data) {
   // 亮点
   if (data.improving.length) {
     lines.push(`<div style="margin-bottom:16px">`)
-    lines.push(`<div style="font-weight:700;margin-bottom:8px">🏆 亮点</div>`)
+    lines.push(`<div style="font-weight:700;margin-bottom:8px">${htmlIcon('trophy')}亮点</div>`)
     lines.push(`<ul style="margin:0;padding-left:18px;line-height:2">`)
     for (const eq of data.improving.slice(0, 3)) {
       lines.push(`<li>${eq.name} 经过维修，健康分从 ${eq.from} 恢复至 <strong>${eq.to}</strong>（↑${eq.improvement}）</li>`)
@@ -235,7 +236,7 @@ export function renderReportHTML(data) {
   // 高频故障
   if (data.faultTop.length) {
     lines.push(`<div style="margin-bottom:16px">`)
-    lines.push(`<div style="font-weight:700;margin-bottom:8px">📈 高频故障 TOP</div>`)
+    lines.push(`<div style="font-weight:700;margin-bottom:8px">${htmlIcon('trend')}高频故障 TOP</div>`)
     lines.push(`<ul style="margin:0;padding-left:18px;line-height:2">`)
     for (const f of data.faultTop.slice(0, 3)) {
       lines.push(`<li>${f.label}：${f.count} 次（${f.percent}%）</li>`)
@@ -246,7 +247,7 @@ export function renderReportHTML(data) {
   // 下周计划
   if (data.upcoming.length || data.pendingRechecks.length) {
     lines.push(`<div style="margin-bottom:8px">`)
-    lines.push(`<div style="font-weight:700;margin-bottom:8px">📋 下${p === '周' ? '周' : '月'}计划</div>`)
+    lines.push(`<div style="font-weight:700;margin-bottom:8px">${htmlIcon('calendar')}下${p === '周' ? '周' : '月'}计划</div>`)
     lines.push(`<ul style="margin:0;padding-left:18px;line-height:2">`)
     if (data.upcoming.length) {
       lines.push(`<li>${data.upcoming.length} 台设备维保到期，请提前安排</li>`)
