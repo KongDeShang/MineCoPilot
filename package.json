@@ -6,11 +6,13 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "self-check": "node scripts/self-check.mjs",
     "coverage": "node scripts/coverage.mjs",
     "e2e": "node scripts/e2e.mjs",
     "e2e:nl": "node scripts/e2e-nl.mjs",
-    "verify": "npm run self-check && npm run coverage && npm run build && npm run e2e && npm run e2e:nl",
+    "verify": "npm run lint && npm run self-check && npm run coverage && npm run build && npm run e2e && npm run e2e:nl",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:build": "vite build && electron-builder",
     "electron:build:dir": "vite build && electron-builder --dir"
@@ -38,10 +40,14 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@vitejs/plugin-vue": "^6.0.8",
     "concurrently": "^9.2.4",
     "electron": "^44.3.0",
     "electron-builder": "^26.15.3",
+    "eslint": "^10.10.0",
+    "eslint-plugin-vue": "^10.11.0",
+    "globals": "^17.12.0",
     "vite": "^8.2.2",
     "wait-on": "^8.0.5"
   },

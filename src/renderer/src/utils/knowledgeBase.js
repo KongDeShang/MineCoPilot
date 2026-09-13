@@ -340,7 +340,7 @@ function renderEntry(entry) {
 }
 
 function normalize(text) {
-  return String(text || '').toLowerCase().replace(/[\s，。？！,.?!、；;：:"'（）()【】\[\]]/g, '')
+  return String(text || '').toLowerCase().replace(/[\s，。？！,.?!、；;：:"'（）()【】[\]]/g, '')
 }
 
 /**

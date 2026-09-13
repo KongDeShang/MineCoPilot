@@ -602,7 +602,7 @@
 import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { parseExcelFile, mergeExcelResults, generateSampleData } from '../utils/excelParser'
-import { answerQuestion, recommendKnowledge } from '../utils/knowledgeBase'
+import { answerQuestion } from '../utils/knowledgeBase'
 import { parseCommand, executePlanItem, hasWriteActions, INTENTS } from '../utils/nlCommand'
 import { generateReport } from '../utils/reportGenerator'
 import { useAppStore } from '../stores/appStore'
@@ -1023,7 +1023,7 @@ async function sendMessage() {
   // ---- 周报/月报生成 ----
   if (/生成.*周报|生成.*月报|周报|月报|车队报告/.test(question.toLowerCase())) {
     const period = /月/.test(question) ? 'month' : 'week'
-    const { data, html: reportHTML } = generateReport(store, period)
+    const { html: reportHTML } = generateReport(store, period)
     const thinkingSteps = buildThinkingSteps(question)
 
     const msg = {

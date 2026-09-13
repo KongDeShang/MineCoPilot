@@ -6,14 +6,14 @@
  * （Pinia 把 setup store 的 computed 解包，误用 .value 导致 undefined）。
  *
  * 用法：
- *   1) 先起开发服务器：npm run dev
- *   2) 另开终端：npm run e2e
+ *   npm run e2e          （开发服务器没起就自动拉一个，跑完自动收掉）
  * 可选环境变量：E2E_BASE_URL（默认 http://localhost:5173）、E2E_CDP_PORT（默认 9222）
  */
 import { spawn } from 'node:child_process'
 import { existsSync, rmSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { ensureServer, stopServer } from './devServer.mjs'
 
 const BASE = process.env.E2E_BASE_URL || 'http://localhost:5173'
 const CDP_PORT = Number(process.env.E2E_CDP_PORT || 9222)
@@ -41,18 +41,6 @@ function findBrowser() {
     if (candidate && existsSync(candidate)) return candidate
   }
   return null
-}
-
-async function waitForServer(url, timeoutMs = 20000) {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(url, { method: 'GET' })
-      if (res.ok) return true
-    } catch { /* 还没起来 */ }
-    await new Promise(r => setTimeout(r, 400))
-  }
-  return false
 }
 
 async function waitForCDP(timeoutMs = 15000) {
@@ -171,17 +159,9 @@ async function safeEval(session, label, expression) {
   try {
     return await session.eval(expression)
   } catch (error) {
-    throw new Error(`断言块「${label}」执行失败：${error.message}`)
+    // 带上 cause，报错堆栈里能同时看到原始异常（否则只剩一句 message）
+    throw new Error(`断言块「${label}」执行失败：${error.message}`, { cause: error })
   }
-}
-
-/**
- * 确保页面里注入了提问助手并执行一次提问。
- * 注入的 __ask 在每次导航/刷新后都会丢失，所以这里每次用前补注入。
- */
-async function ask(session, question) {
-  await session.eval(ASK_HELPER)
-  return session.eval(`window.__ask(${JSON.stringify(question)})`)
 }
 
 async function main() {
@@ -191,10 +171,7 @@ async function main() {
     process.exit(2)
   }
 
-  if (!(await waitForServer(BASE))) {
-    console.error(`❌ 开发服务器不可达：${BASE}（请先执行 npm run dev）`)
-    process.exit(2)
-  }
+  const devServer = await ensureServer(BASE)
 
   const profileDir = mkdtempSync(join(tmpdir(), 'kuangshan-e2e-'))
   console.info(`[e2e] 浏览器：${browser}`)
@@ -213,6 +190,7 @@ async function main() {
   const shutdown = () => {
     try { child.kill() } catch { /* 已退出 */ }
     try { rmSync(profileDir, { recursive: true, force: true }) } catch { /* 忽略 */ }
+    stopServer(devServer)
   }
 
   try {

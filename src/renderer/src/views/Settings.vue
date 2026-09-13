@@ -140,7 +140,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAppStore } from '../stores/appStore'
 import { DAILY_OUTPUT_LOSS, PRESET_SCENARIOS } from '../utils/health'

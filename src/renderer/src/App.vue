@@ -279,7 +279,6 @@ function doUndo() {
 }
 
 const isLanding = computed(() => route.path === '/')
-const activeMenu = computed(() => route.path)
 const currentPageTitle = computed(() => {
   const titles = {
     '/dashboard': '数据看板',

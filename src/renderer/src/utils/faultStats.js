@@ -39,7 +39,7 @@ export const OTHER_SYSTEM = '其他'
 function normalize(text) {
   return String(text || '')
     .toLowerCase()
-    .replace(/[\s，。？！,.?!、；;：:"'（）()【】\[\]]/g, '')
+    .replace(/[\s，。？！,.?!、；;：:"'（）()【】[\]]/g, '')
 }
 
 /**

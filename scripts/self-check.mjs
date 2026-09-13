@@ -814,15 +814,11 @@ function check(name, condition, detail = '') {
     getSnapshots: (id) => dataset.healthSnapshots.filter(s => s.equipment_id === id)
   }
 
-  const sampleName = (predicate) => dataset.equipment.find(predicate)?.name
-  // 演示数据按【类别】连号：挖掘机-01..N、装载机-01..M，与现场口语一致
   const excavator1 = dataset.equipment.find(e => e.category === '挖掘机' && /-01$/.test(e.name))
   const excavator3 = dataset.equipment.find(e => e.category === '挖掘机' && /-03$/.test(e.name))
   // 装载机有两种型号（LW300FN / LW500KN），"装载机"这个名字本身是歧义的 ——
   // 这里取装载机里唯一的那台做精确指代测试；纯类别测试见「纯类别多台时返回歧义」
-  const loaderCount = dataset.equipment.filter(e => e.category === '装载机').length
   const loader = dataset.equipment.find(e => e.category === '装载机' && /-01$/.test(e.name))
-  const loaderPhrase = `${loader.model.replace(/^徐工\s*/, '')}`   // 例如 LW300FN，型号唯一
 
   // ---- 语料：真实口吻，覆盖各类意图与指代方式 ----
   // 注意：语料要包含"故障关键词"才是完整的一单报修（"液压油"本身不是故障词，"液压油漏了"才是）

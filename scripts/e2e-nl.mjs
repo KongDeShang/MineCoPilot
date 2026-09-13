@@ -5,13 +5,13 @@
  *   说一句话 → 理解卡（不写库） → 歧义必须问 → 确认 → 真落库 → 刷新仍在 → 撤销 → 纯查询不误写
  *
  * 用法：
- *   1) 先起开发服务器：npm run dev
- *   2) 另开终端：npm run e2e:nl
+ *   npm run e2e:nl       （开发服务器没起就自动拉一个，跑完自动收掉）
  */
 import { spawn } from 'node:child_process'
 import { existsSync, rmSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { ensureServer, stopServer } from './devServer.mjs'
 
 const BASE = process.env.E2E_BASE_URL || 'http://localhost:5173'
 const CDP_PORT = Number(process.env.E2E_NL_CDP_PORT || 9224)
@@ -77,14 +77,6 @@ function findBrowser() {
   return null
 }
 
-async function waitFor(url, timeoutMs = 20000) {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    try { const r = await fetch(url); if (r.ok) return true } catch { /* 等 */ }
-    await sleep(400)
-  }
-  return false
-}
 
 class Session {
   constructor(ws) {
@@ -135,7 +127,8 @@ class Session {
 async function main() {
   const browser = findBrowser()
   if (!browser) { console.error('❌ 未找到 Chrome/Edge'); process.exit(2) }
-  if (!(await waitFor(BASE))) { console.error(`❌ 开发服务器不可达：${BASE}`); process.exit(2) }
+
+  const devServer = await ensureServer(BASE)
 
   const profileDir = mkdtempSync(join(tmpdir(), 'kuangshan-nl-'))
   const child = spawn(browser, [
@@ -146,6 +139,7 @@ async function main() {
   const shutdown = () => {
     try { child.kill() } catch { /* 已退出 */ }
     try { rmSync(profileDir, { recursive: true, force: true }) } catch { /* 忽略 */ }
+    stopServer(devServer)
   }
 
   try {

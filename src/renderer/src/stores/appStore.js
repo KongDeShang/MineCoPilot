@@ -17,7 +17,7 @@ import {
 import { buildDemoDataset, auditDataset, DEFAULT_FLEET_SIZE } from '../utils/fleetData'
 import { PARTS_CATALOG } from '../utils/equipmentCatalog'
 import { evaluateHealth, evaluateTrend, computeOverdueDays as healthComputeOverdueDays,
-  configureHealth, resetHealthConfig, DAILY_OUTPUT_LOSS, RISK_LEVELS } from '../utils/health'
+  configureHealth, resetHealthConfig, DAILY_OUTPUT_LOSS } from '../utils/health'
 import { buildFaultStats } from '../utils/faultStats'
 import { buildDefaultKnowledge, extractKnowledgeFromOrders } from '../utils/knowledgeBase'
 import { docFileStore } from '../utils/docFileStore'
@@ -1515,7 +1515,6 @@ export const useAppStore = defineStore('app', () => {
 
   /** Excel 导入：按设备名 upsert 台账，并把维保类行落成维保记录 */
   function importFromExcel(rows) {
-    const stamp = now().slice(0, 10)
     const result = { created: 0, updated: 0, records: 0, skipped: 0, issues: [], equipmentNames: [] }
 
     for (const row of rows || []) {

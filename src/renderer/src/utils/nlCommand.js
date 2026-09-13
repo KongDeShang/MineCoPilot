@@ -55,7 +55,7 @@ const INTENT_PRIORITY = [
 export function normalize(text) {
   return String(text || '')
     .replace(/[\uFF01-\uFF5E]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
-    .replace(/[，。！？、；：""''（）【】《》,.!?;:'"()\[\]<>]/g, ' ')
+    .replace(/[，。！？、；：""''（）【】《》,.!?;:'"()[\]<>]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase()
@@ -364,7 +364,8 @@ export function extractDate(text, now = new Date()) {
   if (/昨天|昨日/.test(raw)) { base.setDate(base.getDate() - 1); return { date: fmt(base), phrase: '昨天' } }
 
   // 完整日期：2026年9月8日 / 2026-09-08 / 2026/9/8（从原文匹配）
-  const explicit = source.match(/(\d{4})\s*[年\-\/.]\s*(\d{1,2})\s*[月\-\/.]\s*(\d{1,2})/)
+  // 分隔符里的「-」写在字符组末尾，避免被解析成区间
+  const explicit = source.match(/(\d{4})\s*[年./-]\s*(\d{1,2})\s*[月./-]\s*(\d{1,2})/)
   if (explicit) {
     return {
       date: `${explicit[1]}-${String(explicit[2]).padStart(2, '0')}-${String(explicit[3]).padStart(2, '0')}`,

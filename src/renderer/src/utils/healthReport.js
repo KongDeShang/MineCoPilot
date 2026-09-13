@@ -11,7 +11,7 @@
  * 报告 HTML 自带样式，可直接 v-html 渲染、window.print() 打印（A4 版式）
  */
 import { evaluateHealth, estimateLoss, evaluateTrend, RISK_LEVELS, levelOf, levelMeta, buildTrendPath, dailyOutputLossOf } from './health'
-import { addDays, daysSince, formatDate, daysUntilDue, dueDate, now } from './dates'
+import { addDays, daysUntilDue, now } from './dates'
 import { escapeHtml } from './html'
 
 /** 停机损失的演示参数说明（必须随报告一起展示） */

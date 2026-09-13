@@ -105,7 +105,7 @@ export function createNlActions(ctx) {
    *                           不传则撤销最近一次（走侧边栏的常驻入口）。
    */
   function performUndo(entryId) {
-    let entry = null
+    let entry
     if (entryId) {
       const idx = undoStack.value.findIndex(e => e.id === entryId)
       if (idx < 0) {

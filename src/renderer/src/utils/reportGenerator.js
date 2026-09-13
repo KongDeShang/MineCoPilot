@@ -4,8 +4,7 @@
  * 从 store 实时数据聚合生成结构化报告，支持导出为 HTML/PDF。
  * 所有数字均由本地台账实时计算，不编造。
  */
-import { now, daysAgoDate, daysSince } from './dates'
-import { evaluateHealth } from './health'
+import { now } from './dates'
 
 /**
  * 获取本周/本月的时间范围
