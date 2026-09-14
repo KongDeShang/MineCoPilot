@@ -136,8 +136,17 @@ export function createPartsDomain(ctx) {
     return loose.length === 1 ? loose[0] : null
   }
 
-  /** 调整库存（delta 可为正入库 / 负出库），并记流水 */
-  function adjustPartStock(partId, delta, { type = 'in', refType = '', refId = null, note = '' } = {}) {
+  /**
+   * 调整库存（delta 可为正入库 / 负出库），并记流水
+   *
+   * `silent: true` 只改内存、不落盘，供批量场景用。
+   * 为什么要这个开关：`consumePartsFromText` 对每个配件调用一次本函数，
+   * 而首启的 `replayRecentPartUsage` 会把近 30 天的记录全部回冲一遍 ——
+   * 实测 34 个配件名 = 34 次 persistAll（每次都是「DELETE 10 张表 + 全量
+   * re-INSERT」），约 0.4 s 的纯冗余工作，全部发生在首屏挂载之前。
+   * 批量调用方负责在循环结束后统一落盘一次。
+   */
+  function adjustPartStock(partId, delta, { type = 'in', refType = '', refId = null, note = '', silent = false } = {}) {
     const part = partsInventory.value.find(p => p.id === partId)
     if (!part) return null
     part.stock = Math.max(0, Number(part.stock) + Number(delta))
@@ -154,7 +163,7 @@ export function createPartsDomain(ctx) {
         createdAt: now()
       })
     }
-    persistAll()
+    if (!silent) persistAll()
     return part
   }
 
@@ -193,9 +202,11 @@ export function createPartsDomain(ctx) {
    * 之前这里对这两种情况都是静默 `continue`——记录里明明白白写着换了件，
    * 库存却分文未动，界面上也没有任何提示，账实不符却查不出原因。
    *
+   * @param {object} [opts]
+   * @param {boolean} [opts.silent] 只改内存不落盘（批量调用方需自行在末尾落盘一次）
    * @returns {{ consumed: number, matched: string[], unmatched: string[], short: string[] }}
    */
-  function consumePartsFromText(text, refType, refId) {
+  function consumePartsFromText(text, refType, refId, { silent = false } = {}) {
     const result = { consumed: 0, matched: [], unmatched: [], short: [] }
     if (!text) return result
     const names = String(text)
@@ -206,7 +217,8 @@ export function createPartsDomain(ctx) {
       const part = getPartByName(name)
       if (!part) { result.unmatched.push(name); continue }
       if (Number(part.stock) <= 0) { result.short.push(part.name); continue }
-      adjustPartStock(part.id, -1, { type: 'out', refType, refId, note: `维保/维修领用（${refType} #${refId}）` })
+      // silent 透传给 adjustPartStock：批量回冲时由调用方统一落盘一次
+      adjustPartStock(part.id, -1, { type: 'out', refType, refId, note: `维保/维修领用（${refType} #${refId}）`, silent })
       result.consumed++
       result.matched.push(part.name)
     }

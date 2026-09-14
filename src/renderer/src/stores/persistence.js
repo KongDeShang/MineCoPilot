@@ -465,6 +465,12 @@ export function createPersistence(ctx) {
    * 不回冲的话，设备病历里几十条记录都写着"换了XX件"，备件台账却停在期初数——
    * 评委随手点开一台设备的病历就能看出账实不符。只回冲 30 天，
    * 既让"领用流水"有真实内容，又不会把库存一路扣到 0。
+   *
+   * ⚠️ silent: true 是必须的。每个配件名都会走一次 consumePartsFromText →
+   *    adjustPartStock，而后者默认每次都 persistAll()（DELETE 10 张表 + 全量
+   *    re-INSERT）。实测近 30 天有 34 个配件名，等于首屏挂载前白跑 34 次全表
+   *    重写（约 0.4 s）。这里改成只改内存，由 applySeedData 的调用方
+   *    （initStore / reloadFromDb）在末尾统一 persistAll + saveNow 一次。
    */
   function replayRecentPartUsage(records) {
     const since = addDays(now().slice(0, 10), -30)
@@ -477,7 +483,7 @@ export function createPersistence(ctx) {
     rows.sort((a, b) => String(a.record.date).localeCompare(String(b.record.date)))
     let count = 0
     for (const { equipmentId, record } of rows) {
-      count += consumePartsFromText(record.parts_used, '期初回冲', Number(equipmentId)).consumed
+      count += consumePartsFromText(record.parts_used, '期初回冲', Number(equipmentId), { silent: true }).consumed
     }
     return count
   }

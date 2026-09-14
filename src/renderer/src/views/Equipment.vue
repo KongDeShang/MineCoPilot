@@ -35,7 +35,7 @@
 
       <!-- 设备卡片网格（照片 + 健康分 + 状态，一眼看全） -->
       <div v-if="filteredEquipment.length" class="equip-grid">
-        <div v-for="eq in filteredEquipment" :key="eq.id" class="equip-card" @click="viewDetail(eq)">
+        <div v-for="(eq, i) in filteredEquipment" :key="eq.id" class="equip-card" @click="viewDetail(eq)">
           <div class="equip-photo">
             <img :src="equipmentPhoto(eq.category)" :alt="eq.name" loading="lazy" />
             <span class="equip-level" :class="'lv-' + eq.health.level.toLowerCase()">
@@ -53,9 +53,15 @@
             <div class="equip-model">{{ eq.model || '—' }} · {{ eq.location || '未定位' }}</div>
             <div class="equip-healthbar">
               <div class="equip-healthbar-track">
+                <!-- 依次长出：每张卡延后 40ms，扫过去像一排仪表同时上电。
+                     上限 0.4s 免得屏幕外的卡片等到天荒地老。 -->
                 <div
                   class="equip-healthbar-fill"
-                  :style="{ width: eq.health.score + '%', background: eq.health.color }"
+                  :style="{
+                    width: (entered ? eq.health.score : 0) + '%',
+                    background: eq.health.color,
+                    transitionDelay: Math.min(i * 0.04, 0.4) + 's'
+                  }"
                 ></div>
               </div>
             </div>
@@ -333,10 +339,16 @@ import { now, daysSince } from '../utils/dates'
 import { evaluateHealth, getHealthColor, levelBounds, buildTrendPath, RISK_LEVELS } from '../utils/health'
 import { equipmentPhoto } from '../utils/equipmentPhoto'
 import { generateHealthReport } from '../utils/healthReport'
+import { useEnter } from '../utils/motion'
 
 const store = useAppStore()
 const route = useRoute()
 const router = useRouter()
+
+// 卡片健康条的入场开关：数据在挂载前就绪，首帧即终值，
+// `.equip-healthbar-fill` 上的 transition 从来没播过（详见 utils/motion.js）。
+const entered = useEnter()
+
 const searchText = ref('')
 const showAddDialog = ref(false)
 const showRecordDialog = ref(false)
@@ -593,33 +605,6 @@ function submitRecord() {
 .health-label {
   font-size: 13px;
   color: var(--text-2);
-}
-
-.health-bar-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.health-bar {
-  flex: 1;
-  height: 8px;
-  background: var(--line-2);
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.health-bar-fill {
-  height: 100%;
-  border-radius: 4px;
-  transition: width 0.6s ease;
-}
-
-.health-score {
-  font-size: 14px;
-  font-weight: 700;
-  width: 28px;
-  text-align: right;
 }
 
 .detail-header {

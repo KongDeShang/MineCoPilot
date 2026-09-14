@@ -98,6 +98,19 @@
           <GlobalSearch style="margin-left: 24px" />
         </div>
         <div class="header-right">
+          <!-- 引导演示：把"该看什么"固化成一条可重复播放的路线。
+               评委自己上手、或演示的人讲快了，都可以按一下重来。 -->
+          <el-tooltip content="按顺序带你走一遍主线（约 2 分钟）" placement="bottom">
+            <el-button
+              size="small"
+              type="primary"
+              plain
+              :loading="tourStarting"
+              @click="startDemoTour"
+            >
+              <el-icon><Guide /></el-icon> 引导演示
+            </el-button>
+          </el-tooltip>
           <el-tooltip :content="llmModeTip" placement="bottom">
             <el-tag
               :type="llmMode === 'local' ? 'success' : 'info'"
@@ -138,11 +151,13 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import GlobalSearch from './components/GlobalSearch.vue'
 import { useAppStore } from './stores/appStore'
 import { llmAvailable, llmLoad, llmStatus } from './utils/llmClient'
+import { startTour } from './utils/demoTour'
 
 const route = useRoute()
 const router = useRouter()
 const store = useAppStore()
 const resetting = ref(false)
+const tourStarting = ref(false)
 const navQuery = ref('')
 const pinned = ref(loadPinned())
 
@@ -336,6 +351,27 @@ async function resetDemo() {
     ElMessage.error(`重置失败：${error.message}`)
   } finally {
     resetting.value = false
+  }
+}
+
+/**
+ * 引导演示。
+ *
+ * `startTour` 只在"环境不支持"时返回 ok:false（正常浏览器里不会发生），
+ * 但那句话必须让用户看见 —— 静默什么都不发生，比报错更像坏了。
+ * 其余情况（某一步的元素没出现）由 demoTour 内部跳过，不往上抛，
+ * 因为演示途中弹错误框是最糟的收场。
+ */
+async function startDemoTour() {
+  if (tourStarting.value) return
+  tourStarting.value = true
+  try {
+    const result = await startTour(router)
+    if (!result.ok) ElMessage.warning(result.reason)
+  } catch (error) {
+    ElMessage.error(`引导演示启动失败：${error.message}`)
+  } finally {
+    tourStarting.value = false
   }
 }
 </script>

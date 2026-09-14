@@ -1,0 +1,113 @@
+/**
+ * driver.js 引导卡的主题覆盖
+ *
+ * ## 为什么需要这个文件
+ *
+ * driver.css 自带一套完整外观：`#fff` 底、`#2d2d2d` 字、3px 圆角、
+ * `0 1px 10px #0006` 的纯黑投影、19px/700 的标题。它是"通用弹窗"的样子，
+ * 和我们这套工装的材质（浅蓝白、13px 圆角、带蓝调的柔和投影）不是一路。
+ * 引导演示是评委第一次点、也最显眼的浮层，不能让它像从别的软件里抠出来的。
+ *
+ * ## 两条硬约束
+ *
+ * 1) **必须用后代/重复类名提高优先级。** driver.css 是 `startTour()` 里动态
+ *    import 的，浏览器把它插到 `<head>` 的最后 —— 位置在本文件**之后**。
+ *    同优先级下后者胜，所以只写 `.driver-popover` 是压不住的，
+ *    要写成 `.driver-popover.driver-popover`（(0,2,0)）或
+ *    `.driver-popover .driver-popover-title`（(0,2,0)）。
+ *    这不是洁癖，是**顺序决定的**：改回单类名，样式会静默失效。
+ *
+ * 2) **不要用 `border-color` 一条覆盖箭头的四个边。** driver 用
+ *    `border: 5px solid #fff` 起手，再对每个方向单独把三条边刷成
+ *    `#0000` 造出三角形。如果我图省事写 `border-color: var(--card)`，
+ *    四条边全部变实心 —— 箭头会变成一个方块。所以按方向只覆盖
+ *    **留下来的那一条边**（见下方 side-* 四条）。
+ *
+ * 这些规则在没人点"引导演示"时匹配不到任何元素，代价只是一小段文本。
+ */
+
+/* 卡片本体：换成项目自己的卡面材质 */
+.driver-popover.driver-popover {
+  background-color: var(--card);
+  color: var(--text-1);
+  /* 不写死字体名：position: fixed 不影响继承，它照样从 body 拿到全局字体栈，
+     中文回退也就不用在这里重复一遍 */
+  font-family: inherit;
+  border-radius: var(--r);
+  /* 比默认的纯黑投影克制得多，和 .el-card 的观感对齐 */
+  box-shadow: var(--sh-md);
+  border: 1px solid var(--line);
+  padding: 16px 18px;
+  max-width: 320px;
+}
+
+/* 标题：默认 19px/700 是"营销弹窗"的字号，
+   这里压到 15px/600，和项目里 el-card 的标题同级 */
+.driver-popover .driver-popover-title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--text-1);
+}
+
+/* 正文：13px/1.65 是项目正文的基准，长句读起来不挤 */
+.driver-popover .driver-popover-description {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text-2);
+  margin-top: 6px;
+}
+
+/* 进度 "3 / 12"：三级文字色，别和正文抢注意力 */
+.driver-popover .driver-popover-progress-text {
+  font-size: 12px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.driver-popover .driver-popover-close-btn {
+  color: var(--text-3);
+  transition: color 0.15s ease;
+}
+
+.driver-popover .driver-popover-close-btn:hover,
+.driver-popover .driver-popover-close-btn:focus {
+  color: var(--text-1);
+}
+
+/* 按钮：默认是白底 + #ccc 描边的"系统按钮"，
+   这里对齐 el-button 的描边与圆角 */
+.driver-popover .driver-popover-footer-btn {
+  color: var(--text-1);
+  background-color: var(--card);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-xs);
+  padding: 5px 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.driver-popover .driver-popover-footer-btn:hover,
+.driver-popover .driver-popover-footer-btn:focus {
+  background-color: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+
+/* 箭头：base 规则给的是四边实心的 #fff，每个方向再刷掉三条边。
+   所以这里只补回**留下来**的那一条 —— 写成 border-color 会得到方块。 */
+.driver-popover.driver-popover .driver-popover-arrow {
+  border-width: 6px;
+}
+.driver-popover.driver-popover .driver-popover-arrow-side-left {
+  border-left-color: var(--card);
+}
+.driver-popover.driver-popover .driver-popover-arrow-side-right {
+  border-right-color: var(--card);
+}
+.driver-popover.driver-popover .driver-popover-arrow-side-top {
+  border-top-color: var(--card);
+}
+.driver-popover.driver-popover .driver-popover-arrow-side-bottom {
+  border-bottom-color: var(--card);
+}

@@ -42,7 +42,14 @@
           <div class="fault-rank" :class="'rank-' + Math.min(i + 1, 5)">{{ i + 1 }}</div>
           <div class="fault-system">{{ item.system }}</div>
           <div class="fault-bar-wrap">
-            <div class="fault-bar" :style="{ width: barWidth(item.percent) + '%', background: barColor(i) }"></div>
+            <div
+              class="fault-bar"
+              :style="{
+                width: (entered ? barWidth(item.percent) : 0) + '%',
+                background: barColor(i),
+                transitionDelay: (i * 0.07) + 's'
+              }"
+            ></div>
           </div>
           <div class="fault-count">{{ item.count }} 次</div>
           <div class="fault-percent">{{ item.percent }}%</div>
@@ -81,8 +88,13 @@ import { ref, computed } from 'vue'
 import { Warning, MagicStick, Link } from '@element-plus/icons-vue'
 import { useAppStore } from '../stores/appStore'
 import StatCards from '../components/StatCards.vue'
+import { useEnter } from '../utils/motion'
 
 const store = useAppStore()
+
+// 故障排行条的入场开关：数据挂载前就绪，`.fault-bar` 的 transition 从没播过
+// （详见 utils/motion.js）。
+const entered = useEnter()
 const expanded = ref(null)
 
 const faultStats = computed(() => store.faultTopStats)

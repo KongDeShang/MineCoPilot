@@ -4,7 +4,10 @@
       <div class="stat-card">
         <div class="stat-label">{{ item.label }}</div>
         <div class="stat-value" :style="valueStyle(item)">
-          {{ item.value }}
+          <!-- 只有纯数字才滚动：value 里还可能是 "—"（无数据）或 TOP1 系统名这类文本，
+               补间不上就原样输出，排版和原来逐字一致 -->
+          <AnimatedNumber v-if="typeof item.value === 'number'" :value="item.value" />
+          <template v-else>{{ item.value }}</template>
           <span v-if="item.unit" class="stat-unit">{{ item.unit }}</span>
         </div>
       </div>
@@ -23,6 +26,8 @@
  * 看板页的统计卡不在这里：那张卡是"图标 + 数值 + 环比趋势"的另一种排版，
  * 硬塞进同一个组件只会得到一个带两套分支布局的组件，比两份代码更难改。
  */
+import AnimatedNumber from './AnimatedNumber.vue'
+
 defineProps({
   /**
    * 指标项：{ label, value, unit?, color?, small? }

@@ -10,6 +10,10 @@ import { daysSince, daysUntilDue, equipmentAgeYears } from './dates'
 import { evaluateHealth, levelMeta, levelOf } from './health'
 import { expandQuery } from './synonyms'
 import { htmlIcon } from './htmlIcons'
+// HTML 转义统一走 utils/html.js：这里原先自己实现了一份，两份行为还不一致
+// （本地那份漏了单引号的转义）。共用一份既少一处漂移面，
+// 也让"转义边界"只有一个实现要审。
+import { escapeHtml } from './html'
 
 export const KNOWLEDGE_BASE = [
   {
@@ -832,14 +836,6 @@ export function answerQuestion(store, question, items = KNOWLEDGE_BASE) {
     source: 'none',
     refs: []
   }
-}
-
-function escapeHtml(text) {
-  return String(text)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
 }
 
 /**

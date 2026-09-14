@@ -4,15 +4,15 @@
     <div class="parts-dash">
       <div class="dash-item">
         <div class="dash-label">库存件数</div>
-        <div class="dash-value">{{ totalStock }} <span class="dash-unit">件</span></div>
+        <div class="dash-value"><AnimatedNumber :value="totalStock" /> <span class="dash-unit">件</span></div>
       </div>
       <div class="dash-item">
         <div class="dash-label">备件种类</div>
-        <div class="dash-value">{{ store.partsInventory.length }} <span class="dash-unit">种</span></div>
+        <div class="dash-value"><AnimatedNumber :value="store.partsInventory.length" /> <span class="dash-unit">种</span></div>
       </div>
       <div class="dash-item dash-warn">
         <div class="dash-label">缺料预警（≤安全库存）</div>
-        <div class="dash-value">{{ store.lowStockParts.length }} <span class="dash-unit">种</span></div>
+        <div class="dash-value"><AnimatedNumber :value="store.lowStockParts.length" /> <span class="dash-unit">种</span></div>
       </div>
       <div class="dash-item dash-action">
         <el-button type="primary" size="small" plain @click="openAdd">
@@ -211,6 +211,7 @@ import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus, ShoppingCart, WarningFilled, Box, Search, Tickets, CircleCheck } from '@element-plus/icons-vue'
 import { useAppStore } from '../stores/appStore'
+import AnimatedNumber from '../components/AnimatedNumber.vue'
 
 const store = useAppStore()
 

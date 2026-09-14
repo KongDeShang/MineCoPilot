@@ -22,9 +22,10 @@ export async function extractPdfText(file) {
   if (!file || typeof file.arrayBuffer !== 'function') {
     return { ok: false, error: '文件不可读' }
   }
+  let pdf = null
   try {
     const data = await file.arrayBuffer()
-    const pdf = await getDocument({ data }).promise
+    pdf = await getDocument({ data }).promise
     const chunks = []
     for (let p = 1; p <= pdf.numPages; p++) {
       const page = await pdf.getPage(p)
@@ -36,11 +37,16 @@ export async function extractPdfText(file) {
         .trim()
       if (text) chunks.push({ page: p, text })
     }
-    const pages = pdf.numPages
-    await pdf.destroy()
-    return { ok: true, pages, chunks }
+    return { ok: true, pages: pdf.numPages, chunks }
   } catch (error) {
     return { ok: false, error: String((error && error.message) || error) }
+  } finally {
+    // 必须放 finally：pdfjs 默认跑在独立 Web Worker 里，
+    // 出错时若不销毁，worker 与它占的缓冲区会一直留到标签页关闭。
+    // 原先 destroy() 写在 try 的成功路径上，异常时整份文档泄漏。
+    if (pdf) {
+      try { await pdf.destroy() } catch { /* 已被销毁或 worker 已退出，忽略 */ }
+    }
   }
 }
 

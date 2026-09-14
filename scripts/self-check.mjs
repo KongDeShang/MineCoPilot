@@ -33,7 +33,7 @@ mkdirSync(mirrorDir, { recursive: true })
 // knowledgeBase / reportGenerator 开始 import 它之后，镜像里没有对应文件，
 // self-check 抛 ERR_MODULE_NOT_FOUND 整个中断（verify 的前置步骤，全链路失败）。
 // 以后再往 utils 加纯函数模块，记得同步加到这里。
-for (const name of ['dates', 'html', 'htmlIcons', 'storage', 'database', 'excelParser', 'synonyms', 'knowledgeBase', 'health', 'equipmentCatalog', 'fleetData', 'healthReport', 'faultStats', 'nlCommand', 'llmClient', 'narrate', 'reportGenerator', 'dictionaries', 'bundledDocs', 'faultCaseDraft']) {
+for (const name of ['dates', 'html', 'htmlIcons', 'appIcons', 'storage', 'database', 'excelParser', 'synonyms', 'knowledgeBase', 'health', 'equipmentCatalog', 'fleetData', 'healthReport', 'faultStats', 'nlCommand', 'llmClient', 'narrate', 'reportGenerator', 'dictionaries', 'bundledDocs', 'faultCaseDraft', 'demoTour']) {
   const code = readFileSync(join(srcDir, `${name}.js`), 'utf8')
     .replace(/(from\s+['"]\.\/[a-zA-Z0-9_-]+)(['"])/g, '$1.mjs$2')
   writeFileSync(join(mirrorDir, `${name}.mjs`), code, 'utf8')
@@ -1537,6 +1537,66 @@ function check(name, condition, detail = '') {
     !readFileSync(join(root, 'src/renderer/src', rel), 'utf8').includes("utils/dictionaries"))
   check('状态文案已改用共享字典（工单页/设备台账/全局搜索）',
     notWired.length === 0, notWired.join('、') || '全部已接入')
+}
+
+// ============ K 图标白名单一致性 ============
+//
+// 背景：图标原先由 main.js 里 `Object.entries(ElementPlusIconsVue)` 全量注册，
+// 293 个图标全被打进主 chunk（实测 dist 主 chunk 里 293 个图标名全部存在），
+// 而项目实际只用 69 个。改成白名单（utils/appIcons.js）能砍掉约 76%，代价是：
+// **漏登记一个图标，界面上那个图标会静默变成空白** —— 不报错、不白屏，
+// 自检和端到端都抓不到。所以这条守卫是这次优化的必要配套，不是可选项。
+{
+  const { APP_ICON_NAMES } = await import(mirror('appIcons'))
+  const iconPkg = await import('@element-plus/icons-vue')
+  const EXPORTED = new Set(Object.keys(iconPkg))
+  const whitelist = new Set(APP_ICON_NAMES)
+
+  // ⚠️ 必须跳过 utils/appIcons.js 自己 —— 那里把 69 个图标名各写了两遍
+  //    （import 标识符 + 对象键），扫进来会让"没有遗漏"和"没有多余"
+  //    两条断言同时恒真，整个守卫就废了。
+  const WHITELIST_FILE = 'utils/appIcons.js'
+
+  // 收集"被引用的图标名"。三种形态都要覆盖：
+  //   标签 <Search />、字符串属性 icon="ArrowLeft"、
+  //   以及 NAV_GROUPS 那种注册表里的字面量 'DataBoard'
+  function collectIconRefs(dir, refs = new Map()) {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, entry.name)
+      if (entry.isDirectory()) { collectIconRefs(p, refs); continue }
+      if (!/\.(js|vue)$/.test(entry.name)) continue
+      const rel = p.slice(join(root, 'src/renderer/src').length + 1).replace(/\\/g, '/')
+      if (rel === WHITELIST_FILE) continue
+      const code = readFileSync(p, 'utf8')
+      const hit = (name) => { if (EXPORTED.has(name)) refs.set(name, rel) }
+      for (const m of code.matchAll(/<([A-Z][A-Za-z0-9]*)[\s/>]/g)) hit(m[1])
+      for (const m of code.matchAll(/[:-]?icon\s*[:=]\s*["']{1,2}([A-Z][A-Za-z0-9]*)["']/g)) hit(m[1])
+      for (const m of code.matchAll(/["'`]([A-Z][A-Za-z0-9]*)["'`]/g)) hit(m[1])
+    }
+    return refs
+  }
+
+  // 探测器自证：先证明它认得出一段已知的图标引用，再相信"没有遗漏"
+  // （同 §J 的教训 —— 靠扫描实现的守卫必须先证明它会响）
+  const probeRefs = collectIconRefs(join(root, 'src/renderer/src/components'))
+  check('图标探测器：能识别出真实引用（组件/属性/字面量三种形态）',
+    probeRefs.size > 0 && probeRefs.has('Search'),
+    `扫到 ${probeRefs.size} 个，含 Search=${probeRefs.has('Search')}`)
+
+  const refs = collectIconRefs(join(root, 'src/renderer/src'))
+
+  const missing = [...refs.keys()].filter(n => !whitelist.has(n))
+  check('没有引用了白名单之外的图标（漏登记会让图标静默变空白）',
+    missing.length === 0,
+    missing.length ? missing.map(n => `${n}@${refs.get(n)}`).join('、') : `已登记 ${whitelist.size} 个`)
+
+  const unused = [...whitelist].filter(n => !refs.has(n))
+  check('白名单里没有已经没人用的图标（清掉可以继续减小包体）',
+    unused.length === 0, unused.join('、') || '无')
+
+  check('白名单只含真实存在的图标名（拼错会静默注册失败）',
+    [...whitelist].every(n => EXPORTED.has(n)),
+    [...whitelist].filter(n => !EXPORTED.has(n)).join('、') || '全部存在')
 }
 
 // ============ 汇总 ============

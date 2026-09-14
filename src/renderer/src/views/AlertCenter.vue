@@ -3,15 +3,15 @@
     <!-- 顶部仪表 -->
     <div class="alert-dash">
       <div class="dash-item dash-total">
-        <div class="dash-value">{{ alerts.length }}</div>
+        <div class="dash-value"><AnimatedNumber :value="alerts.length" /></div>
         <div class="dash-label">未处置告警</div>
       </div>
       <div class="dash-item dash-high">
-        <div class="dash-value">{{ highCount }}</div>
+        <div class="dash-value"><AnimatedNumber :value="highCount" /></div>
         <div class="dash-label">高危（D级 / 超期45天+）</div>
       </div>
       <div class="dash-item dash-rate">
-        <div class="dash-value">{{ handledRate }}%</div>
+        <div class="dash-value"><AnimatedNumber :value="handledRate" />%</div>
         <div class="dash-label">已处置率</div>
       </div>
       <div class="dash-item dash-action">
@@ -84,6 +84,7 @@ import { useAppStore } from '../stores/appStore'
 import { evaluateHealth } from '../utils/health'
 import { equipmentPhoto } from '../utils/equipmentPhoto'
 import { formatDate } from '../utils/dates'
+import AnimatedNumber from '../components/AnimatedNumber.vue'
 
 const store = useAppStore()
 const router = useRouter()

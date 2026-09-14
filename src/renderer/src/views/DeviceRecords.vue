@@ -35,10 +35,17 @@
           <div class="rp-name">{{ selected.name }}</div>
           <div class="rp-sub">{{ selected.model }} · {{ selected.category }} · {{ selected.location || '未定位' }}</div>
           <div class="rp-factors" v-if="health && health.factors && health.factors.length">
-            <div v-for="f in health.factors" :key="f.key" class="rp-factor" :title="(f.formula || f.detail || '') + (f.source ? ' · 来源:' + f.source : '')">
+            <div v-for="(f, i) in health.factors" :key="f.key" class="rp-factor" :title="(f.formula || f.detail || '') + (f.source ? ' · 来源:' + f.source : '')">
               <span class="rp-factor-name">{{ f.name }}</span>
               <div class="rp-factor-track">
-                <div class="rp-factor-fill" :style="{ width: Math.min(100, f.score) + '%', background: scoreColor(f.score) }"></div>
+                <div
+                  class="rp-factor-fill"
+                  :style="{
+                    width: (entered ? Math.min(100, f.score) : 0) + '%',
+                    background: scoreColor(f.score),
+                    transitionDelay: (i * 0.08) + 's'
+                  }"
+                ></div>
               </div>
               <span class="rp-factor-score">{{ f.score }}</span>
             </div>
@@ -132,8 +139,13 @@ import { useAppStore } from '../stores/appStore'
 import { generateHealthReport } from '../utils/healthReport'
 import { levelOf, levelMeta, buildTrendPath } from '../utils/health'
 import { equipmentPhoto } from '../utils/equipmentPhoto'
+import { useEnter } from '../utils/motion'
 
 const store = useAppStore()
+
+// 四因子条的入场开关：数据挂载前就绪，`.rp-factor-fill` 的 transition 从没播过
+// （详见 utils/motion.js）。
+const entered = useEnter()
 const selectedId = ref(null)
 const reportHtml = ref('')
 

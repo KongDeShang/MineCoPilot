@@ -4,18 +4,28 @@ import ElementPlus from 'element-plus'
 import 'element-plus/dist/index.css'
 import './styles/tokens.css'
 import './styles/healthReport.css'
+// driver.js 引导卡的主题覆盖。这里静态引入是**必需的**：driver.css 由
+// demoTour.js 动态 import、插到 <head> 最后，覆盖规则必须在它之前就位，
+// 再靠提高优先级取胜（原因写在该文件头部）。规则本身在没人启动引导时
+// 匹配不到任何元素，代价只是一小段文本。
+import './styles/driverTheme.css'
 import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
-import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 
 import App from './App.vue'
 import router from './router'
+import { APP_ICONS } from './utils/appIcons'
 import { useAppStore } from './stores/appStore'
 
 async function bootstrap() {
   const app = createApp(App)
 
-  // 注册 Element Plus 图标
-  for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+  // 注册 Element Plus 图标（白名单，见 utils/appIcons.js）
+  //
+  // 不要退回 `import * as ElementPlusIconsVue` 再全量遍历：
+  // 图标在模板里以字符串形式使用（icon="ArrowLeft"、<component :is="section.icon" />），
+  // 依赖全局注册，所以拿不掉；但全量注册会让打包器无法摇树，
+  // 293 个图标会被整包打进主 chunk（实测全部存在），而实际只用 69 个。
+  for (const [key, component] of Object.entries(APP_ICONS)) {
     app.component(key, component)
   }
 

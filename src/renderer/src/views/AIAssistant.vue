@@ -19,8 +19,15 @@
 
                 <!-- 语音录入 -->
                 <div class="input-section">
-                  <h4><el-icon><Microphone /></el-icon> 语音录入工单</h4>
+                  <h4>
+                    <el-icon><Microphone /></el-icon> 语音录入工单
+                    <el-tag class="demo-tag" size="small" type="warning" effect="plain">演示样例</el-tag>
+                  </h4>
                   <p class="section-desc">点击按钮，说出设备问题，自动转为工单</p>
+                  <p class="section-note">
+                    录音→转写→建单的链路是完整的；<strong>转写文本为预置样例</strong>，
+                    尚未接入真实语音识别引擎。
+                  </p>
                   <div class="voice-controls">
                     <el-button
                       :type="isRecording ? 'danger' : 'primary'"
@@ -49,8 +56,15 @@
 
                 <!-- 拍照 OCR -->
                 <div class="input-section">
-                  <h4><el-icon><Camera /></el-icon> 拍照识别巡检单</h4>
+                  <h4>
+                    <el-icon><Camera /></el-icon> 拍照识别巡检单
+                    <el-tag class="demo-tag" size="small" type="warning" effect="plain">演示样例</el-tag>
+                  </h4>
                   <p class="section-desc">拍摄手写巡检表，自动识别文字</p>
+                  <p class="section-note">
+                    选图→识别→回填的链路是完整的；<strong>识别结果为预置样例</strong>，
+                    尚未接入真实 OCR 引擎。
+                  </p>
                   <el-upload
                     action="#"
                     :auto-upload="false"
@@ -64,7 +78,7 @@
                     </el-button>
                   </el-upload>
                   <div v-if="ocrText" class="ocr-result">
-                    <el-divider>识别结果</el-divider>
+                    <el-divider>识别结果（演示样例）</el-divider>
                     <el-input v-model="ocrText" type="textarea" :rows="4" readonly />
                   </div>
                 </div>
@@ -136,7 +150,14 @@
       </el-tab-pane>
 
       <!-- Tab 2: Excel 智能解析（整块拆到 components/ExcelImportPanel.vue） -->
-      <el-tab-pane label="Excel 智能解析" name="excel">
+      <!--
+        lazy 是必须的，不是可选优化：
+        el-tab-pane 的渲染条件是 `!props.lazy || loaded || active`，
+        不写 lazy 就等于恒为 true —— 面板会在页面挂载时立刻实例化，
+        下面的 defineAsyncComponent 随即被触发，SheetJS 照样在进页面时下载。
+        加上 lazy 之后，只有用户真的点这个页签才会去取那 380 KB。
+      -->
+      <el-tab-pane label="Excel 智能解析" name="excel" lazy>
         <ExcelImportPanel />
       </el-tab-pane>
     </el-tabs>
@@ -144,9 +165,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, nextTick, watch, onMounted, onBeforeUnmount, defineAsyncComponent } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import ExcelImportPanel from '../components/ExcelImportPanel.vue'
 import ChatMessage from '../components/ChatMessage.vue'
 import QuickQuestions from '../components/QuickQuestions.vue'
 import { answerQuestion } from '../utils/knowledgeBase'
@@ -158,6 +178,30 @@ import { llmAvailable, llmLoad } from '../utils/llmClient'
 import { htmlToText, narrateConclusionStream } from '../utils/narrate'
 import { statusLabel, priorityLabel } from '../utils/dictionaries'
 import { escapeHtml } from '../utils/html'
+
+/**
+ * Excel 解析面板改为懒加载。
+ *
+ * 它只是本页的第二个页签（默认停在「AI 智能问答」），却会拖进整条链路：
+ *   ExcelImportPanel.vue → utils/excelParser.js → import * as XLSX from 'xlsx'
+ * SheetJS 约 380 KB。静态 import 时它被打进本页的路由块 —— 实测
+ * AIAssistant-*.js 达 394 KB（全站最大的路由块），用户点开 AI 助手只想问
+ * 一句话，却先下载并解析了整个表格库。改成异步后该路由块降到十几 KB，
+ * 只有真的切到「Excel 智能解析」页签才会去取。
+ *
+ * 注意：这里只改"何时下载"，页面内的用法（<ExcelImportPanel />）无需改动。
+ * onError 是必要的：异步 chunk 取不到时默认只留下一块空白页签（既不报错也不提示），
+ * 属于项目最忌讳的"静默失效"。这里重试两次后如实告知用户。
+ */
+const ExcelImportPanel = defineAsyncComponent({
+  loader: () => import('../components/ExcelImportPanel.vue'),
+  onError(error, retry, fail, attempts) {
+    if (attempts <= 2) { retry(); return }
+    console.error('[AI 助手] Excel 解析面板加载失败：', error)
+    ElMessage.error('Excel 解析面板加载失败，请重试；若反复失败请重启应用')
+    fail()
+  }
+})
 
 const store = useAppStore()
 
@@ -402,14 +446,18 @@ function toggleRecording() {
     voiceText.value = '6号钻机钻杆振动异常，需要安排检修，建议更换轴承'
     isRecording.value = false
     inputText.value = voiceText.value
-    ElMessage.success('语音已转写，可直接提问或建单')
+    ElMessage.success('语音已转写（演示样例），可直接提问或建单')
   }, 2200)
 }
 
-/** 拍照 OCR：演示环境使用模拟识别结果，真实版本可替换为 Tesseract.js 本地识别 */
+/**
+ * 拍照 OCR：**演示样例**，结果是一段写死的文本，没有读图。
+ * 界面上的「演示样例」角标和这段说明必须跟着一起改，否则就成了"标注着样例、
+ * 实际看着像真识别"——那比不标注更糟。真实版本可替换为 Tesseract.js 本地识别。
+ */
 function handleImageSelect() {
   ocrText.value = '设备：5号矿卡\n日期：' + now().slice(0, 10) + '\n巡检人：赵工\n异常：刹车片磨损严重\n处理：已安排更换，预计明天到货'
-  ElMessage.success('巡检单已识别，可复制文本创建工单')
+  ElMessage.success('巡检单已识别（演示样例），可复制文本创建工单')
 }
 
 function askQuick(question) {
@@ -927,6 +975,26 @@ onBeforeUnmount(() => {
   font-size: 15px;
   color: var(--text-1);
   margin-bottom: 8px;
+}
+
+/* "演示样例"角标推到标题行最右，不要贴着标题文字 */
+.demo-tag {
+  margin-left: auto;
+}
+
+/* 补一句"哪部分是样例、哪部分是真的"。
+   比只在代码注释里写清楚更重要 —— 注释评委看不到。
+   字号/颜色比 section-desc 再轻一档，不抢标题。 */
+.section-note {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-3);
+}
+
+.section-note strong {
+  color: var(--warn-ink);
+  font-weight: 600;
 }
 
 .section-desc {

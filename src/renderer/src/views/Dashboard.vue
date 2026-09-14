@@ -42,7 +42,7 @@
             v-for="seg in healthSegments"
             :key="seg.level"
             class="hd-seg"
-            :style="{ width: (seg.pct || 0) + '%', background: seg.color }"
+            :style="{ width: (entered ? (seg.pct || 0) : 0) + '%', background: seg.color }"
             :title="`${seg.level} 级 ${seg.count} 台`"
           ></div>
         </div>
@@ -94,7 +94,7 @@
                 <el-icon :size="28"><component :is="card.icon" /></el-icon>
               </div>
               <div class="stat-info">
-                <div class="stat-value">{{ card.value }}</div>
+                <div class="stat-value"><AnimatedNumber :value="card.value" /></div>
                 <div class="stat-label">{{ card.label }}</div>
               </div>
               <div class="stat-trend" :class="card.trendType">
@@ -116,12 +116,13 @@
             <svg viewBox="0 0 200 200" class="pie-svg">
               <!-- 饼图 -->
               <circle v-for="(seg, i) in pieSegments" :key="i"
+                class="pie-arc"
                 cx="100" cy="100" r="80"
                 fill="none"
                 stroke-width="32"
-                :stroke-dasharray="seg.dasharray"
+                :stroke-dasharray="entered ? seg.dasharray : '0 ' + PIE_CIRCUMFERENCE"
                 :stroke-dashoffset="seg.offset"
-                :style="{ stroke: seg.color, transition: 'stroke 1s ease ' + (i * 0.2) + 's' }"
+                :style="{ stroke: seg.color, transitionDelay: (i * 0.12) + 's' }"
               />
               <!-- 中心文字 -->
               <text x="100" y="92" text-anchor="middle" class="pie-center-num">{{ stats.equipmentCount }}</text>
@@ -176,24 +177,11 @@
           <template #header>
             <span><el-icon><TrendCharts /></el-icon> 维保执行趋势</span>
           </template>
+          <!-- 趋势图交给 ECharts（异步引入，echarts 单独成一个 chunk）。
+               原来那排 div 柱子只能用眼睛比高低，悬停问不出准确数字；
+               数据源没变，仍是下面这个 trendData。 -->
           <div class="trend-chart">
-            <div class="trend-bars">
-              <div v-for="(item, i) in trendData" :key="i" class="trend-bar-group">
-                <div class="trend-bar-wrapper">
-                  <div class="trend-bar planned" :style="{ height: item.planned + '%' }">
-                    <span class="bar-value">{{ item.plannedNum }}</span>
-                  </div>
-                  <div class="trend-bar completed" :style="{ height: item.completed + '%' }">
-                    <span class="bar-value">{{ item.completedNum }}</span>
-                  </div>
-                </div>
-                <div class="trend-label">{{ item.month }}</div>
-              </div>
-            </div>
-            <div class="trend-legend">
-              <span class="legend-dot" style="background: var(--accent-line)"></span> 计划
-              <span class="legend-dot" style="background: var(--emerald); margin-left: 12px"></span> 完成
-            </div>
+            <TrendChart :data="trendData" />
           </div>
         </el-card>
       </el-col>
@@ -249,7 +237,7 @@
           <div class="fault-rank" :class="'rank-' + (i + 1)">{{ i + 1 }}</div>
           <div class="fault-system">{{ item.system }}</div>
           <div class="fault-bar-wrap">
-            <div class="fault-bar" :style="{ width: faultWidth(item.percent, faultTop.top[0].percent) + '%', background: faultColor(i) }"></div>
+            <div class="fault-bar" :style="{ width: (entered ? faultWidth(item.percent, faultTop.top[0].percent) : 0) + '%', background: faultColor(i) }"></div>
           </div>
           <div class="fault-count">{{ item.count }} 次</div>
           <div class="fault-percent">{{ item.percent }}%</div>
@@ -292,7 +280,20 @@
             </div>
           </template>
           <div class="closing-body">
-            <div class="closing-ring" :style="{ borderColor: closingColor }">
+            <div class="closing-ring">
+              <!-- 真圆弧：原来 `border: 4px solid` 画的是整圈同色的假环，87% 和 12%
+                   看起来完全一样。外径仍是 84px（r=38 + 线宽 4），尺寸和原来一致。 -->
+              <svg class="closing-svg" viewBox="0 0 84 84" aria-hidden="true">
+                <circle class="closing-track" cx="42" cy="42" r="38" fill="none" stroke-width="4" />
+                <circle
+                  class="closing-arc"
+                  cx="42" cy="42" r="38"
+                  fill="none"
+                  stroke-width="4"
+                  :stroke-dasharray="`${entered ? closingArc : 0} ${RING_CIRCUMFERENCE}`"
+                  :style="{ stroke: closingColor }"
+                />
+              </svg>
               <span class="closing-num" :style="{ color: closingColor }">
                 {{ recheck.rate === null ? '—' : recheck.rate + '%' }}
               </span>
@@ -357,7 +358,7 @@
             <div v-for="item in brandStats" :key="item.brand" class="brand-item">
               <span class="brand-name">{{ item.brand }}</span>
               <div class="brand-bar">
-                <div class="brand-bar-fill" :style="{ width: brandPercent(item.count) + '%' }"></div>
+                <div class="brand-bar-fill" :style="{ width: (entered ? brandPercent(item.count) : 0) + '%' }"></div>
               </div>
               <span class="brand-count">{{ item.count }} 台</span>
             </div>
@@ -393,7 +394,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, defineAsyncComponent, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAppStore } from '../stores/appStore'
@@ -401,9 +402,29 @@ import { estimateLoss, evaluateHealth, RISK_LEVELS } from '../utils/health'
 import { equipmentPhoto } from '../utils/equipmentPhoto'
 import { generateReport } from '../utils/reportGenerator'
 import { now } from '../utils/dates'
+import AnimatedNumber from '../components/AnimatedNumber.vue'
+import { useEnter } from '../utils/motion'
+
+// 异步引入：echarts 体积不小，让它单独成一个 chunk 晚一拍到，
+// 看板首屏的文字与卡片先画出来，图表随后自己长出来。
+const TrendChart = defineAsyncComponent(() => import('../components/TrendChart.vue'))
 
 const store = useAppStore()
 const router = useRouter()
+
+// 设备状态饼的周长。r=80（模板里的 cx/cy/r），SVG 的 stroke-dasharray 按这个值折算。
+// 抽成常量是因为入场动画要拿它当"零长度"的起点：`0 <周长>` 表示整圈都藏起来。
+const PIE_CIRCUMFERENCE = 2 * Math.PI * 80
+
+// 复诊闭环圆环的周长。原来是 `border: 4px solid` 画的假圆 —— 整圈同色，
+// 87% 和 12% 长得一模一样，读者只能靠里面的数字知道进度。改成真的圆弧：
+// r=38、线宽 4，外径正好 84px，和原来的占位尺寸一致，不会挤动旁边那列文字。
+const RING_CIRCUMFERENCE = 2 * Math.PI * 38
+
+// 本页所有增长动画（.hd-seg / .trend-bar / .brand-bar-fill / .fault-bar）的总开关。
+// 这些 class 本来就写了 transition，但数据在挂载前就绪、首帧即终值，所以从来没播过。
+// 详见 utils/motion.js 的说明。
+const entered = useEnter()
 
 // 统计数据必须包一层 computed。
 // Pinia 确实会把 setup store 的 computed 解包，但解包出来的是**取值那一刻的普通对象**——
@@ -501,7 +522,7 @@ const statusLegend = computed(() => [
 
 const pieSegments = computed(() => {
   const total = stats.value.equipmentCount || 1
-  const circumference = 2 * Math.PI * 80
+  const circumference = PIE_CIRCUMFERENCE
   const data = statusLegend.value.map(d => ({ count: d.count, color: d.color }))
 
   let offset = 0
@@ -623,6 +644,14 @@ const closingColor = computed(() => {
   if (rate >= 80) return 'var(--success-ink)'
   if (rate >= 50) return 'var(--warn-ink)'
   return 'var(--danger-ink)'
+})
+
+// 圆弧要画多长。rate 为 null（还没有应复诊项）时留空环，和原来的 '—' 一致。
+// 入场同样走两阶段：先 0 长度，绘制过一帧后再长到目标值。
+const closingArc = computed(() => {
+  const rate = recheck.value.rate
+  if (rate === null) return 0
+  return (Math.min(100, Math.max(0, rate)) / 100) * RING_CIRCUMFERENCE
 })
 
 function brandPercent(count) {
@@ -775,6 +804,14 @@ function goEquipment(item) {
   fill: var(--text-1);
 }
 
+/* 环形各段的入场：从"零长度"长到实际弧度。
+   注意 transition 必须写在 stroke-dasharray 上 —— 原来只过渡了 stroke（颜色），
+   而颜色从头到尾没变过，所以那行 transition 同样是死代码。
+   每段的延迟由模板的 transitionDelay 给，形成依次扫出的效果。 */
+.pie-arc {
+  transition: stroke-dasharray 0.9s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
 .pie-center-label {
   font-size: 12px;
   fill: var(--text-3);
@@ -858,74 +895,11 @@ function goEquipment(item) {
   margin-top: 2px;
 }
 
-/* 维保趋势 */
+/* 维保趋势：柱子已由 ECharts 画（见 components/TrendChart.vue），
+   原来那套 .trend-bar / .bar-value / .trend-label / .trend-legend 一并删掉。
+   .legend-dot 保留 —— 饼图图例（第 832 行那条独立规则）还在用它，
+   这里删掉的只是 `.trend-legend .legend-dot` 这条覆写。 */
 .trend-chart { padding: 8px 0; }
-
-.trend-bars {
-  display: flex;
-  justify-content: space-around;
-  align-items: flex-end;
-  height: 160px;
-  padding: 0 8px;
-}
-
-.trend-bar-group {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-}
-
-.trend-bar-wrapper {
-  display: flex;
-  gap: 4px;
-  align-items: flex-end;
-  height: 140px;
-}
-
-.trend-bar {
-  width: 20px;
-  border-radius: 4px 4px 0 0;
-  transition: height 0.8s ease;
-  position: relative;
-  min-height: 4px;
-}
-
-.trend-bar.planned { background: var(--accent-line); }
-.trend-bar.completed { background: var(--emerald); }
-
-.bar-value {
-  position: absolute;
-  top: -18px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--text-2);
-  white-space: nowrap;
-}
-
-.trend-label {
-  font-size: 12px;
-  color: var(--text-3);
-}
-
-.trend-legend {
-  text-align: center;
-  margin-top: 12px;
-  font-size: 12px;
-  color: var(--text-3);
-}
-
-.trend-legend .legend-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-right: 4px;
-  vertical-align: middle;
-}
 
 /* 维保超期
    这一列会列出全部超期设备（演示数据 17 台），此前没有上限，
@@ -1024,14 +998,30 @@ function goEquipment(item) {
 }
 
 .closing-ring {
+  position: relative;
   width: 84px;
   height: 84px;
   border-radius: 50%;
-  border: 4px solid;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+}
+
+/* 圆弧摆在数字底下，占满整个环；旋转 -90° 让它从 12 点方向起画 */
+.closing-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.closing-track { stroke: var(--line); }
+
+.closing-arc {
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.9s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 .closing-num {
