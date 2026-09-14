@@ -152,7 +152,7 @@ Excel 台账导入 ──→ 健康评分 ──→ 告警扫描 ──→ 工�
 
 ```bash
 npm run lint        # 静态检查（只拦真错，不管风格）
-npm run self-check  # 279 条核心逻辑断言
+npm run self-check  # 285 条核心逻辑断言
 npm run coverage    # 口述指代消解的功能覆盖矩阵
 npm run e2e         # 86 条无头浏览器端到端（真实点击真实路由）
 npm run e2e:nl      # 28 条口述录入端到端（含撤销、歧义、不误写）
@@ -161,7 +161,7 @@ npm run audit:contrast  # 16 条路由的文字配色对比度（WCAG AA）
 npm run verify      # 以上全部 + 生产构建
 ```
 
-当前状态：**lint 0 错 0 警 / self-check 279 通过 / e2e 86 通过 / e2e:nl 28 通过 / 对比度 16 路由全达标 / 运行时异常 0**。
+当前状态：**lint 0 错 0 警 / self-check 285 通过 / e2e 86 通过 / e2e:nl 28 通过 / 对比度 16 路由全达标 / 运行时异常 0**。
 
 静态检查刻意只启用 `vue/essential` 而不用 `recommended` —— 后者一半是排版规则，接入当天会刷出上千条格式告警，真正的 bug 会被淹没。其中显式启用了 `vue/no-undef-properties`：模板里调用一个没导入的函数会导致整页白屏，而这类错误自检和端到端都可能漏掉，必须靠静态检查兜住。
 

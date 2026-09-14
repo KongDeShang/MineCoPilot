@@ -67,9 +67,10 @@
       "src/preload/**/*",
       "dist/**/*",
       "package.json",
-      "!node_modules/@node-llama-cpp/win-arm64/**",
-      "!node_modules/@node-llama-cpp/win-x64-cuda/**",
-      "!node_modules/@node-llama-cpp/win-x64-cuda-ext/**"
+      "!node_modules/**",
+      "node_modules/node-llama-cpp/**/*",
+      "node_modules/@node-llama-cpp/win-x64/**/*",
+      "node_modules/@node-llama-cpp/win-x64-vulkan/**/*"
     ],
     "asar": true,
     "asarUnpack": [
