@@ -146,7 +146,19 @@ const ASK_HELPER = `
     return {
       count: messages.length,
       text: last ? last.textContent.replace(/\\s+/g, ' ').slice(0, 400) : '',
-      refs: Array.from(document.querySelectorAll('.message-refs .ref-item')).map(e => e.textContent.trim())
+      // 不截断的同一份文本。text 截到 400 字是为了断言失败时报得干净，
+      // 但手册切片原文动辄两千字，要"回答里引的正文到底讲没讲这个词"
+      // 就得看全文 —— 关键词可能落在 400 字之后。单独给一份，不动 text，
+      // 免得影响已有断言的输出长度。
+      full: last ? last.textContent.replace(/\\s+/g, ' ') : '',
+      // refs 必须**只取最后一条消息的**。
+      // 原先这里查的是整个 document：同一个会话里问过几个问题后，refs 会把
+      // 前面每条消息的出处都累积进来，于是"这条回答引用第 N 页"的断言实际上
+      // 读到的是**之前某个问题**引用过的页码 —— 断言比它的名字验证得少，
+      // 而且看起来永远是绿的。text 取了 last，refs 没有，两处不一致。
+      refs: last
+        ? Array.from(last.querySelectorAll('.message-refs .ref-item')).map(e => e.textContent.trim())
+        : []
     }
   };
   'helper-ready'
@@ -775,6 +787,36 @@ async function main() {
     check('AI 能回答随包手册里的内容，并给出页码出处',
       !manualAsk.error && (manualAsk.refs || []).some(r => r.includes('第') && r.includes('页')),
       manualAsk.error || (manualAsk.refs || []).join(' | ') || manualAsk.text)
+
+    // ⚠️ 上面这条断言**验证的比它的名字少**：它只要求"出现了第 N 页"，不要求
+    // 那一页真的讲你问的东西。所以它一直是绿的 —— 而检索其实按**文档元数据**
+    // 打分，同一本手册的每个切片元数据完全相同 → 全部同分 → 稳定排序恒返回
+    // 第 1/2/3 页。换句话说：问液压得到的是封面和目录，断言照样通过。
+    //
+    // 下面这条才是真正能抓到它的：**两个内容毫不相干的问题，必须引用不同的页**。
+    // 检索只要还是"元数据同分"，两个问题就会返回同一组页码（1/2/3），立刻报警。
+    const pageOf = (r) => { const m = String(r).match(/第\s*(\d+)\s*页/); return m ? Number(m[1]) : null }
+    const hydAsk = await session.eval(`window.__ask('SQ10SK3Q 随车起重机操作维护手册里，液压系统怎么保养？')`)
+    const wireAsk = await session.eval(`window.__ask('SQ10SK3Q 随车起重机操作维护手册里，钢丝绳多久检查一次？')`)
+    const hydPages = (hydAsk.refs || []).map(pageOf).filter(p => p !== null)
+    const wirePages = (wireAsk.refs || []).map(pageOf).filter(p => p !== null)
+    check('手册检索按正文相关度选页（两个不同问题不能引用同一组页）',
+      hydPages.length > 0 && wirePages.length > 0 &&
+        hydPages.join(',') !== wirePages.join(','),
+      `液压 → 第 ${hydPages.join('/')} 页 ｜ 钢丝绳 → 第 ${wirePages.join('/')} 页`)
+
+    // 上面那条只证明"两次引用不一样"，**证明不了"引对了"**。随包手册正文是
+    // 英文原版，中文提问跟页面文字本来没有公共子串：修好之前检索稳定地引用
+    // 第 1/2/3 页（封面、目录），而"两条不一样"当时照样能成立（1/2/3 vs 1/4/5）。
+    // 所以这里直接查引用的正文本身讲没讲所问的东西。
+    // 答文里本来就嵌着切片原文（appStore.answerItems 的 steps），不必另开接口。
+    const hydFull = hydAsk.full || ''
+    const wireFull = wireAsk.full || ''
+    const hydHasTerm = /hydraulic/i.test(hydFull)
+    const wireHasTerm = /\brope\b/i.test(wireFull)
+    check('引用的页确实在讲所问的内容（液压页出现 hydraulic、钢丝绳页出现 rope）',
+      hydHasTerm && wireHasTerm,
+      `答文含 hydraulic=${hydHasTerm}、含 rope=${wireHasTerm}`)
 
     // 说明：口述录入（自然语言→结构化写入）的端到端验收已拆分到独立文件，
     // 由 scripts/e2e-nl.mjs 承载（npm run e2e:nl），覆盖率更全且避免单文件过长。

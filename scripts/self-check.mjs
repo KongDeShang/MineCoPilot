@@ -1673,6 +1673,96 @@ function check(name, condition, detail = '') {
     `清单 ${files.length} 条，放行 ${incAt.length} 条，排除 ${files.filter(f => f.startsWith('!')).length} 条`)
 }
 
+// ============ P 手册检索（中文提问 → 英文原版手册正文） ============
+//
+// 随包三本手册正文都是**英文原版**（只有页眉一行中文公司名）。中文提问与
+// 页面文字没有任何公共子串，所以检索靠 synonyms.MANUAL_TERMS 那张表把词
+// 换成英文再匹配。这张表的失效模式也是**静默**的：
+//   - 写了个正文里根本没有的词（hydraulic fluid、servicing…）→ 检索少一路
+//     信号，界面上看不出来，只是引用的页码变差；
+//   - 匹配方式跟表的写法不配套 —— 本条就是被这个咬过的：正文原先按去空格的
+//     形式匹配，`\bhydraulic\b` 一个都匹配不上（后面紧跟的是 oil 的 o），
+//     表里所有**多词条目**（hydraulic oil / wire rope / lubricating oil）
+//     整条失效。而"两个问题引用不同页"那类断言当时照样是绿的。
+// 所以这里逐条用**真实检索函数**验：每个中文词喂进去，都必须在随包手册正文
+// 里拿到正的内容分。真函数、真正文，不是另写一套近似匹配。
+{
+  const syn = await import(mirror('synonyms'))
+  const kb = await import(mirror('knowledgeBase'))
+
+  const publicDir = join(root, 'src', 'renderer', 'public', 'manuals')
+  const bundled = await import(mirror('bundledDocs'))
+
+  /**
+   * 真实切片池。title 用「第 N 页」而不是手册名，docTitle 留空：
+   * 这样标题/关键词那两路加分不会参与，得分只可能来自正文 —— 这条
+   * 断言要问的就是"表里的词在正文里到底找不找得到"。
+   */
+  const pool = []
+  for (const d of bundled.BUNDLED_DOCS) {
+    const jsonPath = join(publicDir, `${d.slug}.json`)
+    if (!existsSync(jsonPath)) continue
+    const parsed = JSON.parse(readFileSync(jsonPath, 'utf8'))
+    for (const c of (parsed.chunks || []).slice(0, 120)) {
+      pool.push({
+        title: `第 ${c.page} 页`,
+        docTitle: '',
+        category: '手册原文',   // 刻意非空：normalize('') 是空串，
+                                // 而 q.includes('') 恒真，会给每条白送分
+        keywords: [],
+        steps: [c.text],
+        pageText: c.text
+      })
+    }
+  }
+
+  check('手册切片池非空（否则下面两条是空集恒真）', pool.length > 0, `${pool.length} 片`)
+
+  // 1) 没有死词 —— **逐个英文词**验，不是逐条中文词验。
+  //    第一版是按中文词验"有没有拿到正分"，结果 lubricat 早就死了（手册里
+  //    只写 lubricated/lubricating/lubrication，从不写 lubricat）却因为同一条
+  //    的 grease 命中了而显示 PASS —— 断言比名字验证得少，正是本次修的那类问题。
+  //    这里直接用检索自己的匹配函数（countInBody/normalize/normalizeSpaced 就是
+  //    scoreByContent 用的那三个），不另写一套近似规则，否则规则一改两边就脱钩。
+  const rawTexts = pool.map(e => e.pageText)
+  const plains = rawTexts.map(t => kb.normalize(t))
+  const spaceds = rawTexts.map(t => kb.normalizeSpaced(t))
+  const dead = []
+  for (const [cn, ens] of syn.MANUAL_TERMS) {
+    for (const en of ens) {
+      const hit = plains.some((_, i) => kb.countInBody(plains[i], spaceds[i], en) > 0)
+      if (!hit) dead.push(`${cn}→${en}`)
+    }
+  }
+  check('MANUAL_TERMS 里每个英文词都能在随包手册正文里命中（没有死词）',
+    dead.length === 0,
+    dead.length
+      ? dead.join('、')
+      : `${syn.MANUAL_TERMS.reduce((n, [, ens]) => n + ens.length, 0)} 个词全部命中`)
+
+  // 2) 身份词不能当内容分：只报手册名和型号，不该有**任何一页**被正文分顶上来。
+  //    这条对应修过的一个真实缺陷：型号在文字层里只印在少数几页的页眉上，
+  //    稀有度极高，IDF 反而给满权重，凭空把那几页排到最前 —— 而"型号"说明的
+  //    是问哪一本，不是问哪一页。
+  //    断言写成"所有切片同分"，不是"分数 ≤ 某个常数"：同分才真正说明
+  //    "没有哪一页因为内容相关被选中"，而且打分常数以后怎么调都不会让这条失效。
+  const byName = bundled.BUNDLED_DOCS[0]
+  const namePool = pool.map(e => ({
+    ...e,
+    docTitle: byName.title,
+    keywords: [byName.title, byName.model].filter(Boolean)
+  }))
+  const nameQuery = `${byName.model || ''} ${byName.title}`.trim()
+  const nameHits = kb.searchKnowledge(nameQuery, namePool, namePool.length)
+  const scores = nameHits.map(h => h.score)
+  const uniform = scores.length === namePool.length && new Set(scores).size === 1
+  check('只报手册名+型号时所有切片同分（身份词没被当成内容分）',
+    uniform,
+    uniform
+      ? `提问「${nameQuery}」→ ${scores.length} 片同为 ${scores[0]} 分`
+      : `提问「${nameQuery}」→ 分数有 ${new Set(scores).size} 种（${scores.slice(0, 5).join('/')}…），有页被正文分顶了上来`)
+}
+
 // ============ 汇总 ============
 const failed = results.filter(r => !r.ok)
 for (const r of results) {

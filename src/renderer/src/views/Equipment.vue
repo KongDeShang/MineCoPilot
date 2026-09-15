@@ -547,7 +547,9 @@ function submitRecord() {
   if (!newRecord.value.date) { ElMessage.warning('请选择维保日期'); return }
   if (!newRecord.value.description) { ElMessage.warning('请填写维保内容'); return }
 
-  store.addMaintenanceRecord(recordTarget.value.id, { ...newRecord.value })
+  // snapshot: true —— 与口述录入那条路保持一致。维保推进了"上次维保日期"，
+  // 健康分随之变化，必须落一个快照点，否则趋势曲线上查不到这次变化
+  store.addMaintenanceRecord(recordTarget.value.id, { ...newRecord.value }, { snapshot: true })
   store.addLog({
     content: `记录维保：${recordTarget.value.name} ${newRecord.value.type} — ${newRecord.value.description}`,
     source: '维保',

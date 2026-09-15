@@ -209,7 +209,10 @@ export function createPersistence(ctx) {
    * 恢复时按 id 倒排即可还原时间顺序，不依赖字符串时间排序。
    */
   function logsToRows() {
-    const list = recentLogs.value.slice(0, 50)
+    // 落库窗口，必须 ≥ 内存窗口（appStore.addLog 的 500），否则内存里留着
+    // 500 条、写回去只剩 50 条，刷新后照样只剩 50 —— 改了等于没改。
+    // 两个数字要一起动，所以在这里写明它们的耦合关系。
+    const list = recentLogs.value.slice(0, 500)
     return list.map((log, index) => ({
       id: list.length - index,
       time: log.time || now(),

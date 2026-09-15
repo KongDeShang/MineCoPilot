@@ -857,14 +857,16 @@ export function executePlanItem(store, item, options = {}) {
 
     case INTENTS.ADD_MAINTENANCE: {
       const snapshot = snapshotEquipment(store, eq)
+      // 快照改由 addMaintenanceRecord 内部落（snapshot: true）—— 原先这里
+      // 在外面自己补一次，台账页那条门漏了，同一操作两个门的数据不一样。
+      // 现在只有一个地方决定"要不要落快照"，不会再漏。
       store.addMaintenanceRecord(eq.id, {
         date: item.date,
         type: item.serviceLevel === '月度保养' ? '定期保养' : '定期保养',
         description: item.description,
         parts_used: item.partsText,
         technician: ''
-      })
-      store.addHealthSnapshot(eq.id, { date: item.date })
+      }, { snapshot: true })
       changes.push({ label: '新增维保记录', detail: `${item.date} ${item.description}`, kind: 'maintenance' })
       changes.push({ label: '更新设备', detail: `上次维保日期 → ${item.date}`, kind: 'equipment', id: eq.id })
       changes.push({ label: '健康快照', detail: `${item.date} 记录一次健康分`, kind: 'snapshot' })

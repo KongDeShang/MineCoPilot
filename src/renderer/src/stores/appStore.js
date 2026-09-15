@@ -654,7 +654,22 @@ export const useAppStore = defineStore('app', () => {
     return order
   }
 
-  function addMaintenanceRecord(equipmentId, record, { silent = false } = {}) {
+  /**
+   * 记录一条维保。
+   *
+   * `snapshot` 为真时，在同一函数内补写一次健康快照。理由：维保记录会推进
+   * `last_maintenance_date`，健康分随之变化 —— 不落快照，那台设备的健康趋势
+   * 曲线上就缺一个点，而"分数变了却查不到什么时候变的"正是可审计性的破口。
+   *
+   * 原先只有口述录入那条路（nlCommand.js）在外面自己补了快照，台账页的
+   * 「记录维保」按钮漏了：同一个操作走两个门，得到的数据不一样。现在由这个
+   * 参数统一决定，两条交互入口都传 true，避免第三个门再漏。
+   *
+   * 刻意**不默认 true**：Excel 导入会为每行历史维保记录调本函数，导一批
+   * 就凭空多出几百条日期在过去的快照，那是导入噪声、不是真实现场轨迹；
+   * archiveWorkOrder 也在外面自己补（它要的是"处置完成后"的状态，顺序不同）。
+   */
+  function addMaintenanceRecord(equipmentId, record, { silent = false, snapshot = false } = {}) {
     const key = String(equipmentId)
     if (!maintenanceRecords.value[key]) maintenanceRecords.value[key] = []
     maintenanceRecords.value[key].unshift({
@@ -698,6 +713,8 @@ export const useAppStore = defineStore('app', () => {
         }, { silent: true })
       }
     }
+    // 快照要在 persistAll 之前落，否则这一条要等下次写库才存下去
+    if (snapshot) addHealthSnapshot(equipmentId, { date: record.date }, { silent: true })
     if (!silent) persistAll()
   }
 
@@ -826,11 +843,23 @@ export const useAppStore = defineStore('app', () => {
         base.push({
           id: `${doc.id}-p${chunk.page}`,
           title: `《${doc.title}》· 第 ${chunk.page} 页`,
+          // 手册名另给一份：title 带着「《》· 第 N 页」的装饰，检索里那条
+          // "提问点名了这本手册 +12" 的规则比不中它（见 knowledgeBase.searchKnowledge）。
+          docTitle: doc.title,
           category: '手册原文',
-          keywords: [doc.title, doc.docType, doc.model, doc.category].filter(Boolean),
+          // 关键词里只留标题与机型，**刻意去掉 docType 与 category**。
+          // 原因是这三本随包手册（以及大多数起重机手册）的 category 都是同一个词
+          // 「起重机」：留着它，一句含"起重机"的提问就会给同一本手册的**全部
+          // 120 个切片**打上相同的元数据分，稳定排序下恒返回第 1/2/3 页 ——
+          // 页码跟提问内容毫无关系，而"回答注明第 N 页"正是这个功能的卖点。
+          // 标题与机型是真正的区分信号（指名道姓问某本手册时才命中），保留。
+          keywords: [doc.title, doc.model].filter(Boolean),
           symptoms: `手册原文片段（${doc.title} 第 ${chunk.page} 页）`,
           causes: [],
           steps: [chunk.text],
+          // 正文单独交给检索按内容打分（见 knowledgeBase.searchKnowledge）。
+          // 同一本文档的元数据完全相同，只有正文能把页码区分开。
+          pageText: chunk.text,
           source: `本地手册 · ${doc.title}`,
           caveat: '本条为手册原文节选，完整内容请打开手册核对'
         })
@@ -924,7 +953,12 @@ export const useAppStore = defineStore('app', () => {
 
   function addLog(entry, { silent = false } = {}) {
     recentLogs.value.unshift({ time: now(), ...entry })
-    recentLogs.value = recentLogs.value.slice(0, 50)
+    // 内存里只留最近 500 条。原先写 50：一次 Excel 导入会刷出几百条备件联动
+    // 日志，当天早些时候的操作就被挤出窗口 —— 演示时想翻回上一步的操作反而
+    // 找不到，而这页正是"可审计 AI"的证据链。
+    // 注意 persistence.logsToRows 里有**另一个**落库窗口，必须 ≥ 这个数，
+    // 否则内存留 500、写回 50，刷新后又只剩 50（改了等于没改）。两处一起动。
+    recentLogs.value = recentLogs.value.slice(0, 500)
     if (!silent) persistAll()
   }
 

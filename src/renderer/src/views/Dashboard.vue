@@ -160,7 +160,7 @@
                   <div class="todo-title">{{ item.title }}</div>
                   <div class="todo-meta">{{ item.meta }}</div>
                 </div>
-                <el-button size="small" type="primary" link>处理</el-button>
+                <el-button size="small" type="primary" link @click="gotoEquipment(item)">处理</el-button>
               </div>
             </template>
             <div v-else class="empty-inline">
@@ -537,13 +537,18 @@ const pieSegments = computed(() => {
 
 // 今日待办 - 超期设备 + 14 天内即将到期设备，全部来自本地数据库计算
 const todoList = computed(() => {
+  // 带 id 是为了让右侧「处理」按钮能跳到那台设备的画像 —— 原先这里只挑出
+  // title/meta/level 三个字段，设备身份被丢掉了，于是按钮没有任何可跳的目标，
+  // 连 @click 都没写，是个点了不动的死按钮。
   const items = store.overdueList.map(e => ({
+    id: e.id,
     title: `${e.name} 维保超期${e.overdueDays}天`,
     meta: `上次维保: ${e.last_maintenance_date}`,
     level: e.overdueDays > 30 ? 'urgent' : 'high'
   }))
   store.upcomingList.forEach(e => {
     items.push({
+      id: e.id,
       title: `${e.name} ${e.daysUntil}天后到期`,
       meta: `到期日: ${e.dueDate}`,
       level: 'normal'
@@ -551,6 +556,15 @@ const todoList = computed(() => {
   })
   return items.slice(0, 6)
 })
+
+/**
+ * 去处理某台设备：跳台账页并直接展开它的画像。
+ * 走的是 `?id=` 查询参数 —— 工单页与维保日历早就是这个约定
+ * （Equipment.vue 的 openFromQuery 负责认），这里只是把同一个约定接上。
+ */
+function gotoEquipment(item) {
+  router.push({ path: '/equipment', query: { id: item.id } })
+}
 
 /**
  * 某月"应做保养次数"：按每台设备自身的维保周期折算到该月天数之和。

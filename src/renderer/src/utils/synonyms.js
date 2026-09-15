@@ -152,3 +152,98 @@ export function isRelated(text1, text2) {
   }
   return false
 }
+
+/* ============================================================================
+ * 中文提问 → 英文手册用词
+ *
+ * 与上面那张表**不是一回事**，所以没混在一起：
+ *   上面：用户口语 → 知识库用词，解决"说法不一样"，两边都是中文。
+ *   这张：中文提问 → 英文原文，解决"语言不一样"。
+ *
+ * 为什么需要：随包的三本手册（含旗舰的 SQ10SK3Q 操作维护手册）正文都是
+ * **英文原版**，只有页眉一行中文公司名。中文提问跟英文正文没有任何公共
+ * 子串，再怎么调打分权重也命中不了 —— 检索到的页码只能退化成插入顺序
+ * （封面、目录），而"回答注明第 N 页"正是这个功能的卖点。
+ *
+ * 收词标准：**逐个在随包手册正文里查过、确实出现过的才收**（后面数字是实测
+ * 出现的切片数）。没出现的（hydraulic fluid、servicing、engine oil、
+ * luffing、daily…）一律不收 —— 收了也只是永远匹配不到的死词，还会让人
+ * 误以为覆盖到了。
+ *
+ * 用法上有一个关键约束：**只翻译"非身份词"**。像「起重机」这种词，换成
+ * crane 也仍然说明不了问的是哪一页（crane 在 86 片里出现 42 片）—— 中文侧
+ * 刚把这类词剔掉（见 knowledgeBase.scoreByContent），英文侧再放进来就等于
+ * 从后门又塞回去了。所以调用方要把身份文本传进来，这里直接跳过。
+ */
+
+/**
+ * 中文词 → 该词在随包英文手册里的写法（实测出现过的才收）
+ *
+ * 导出是为了让 self-check 能逐条验"没有死词"：表里写错一个词（多词条目
+ * 尤其容易 —— 正文的匹配方式一变，hydraulic oil 这种就整条失效），
+ * 检索会静默地少一路信号，界面上完全看不出来。
+ */
+export const MANUAL_TERMS = [
+  // 液压 / 油液
+  ['液压', ['hydraulic']],                     // 17
+  ['液压油', ['hydraulic oil']],               // 6
+  ['油', ['oil']],                             // 16
+  ['润滑', ['lubricat', 'grease']],            // 5 / 7
+  ['润滑油', ['lubricating oil']],             // 1
+  ['油箱', ['tank']],                          // 7
+  ['软管', ['hose']],                          // 5
+  ['密封', ['seal']],                          // 5
+  ['泄漏', ['leak']],                          // 5
+  ['漏油', ['leak']],                          // 5
+  ['压力', ['pressure']],                      // 12
+  ['滤芯', ['filter']],                        // 3
+
+  // 钢丝绳 / 起升
+  ['钢丝绳', ['rope', 'wire rope']],           // 19 / 4
+  ['起升', ['hoist']],                         // 6
+  ['载荷', ['load']],                          // 29
+  ['超载', ['overload']],                      // 1
+  ['力矩', ['torque']],                        // 4
+  ['回转', ['slewing']],                       // 17
+  ['支腿', ['outrigger']],                     // 7
+
+  // 保养 / 检查 / 维修
+  ['保养', ['maintenance']],                   // 11
+  ['维护', ['maintenance']],                   // 11
+  ['检查', ['check', 'inspect']],              // 12 / 1
+  ['维修', ['repair', 'service']],             // 3 / 3
+  ['更换', ['replace']],                       // 11
+  ['周期', ['interval']],                      // 6
+
+  // 电气 / 制动 / 结构
+  ['刹车', ['brake']],                         // 6
+  ['制动', ['brake']],                         // 6
+  ['电瓶', ['battery']],                       // 4
+  ['蓄电池', ['battery']],                     // 4
+  ['轮胎', ['tire']],                          // 7
+  ['螺栓', ['bolt']],                          // 5
+  ['温度', ['temperature']],                   // 6
+  ['故障', ['fault', 'trouble']],              // 8 / 2
+  ['报警', ['alarm']],                         // 1
+  ['安全', ['safety']],                        // 19
+]
+
+/**
+ * 取出提问里"该去英文手册正文里找"的词
+ *
+ * @param {string} queryText 用户原始提问
+ * @param {string} identityText 已 normalize 的身份文本（手册名/型号/切片标题）；
+ *        命中它的词是身份词，不翻译 —— 见上面那段说明
+ * @returns {string[]} 英文检索词（已小写）
+ */
+export function manualTerms(queryText, identityText = '') {
+  const q = normalizeWord(queryText)
+  const out = new Set()
+  for (const [cn, ens] of MANUAL_TERMS) {
+    if (!q.includes(cn)) continue
+    // 身份词：换成英文也还是身份词，跳过
+    if (identityText && identityText.includes(cn)) continue
+    for (const e of ens) out.add(e)
+  }
+  return [...out]
+}

@@ -8,7 +8,7 @@
  */
 import { daysSince, daysUntilDue, equipmentAgeYears } from './dates'
 import { evaluateHealth, levelMeta, levelOf } from './health'
-import { expandQuery } from './synonyms'
+import { expandQuery, manualTerms } from './synonyms'
 import { htmlIcon } from './htmlIcons'
 // HTML 转义统一走 utils/html.js：这里原先自己实现了一份，两份行为还不一致
 // （本地那份漏了单引号的转义）。共用一份既少一处漂移面，
@@ -344,8 +344,169 @@ function renderEntry(entry) {
   ].join('')
 }
 
-function normalize(text) {
+export function normalize(text) {
   return String(text || '').toLowerCase().replace(/[\s，。？！,.?!、；;：:"'（）()【】[\]]/g, '')
+}
+
+/** 正文相关度的上限。刻意压得比一次标题命中（+12）低，见 scoreByContent 说明。 */
+const CONTENT_SCORE_CAP = 8
+
+/** 子串在正文里出现了几次（用来做词频倍率，见 scoreByContent） */
+function countOccurrences(body, term) {
+  let count = 0
+  let at = body.indexOf(term)
+  while (at !== -1) {
+    count++
+    at = body.indexOf(term, at + term.length)
+  }
+  return count
+}
+
+/** 正文的"分空格"形式：仅用于匹配英文词，见 countInBody */
+export function normalizeSpaced(text) {
+  return String(text || '').toLowerCase()
+    .replace(/[，。？！,.?!、；;：:"'（）()【】[\]/\\|]/g, ' ')
+    .replace(/\s+/g, ' ')
+}
+
+/**
+ * 这个词在正文里出现了几次。
+ *
+ * **中英两套匹配规则，不能用同一个正文**：
+ *
+ * - 英文词按**词边界**匹配，正文要保留词间空格。normalize() 会把空格也删掉，
+ *   "hydraulic oil filter" 变成 "hydraulicoilfilter" —— 既让 `\bhydraulic\b`
+ *   找不到边界（后面紧跟的是 o），也让表里所有多词条目（hydraulic oil、
+ *   wire rope、lubricating oil）**永远匹配不上**，是三个死条目。
+ * - 中文滑窗必须用去掉空格的那份。手册页眉的「随车起重机 操作维护手册」
+ *   中间有空格，留着空格「车起」就断了 —— 而页眉正是每个切片都有的。
+ *
+ * 词边界也不能省：正文里的 "proper installation" 含有 "rope"，
+ * 按子串数，第 34 页就凭 "improper" 里的 rope 混进了「钢丝绳」提问的第二名（实测）。
+ * 中文没有这个问题 —— 汉字滑窗本来就是词的一部分，"液压系统"里出现「液压」正是要的。
+ *
+ * 但边界**只卡前面，不卡后面**。手册里的词几乎都以变形出现，实测这份
+ * 操作维护手册里只写 "intervals"（×8）、"lubricated/lubricating/lubrication"
+ * （×7），从不写光秃秃的 interval / lubricat —— 两头都卡的话，表里这两条
+ * 直接变成死词，检索静默地少两路信号。只卡前边界既能收下变形（intervals、
+ * lubrication、checks、ropes），又能挡住"嵌在别的词里"（proper 里的 rope、
+ * boiler 里的 oil，前面都不是词边界）。
+ *
+ * @param {string} plain normalize() 后的正文（无空格），中文滑窗用
+ * @param {string} spaced normalizeSpaced() 后的正文，英文词用
+ * @param {string} term 检索词
+ */
+export function countInBody(plain, spaced, term) {
+  if (/^[a-z][a-z ]*$/.test(term)) {
+    const safe = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return (spaced.match(new RegExp(`\\b${safe}`, 'g')) || []).length
+  }
+  return countOccurrences(plain, term)
+}
+
+/** 提问切成去重后的 2 字滑窗 */
+function queryGrams(q) {
+  const grams = []
+  const seen = new Set()
+  for (let i = 0; i + 2 <= q.length; i++) {
+    const g = q.slice(i, i + 2)
+    if (seen.has(g)) continue
+    seen.add(g)
+    grams.push(g)
+  }
+  return grams
+}
+
+/**
+ * 手册切片的**正文相关度**。
+ *
+ * 为什么需要它：手册切片的元数据整本相同（同一个 title/model），光靠元数据
+ * 打分，同一本手册的每个切片必然同分，排序退化成插入顺序 —— 问"液压系统
+ * 怎么保养"也会返回第 1/2/3 页（封面、目录），页码与提问内容无关。
+ * 只有正文能把页与页区分开。
+ *
+ * 三道处理，都是被实测否掉一版之后才加的：
+ *
+ * 1) **剔除"身份词"**。提问里的「SQ10SK3Q」「随车起重机」「操作维护手册」
+ *    说明的是"问哪一本"，不是"问这一本的哪一页"，对页间排序零信息。
+ *    第一版数命中滑窗，第 1/4/5/12 页全部顶到上限、并列；第二版换成 IDF
+ *    加权，并列的换成第 1/4/8/10/11 页 —— 换了个数法，还是好几页同分，
+ *    因为 IDF 只认"稀有"，而型号恰恰是**又稀有又没用**：它的文字层只印在
+ *    少数几页的页眉上，于是 (1 - df/N) 高达 0.87~0.95，跟"液压""钢丝绳"
+ *    这些真正该管的词（≈0.92）不相上下，凭空给那几页加了 3.5 分。
+ *    所以身份词必须在算分前整批剔掉，不能指望权重自己压住它。
+ *
+ * 2) **按文档频率加权**。剔掉身份词后剩下的多是「系统」「操作」「保养」这类
+ *    通篇都有的词，页页命中的对区分度没有贡献，权重取 (1 - 出现在多少页 /
+ *    总页数) 后自动趋近 0；真正有区分度的（液压、钢丝绳）≈ 0.9。
+ *
+ * 3) **再看词频**。只按"命中/没命中"算，一页正经讲液压的跟一页只在插图
+ *    标题里出现过一次"hydraulic"的同样得分。实测「液压系统怎么保养」这个
+ *    提问下，有 7 页都同时命中 hydraulic + maintenance、全部同分，最后靠
+ *    插入顺序选出了第 3 页（目录页，只列了章节名）—— 同分退化成下标，
+ *    跟没打分一样。词频是个诚实的区分信号：讲这个的页会反复提到它。
+ *    取 1+log(tf) 做倍率（次线性，避免长页靠字数取胜），并封顶 3 倍 ——
+ *    它仍然是**打破并列**的信号，不该盖过词本身的稀有度。
+ *
+ * 已知不足：改完仍会把手册的**目录页**（如第 5 页）排进前三。目录罗列了
+ * 所有章节名，天然命中多个检索词且词频高，这不是算分算错了。首位引用已经
+ * 是正文页（第 30 页，保养计划表），目录页作为补充来源可接受，暂不额外处理。
+ *
+ * 为什么是 2 字滑窗而不是分词：中文分词要么引依赖、要么自建词典，对一个
+ * 离线项目都不划算；2 字滑窗零依赖，且对"液压系统""钢丝绳"这类工程术语够用。
+ *
+ * 为什么封顶 8 分：它是**打破并列**的信号，不是主判据。压得比标题命中（+12）
+ * 低，才能保证"指名问某本手册"时仍是那本手册优先，不会让手册原文顶掉更对症的
+ * 精选知识条目。
+ *
+ * @returns {Map<Object, number>} 条目对象 → 正文分
+ */
+function scoreByContent(q, entries) {
+  const result = new Map()
+
+  // 所有候选切片的"身份文本"（手册名、型号、标题）。提问里出现这些字，
+  // 只意味着指名了某本手册，对"翻到哪一页"没有信息量，见上面 1)。
+  const identity = normalize(entries
+    .flatMap(e => [e.docTitle, e.title, ...(e.keywords || [])])
+    .filter(Boolean).join(' '))
+
+  // 手册正文是英文原版，中文提问在正文里没有任何公共子串。所以检索词
+  // 分两路：中文滑窗（命中正文里 OCR 出来的中文）+ 身份词之外的词翻译成
+  // 英文手册用词（见 synonyms.manualTerms）。两路用同一套 IDF 权重。
+  const grams = [
+    ...queryGrams(q).filter(g => !identity.includes(g)),
+    ...manualTerms(q, identity)
+  ]
+  if (!grams.length) return result
+
+  const texts = entries.map(e => normalize(e.pageText))
+  const spaced = entries.map(e => normalizeSpaced(e.pageText))
+  const total = texts.length
+
+  // 文档频率：每个检索词出现在多少个切片里（与词频同一套匹配规则，
+  // 否则两边对不上：df 用词边界、tf 用子串，权重和计数会互相矛盾）
+  const df = new Map()
+  for (const g of grams) {
+    let count = 0
+    for (let i = 0; i < total; i++) if (countInBody(texts[i], spaced[i], g)) count++
+    df.set(g, count)
+  }
+
+  entries.forEach((entry, i) => {
+    const body = texts[i]
+    if (!body) { result.set(entry, 0); return }
+    let sum = 0
+    for (const g of grams) {
+      const seen = df.get(g)
+      if (!seen) continue
+      const tf = countInBody(body, spaced[i], g)
+      if (!tf) continue
+      // 稀有度 × 词频倍率（次线性、封顶 3 倍），见上面 3)
+      sum += (1 - seen / total) * Math.min(1 + Math.log(tf), 3)
+    }
+    result.set(entry, Math.min(Math.round(sum * 2), CONTENT_SCORE_CAP))
+  })
+  return result
 }
 
 /**
@@ -363,9 +524,18 @@ export function searchKnowledge(question, items = KNOWLEDGE_BASE, limit = 3) {
   // 同义词展开：用户说"漏油"，也匹配含"渗油"的条目
   const expanded = expandQuery(question)
 
+  // 带正文的条目（手册切片）先整批算一次正文分 —— IDF 要看到整批片段
+  // 才有意义，逐条算无法判断"这个词是不是页页都有"。
+  const withText = source.filter(e => e.pageText)
+  const contentScores = withText.length ? scoreByContent(q, withText) : null
+
   const scored = source.map(entry => {
     let score = 0
-    const nTitle = normalize(entry.title)
+    // 手册切片比标题，比的是**手册名**而不是切片标题 —— 后者的
+    // 「《》· 第 N 页」装饰会让 q.includes() 永远为假，这条 +12 便形同虚设，
+    // 指名问某本手册时它反而排不过别的手册。手册名对整本的所有切片一样，
+    // 所以这个加分只决定"哪本手册优先"，本手册内部的页序仍由正文分决定。
+    const nTitle = normalize(entry.docTitle || entry.title)
     const nCategory = normalize(entry.category)
     if (q.includes(nTitle)) score += 12
     if (q.includes(nCategory)) score += 4
@@ -381,6 +551,8 @@ export function searchKnowledge(question, items = KNOWLEDGE_BASE, limit = 3) {
         score += k.length >= 2 ? 2 : 1
       }
     }
+    // 带正文的条目额外按正文打分，把同分的页区分开
+    if (contentScores) score += contentScores.get(entry) || 0
     return { entry, score }
   })
 
