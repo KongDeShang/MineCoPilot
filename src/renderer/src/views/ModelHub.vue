@@ -96,15 +96,42 @@
             <span v-for="c in t.capabilities" :key="c" class="tm cap">{{ capLabel(c) }}</span>
           </div>
           <div class="tier-actions">
-            <el-button
-              v-if="t.id !== currentTierId"
-              size="small"
-              :type="t.installed ? 'primary' : 'default'"
-              :disabled="!t.installed"
-              :loading="switching === t.id"
-              @click="switchTo(t.id)"
-            >{{ t.installed ? '切换到该档' : '模型待放入' }}</el-button>
-            <span v-else class="tier-current-tip">使用中</span>
+            <!-- 下载中：进度条 -->
+            <div v-if="downloadState && downloadState.id === t.id" class="tier-dl">
+              <el-progress :percentage="downloadState.pct" :stroke-width="8" :show-text="false" style="flex:1" />
+              <span class="tier-dl-pct">{{ downloadState.pct }}%</span>
+              <span v-if="downloadState.error" class="tier-dl-err">{{ downloadState.error }}</span>
+            </div>
+            <!-- 已安装 -->
+            <template v-else-if="t.installed">
+              <el-button
+                v-if="t.id !== currentTierId"
+                size="small"
+                type="primary"
+                :loading="switching === t.id"
+                @click="switchTo(t.id)"
+              >切换到该档</el-button>
+              <span v-else class="tier-current-tip">使用中</span>
+              <el-button
+                size="small"
+                type="danger"
+                plain
+                :disabled="!!downloadState"
+                @click="removeModel(t)"
+              >删除</el-button>
+            </template>
+            <!-- 未安装 -->
+            <template v-else>
+              <el-button
+                v-if="t.available"
+                size="small"
+                type="primary"
+                plain
+                :disabled="!!downloadState"
+                @click="startDownload(t)"
+              >下载</el-button>
+              <span v-else class="tier-pending">云端待扩展</span>
+            </template>
           </div>
         </div>
       </div>
@@ -201,14 +228,15 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import {
   Cpu, Connection, Lock, MagicStick, Share, DataAnalysis, Reading,
   ChatDotRound, Odometer, InfoFilled, CircleCheck, WarningFilled, List, Box
 } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAppStore } from '../stores/appStore'
 import { llmAvailable, llmStatus, llmLoad, llmGenerate, llmListModels, llmSwitchModel, buildNarratePrompt, extractNumbers, normalizeNarrated } from '../utils/llmClient'
+import { modelsDownload, modelsDelete, onModelsProgress } from '../utils/modelsClient'
 
 const store = useAppStore()
 
@@ -219,6 +247,8 @@ const enabled = ref(true)
 const tiers = ref([])
 const currentTierId = ref(null)
 const switching = ref('')
+const downloadState = ref(null)
+let unsubProgress = () => {}
 
 const CAP_LABELS = { narrate: '叙述', diagnose: '诊断', summarize: '摘要', reason: '推演' }
 function capLabel(c) { return CAP_LABELS[c] || c }
@@ -253,6 +283,51 @@ async function switchTo(id) {
     await refresh()
     await listTiers()
   }
+}
+
+/** 下载云端模型（进度由 models:progress 事件推送） */
+function startDownload(t) {
+  downloadState.value = { id: t.id, pct: 0, received: 0, total: t.sizeBytes || 0, error: '' }
+  store.addLog({ content: `开始下载模型：${t.name}`, source: 'AI', type: 'llm', tagType: 'info' })
+  modelsDownload(t.id).then(async (r) => {
+    if (r && r.ok) {
+      store.addLog({
+        content: `模型下载完成：${t.name}（${r.sha256 ? 'SHA-256 校验通过' : '云端未提供校验值，未校验'}）`,
+        source: 'AI',
+        type: 'llm',
+        tagType: 'success'
+      })
+      ElMessage.success(`${t.name} 下载完成`)
+    } else {
+      downloadState.value = { ...downloadState.value, error: (r && r.error) || '下载失败' }
+      store.addLog({ content: `模型下载失败：${(r && r.error) || '未知原因'}`, source: 'AI', type: 'llm', tagType: 'danger' })
+    }
+    await refresh()
+    await listTiers()
+    downloadState.value = null
+  })
+}
+
+/** 删除已下载模型（释放空间） */
+async function removeModel(t) {
+  try {
+    await ElMessageBox.confirm(
+      `将删除「${t.name}」并释放约 ${formatSize(t.installedSize)} 空间。如需再用可重新下载。`,
+      '删除模型',
+      { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }
+    )
+  } catch {
+    return
+  }
+  const r = await modelsDelete(t.id)
+  if (r && r.ok) {
+    ElMessage.success(`${t.name} 已删除`)
+    store.addLog({ content: `已删除模型：${t.name}`, source: 'AI', type: 'llm', tagType: 'info' })
+  } else {
+    ElMessage.error('删除失败：' + ((r && r.error) || '未知原因'))
+  }
+  await refresh()
+  await listTiers()
 }
 
 const statusLabel = computed(() => ({
@@ -368,11 +443,18 @@ onMounted(async () => {
   enabled.value = store.settings ? store.settings.llmEnabled !== false : true
   await refresh()
   await listTiers()
+  // 订阅下载进度（任务 07）
+  unsubProgress = onModelsProgress((p) => {
+    if (!p || !downloadState.value || p.id !== downloadState.value.id) return
+    downloadState.value = { ...downloadState.value, pct: p.pct || 0, received: p.received || 0, total: p.total || downloadState.value.total }
+  })
   // 默认启用：自动加载
   if (enabled.value && llmAvailable() && (status.value.state === 'idle')) {
     await loadNow()
   }
 })
+
+onBeforeUnmount(() => unsubProgress())
 </script>
 
 <style scoped>
@@ -677,11 +759,33 @@ onMounted(async () => {
   margin-top: auto;
   display: flex;
   align-items: center;
+  gap: 8px;
   min-height: 28px;
 }
 .tier-current-tip {
   font-size: 12px;
   font-weight: 600;
   color: var(--accent);
+}
+.tier-pending {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.tier-dl {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tier-dl-pct {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 34px;
+  text-align: right;
+}
+.tier-dl-err {
+  font-size: 12px;
+  color: #e6a23c;
 }
 </style>

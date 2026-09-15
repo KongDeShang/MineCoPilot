@@ -142,6 +142,9 @@
       </el-main>
     </el-container>
   </el-container>
+
+  <!-- 首次启动模型选择向导（无本地模型时弹出，可跳过） -->
+  <ModelWizard v-model="wizardOpen" @installed="onWizardInstalled" />
 </template>
 
 <script setup>
@@ -151,6 +154,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import GlobalSearch from './components/GlobalSearch.vue'
 import { useAppStore } from './stores/appStore'
 import { llmAvailable, llmLoad, llmStatus } from './utils/llmClient'
+import { modelsAvailable, modelsList } from './utils/modelsClient'
+import ModelWizard from './components/ModelWizard.vue'
 import { startTour } from './utils/demoTour'
 import { getMenus } from './domains/registry'
 
@@ -161,6 +166,7 @@ const resetting = ref(false)
 const tourStarting = ref(false)
 const navQuery = ref('')
 const pinned = ref(loadPinned())
+const wizardOpen = ref(false)
 
 // 运行模式（右上角互斥高亮）：local=本地模型就绪 / loading=加载中 / offline=纯离线
 const llmMode = ref('offline')
@@ -195,7 +201,25 @@ onMounted(() => {
   }
   refreshLlmMode()
   llmTimer = setInterval(refreshLlmMode, 5000)
+  maybeOpenWizard()
 })
+
+/** 首次向导：仅 Electron 模式 + 没有任何已安装模型 + 用户未跳过过 */
+async function maybeOpenWizard() {
+  if (!modelsAvailable()) return
+  if (localStorage.getItem('ks:wizard-dismissed')) return
+  try {
+    const r = await modelsList()
+    if (r && r.ok && r.models.length && r.models.every((m) => !m.installed)) {
+      wizardOpen.value = true
+    }
+  } catch { /* 拉取失败不打扰，稍后模型中心可重试 */ }
+}
+
+function onWizardInstalled() {
+  refreshLlmMode()
+  ElMessage.success('模型已就绪，可断网使用')
+}
 
 onBeforeUnmount(() => {
   if (llmTimer) clearInterval(llmTimer)

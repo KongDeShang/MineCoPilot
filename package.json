@@ -15,7 +15,9 @@
     "audit:contrast": "node scripts/contrast-audit.mjs",
     "verify": "npm run lint && npm run self-check && npm run coverage && npm run build && npm run e2e && npm run e2e:nl && npm run audit:contrast",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
-    "electron:build": "vite build && electron-builder",
+    "electron:build": "vite build && electron-builder --config electron-builder.offline.json",
+    "electron:build:offline": "vite build && electron-builder --config electron-builder.offline.json",
+    "electron:build:online": "vite build && electron-builder --config electron-builder.online.json",
     "electron:build:dir": "vite build && electron-builder --dir"
   },
   "keywords": [

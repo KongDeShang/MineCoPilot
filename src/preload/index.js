@@ -55,5 +55,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('llm:done', listener)
       return () => ipcRenderer.removeListener('llm:done', listener)
     }
+  },
+
+  // 模型云端分发（任务 07：清单/下载/删除/进度）
+  models: {
+    list: () => ipcRenderer.invoke('models:list'),
+    download: (id) => ipcRenderer.invoke('models:download', { id }),
+    delete: (id) => ipcRenderer.invoke('models:delete', { id }),
+    onProgress: (cb) => {
+      const listener = (_event, payload) => cb(payload)
+      ipcRenderer.on('models:progress', listener)
+      return () => ipcRenderer.removeListener('models:progress', listener)
+    }
   }
 })

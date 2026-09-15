@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const { registerLlmIpc, runSelfVerify } = require('./llmEngine')
+const { registerModelsIpc } = require('./modelManager')
 
 let mainWindow
 
@@ -57,6 +58,9 @@ function registerIpc() {
 
   // 本地模型引擎（node-llama-cpp，仅主进程）
   registerLlmIpc({ ipcMain })
+
+  // 模型云端分发（清单/下载/删除/进度）
+  registerModelsIpc({ ipcMain, assertTrusted })
 
   // ── 路径边界工具（app:openPath / docs:* 共用）───────────────────────────────
   const DOCS_DIR = () => path.join(app.getPath('userData'), 'documents')

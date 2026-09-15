@@ -1,0 +1,60 @@
+{
+  "appId": "com.kuangshan.zhigong",
+  "productName": "矿山智工",
+  "directories": {
+    "output": "release",
+    "buildResources": "build"
+  },
+  "files": [
+    "src/main/**/*",
+    "src/preload/**/*",
+    "dist/**/*",
+    "package.json",
+    "!node_modules/**",
+    "node_modules/node-llama-cpp/**/*",
+    "node_modules/@node-llama-cpp/win-x64/**/*",
+    "node_modules/@node-llama-cpp/win-x64-vulkan/**/*"
+  ],
+  "asar": true,
+  "asarUnpack": [
+    "node_modules/node-llama-cpp/**/*",
+    "node_modules/@node-llama-cpp/**/*"
+  ],
+  "extraResources": [
+    {
+      "from": "src/renderer/public/manuals",
+      "to": "manuals"
+    }
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "artifactName": "${productName}-${version}-online-setup.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "矿山智工"
+  },
+  "mac": {
+    "target": [
+      "dmg"
+    ],
+    "category": "public.app-category.business"
+  },
+  "linux": {
+    "target": [
+      "AppImage"
+    ],
+    "category": "Office"
+  }
+}
