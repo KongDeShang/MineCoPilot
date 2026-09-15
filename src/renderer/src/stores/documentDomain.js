@@ -14,7 +14,7 @@ import { BUNDLED_DOCS } from '../utils/bundledDocs'
 import { docFileStore } from '../utils/docFileStore'
 
 /**
- * pdfjs-dist 只在"真的要解析一份 PDF"时才加载。
+ * docService 只在"真的要解析一份文件"时才加载。
  *
  * 它原本是模块顶部的静态 import，而本模块经 appStore 被 main.js 引用，
  * 于是 pdfjs 主库（pdf.min.mjs 约 448 KB）被打进 index 主 chunk ——
@@ -22,9 +22,9 @@ import { docFileStore } from '../utils/docFileStore'
  * 随包手册的文字层是构建期抽好的，也不走这条路径（见 seedBundledDocuments），
  * 所以这里改成按需动态导入，主 chunk 少掉这一整块。
  */
-async function loadPdfExtract() {
-  const mod = await import('../utils/pdfExtract')
-  return mod.extractPdfText
+async function loadDocService() {
+  const mod = await import('../utils/docService')
+  return mod.parse
 }
 
 export function createDocumentDomain(ctx) {
@@ -62,11 +62,12 @@ export function createDocumentDomain(ctx) {
     const saved = await docFileStore.save(file.name, file)
     if (!saved || !saved.ok) return { ok: false, error: (saved && saved.error) || '文件保存失败' }
 
-    // 2) 本地提取 PDF 文本（无网络；扫描件降级为仅查看）
-    //    pdfjs 在这里才按需加载，见 loadPdfExtract 的说明
-    const extractPdfText = await loadPdfExtract()
-    const extracted = await extractPdfText(file)
-    const readiness = readinessOf(extracted.ok ? extracted.chunks : [])
+    // 2) 本地提取文本（无网络；扫描件/损坏文件降级为仅查看，不阻塞入库）
+    //    docService 在这里才按需加载，见 loadDocService 的说明
+    const parseDoc = await loadDocService()
+    const parsed = await parseDoc(file)
+    const chunks = parsed.ok ? parsed.chunks : []
+    const readiness = readinessOf(chunks)
     const doc = {
       id: `doc-${Date.now()}`,
       title: title || file.name.replace(/\.pdf$/i, ''),
@@ -76,9 +77,9 @@ export function createDocumentDomain(ctx) {
       fileName: file.name,
       filePath: saved.path,
       fileSize: saved.size || file.size,
-      pages: extracted.ok ? extracted.pages : 0,
+      pages: parsed.ok ? parsed.pages : 0,
       status: readiness.status,
-      chunks: extracted.ok ? extracted.chunks.slice(0, CHUNK_LIMIT) : [],
+      chunks: chunks.slice(0, CHUNK_LIMIT),
       note: readiness.note,
       addedAt: now()
     }

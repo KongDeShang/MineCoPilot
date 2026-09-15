@@ -266,7 +266,7 @@
  */
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { parseExcelFile, mergeExcelResults, generateSampleData } from '../utils/excelParser'
+import { mergeExcelResults, generateSampleData } from '../utils/excelParser'
 import { useAppStore } from '../stores/appStore'
 
 const store = useAppStore()
@@ -395,10 +395,17 @@ function handleExcelDrop(e) {
 
 async function processExcelFiles(files) {
   const startedAt = performance.now()
+  // 统一解析入口（docService，任务 08）：Excel 解析逻辑与 excelParser 同源，
+  // 此处只换入口，结构化结果由 result.tables 原样带回（多 Sheet 合并行为不变）
+  const docService = await import('../utils/docService')
   for (const file of files) {
     try {
-      const result = await parseExcelFile(file)
-      importedFiles.value.push(result)
+      const result = await docService.parse(file)
+      if (!result.ok) {
+        ElMessage.error(`"${file.name}" 解析失败：${result.error}`)
+        continue
+      }
+      importedFiles.value.push(result.tables)
       ElMessage.success(`"${file.name}" 解析成功`)
     } catch (error) {
       ElMessage.error(`"${file.name}" 解析失败: ${error.message}`)

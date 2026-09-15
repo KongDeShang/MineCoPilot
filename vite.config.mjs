@@ -107,6 +107,12 @@ export default defineConfig({
           // echarts 由 components/TrendChart.vue 异步引入，本来就会单独成块；
           // 显式命名只是为了让它在产物列表里一眼认得出
           if (/^(echarts|vue-echarts|zrender)\//.test(rest)) return 'vendor-echarts'
+          // mammoth（docx 解析）由 docService 异步引入，单独成块避免进主 chunk
+          if (/^mammoth\//.test(rest)) return 'vendor-mammoth'
+          // pdfjs / xlsx 由 docService 统一入口引入（docService 本身按需加载），
+          // 两个库各约几百 KB，不拆开会把 docService chunk 撑过告警线
+          if (/^pdfjs-dist\//.test(rest)) return 'vendor-pdfjs'
+          if (/^xlsx\//.test(rest)) return 'vendor-xlsx'
         }
       }
     }

@@ -1,53 +1,17 @@
 /**
- * 文档资料库 · PDF 文本提取（本地离线，无网络依赖）
+ * 文档资料库 · PDF 文本提取（兼容层）
  *
- * 用 pdfjs-dist 逐页提取文字层：
- *   - 有文字层的 PDF → 按页切块，供 AI 带出处检索（出处 = 文件名 + 页码）
- *   - 扫描件（无文字层）→ 返回 ok:false，仅可查看、诚实标注"暂不能问答"
- *
- * worker 通过 ?url 导入，vite 打包时把 worker 复制进产物，不依赖任何 CDN。
+ * 已收敛到 docService（统一文档解析入口），本文件保留旧导出名供既有调用方过渡：
+ *   extractPdfText(file) → { ok, pages, chunks }
+ * 逻辑本体在 utils/docService/adapters/pdf.js，这里只做转发。
  */
-import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist'
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+import { parsePdf } from './docService/adapters/pdf'
 
-if (typeof GlobalWorkerOptions !== 'undefined') {
-  GlobalWorkerOptions.workerSrc = workerUrl
-}
-
-/**
- * @param {File|Blob} file
- * @returns {Promise<{ok:true,pages:number,chunks:Array<{page:number,text:string}>}|{ok:false,error:string}>}
- */
+/** @param {File|Blob} file @returns {Promise<{ok:true,pages:number,chunks:Array<{page:number,text:string}>}|{ok:false,error:string}>} */
 export async function extractPdfText(file) {
-  if (!file || typeof file.arrayBuffer !== 'function') {
-    return { ok: false, error: '文件不可读' }
-  }
-  let pdf = null
-  try {
-    const data = await file.arrayBuffer()
-    pdf = await getDocument({ data }).promise
-    const chunks = []
-    for (let p = 1; p <= pdf.numPages; p++) {
-      const page = await pdf.getPage(p)
-      const content = await page.getTextContent()
-      const text = (content.items || [])
-        .map(it => (it && typeof it.str === 'string' ? it.str : ''))
-        .join(' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-      if (text) chunks.push({ page: p, text })
-    }
-    return { ok: true, pages: pdf.numPages, chunks }
-  } catch (error) {
-    return { ok: false, error: String((error && error.message) || error) }
-  } finally {
-    // 必须放 finally：pdfjs 默认跑在独立 Web Worker 里，
-    // 出错时若不销毁，worker 与它占的缓冲区会一直留到标签页关闭。
-    // 原先 destroy() 写在 try 的成功路径上，异常时整份文档泄漏。
-    if (pdf) {
-      try { await pdf.destroy() } catch { /* 已被销毁或 worker 已退出，忽略 */ }
-    }
-  }
+  const r = await parsePdf(file)
+  if (r.ok) return { ok: true, pages: r.pages, chunks: r.chunks }
+  return { ok: false, error: r.error }
 }
 
 /** 提取关键词用于检索加权：机型、类型、标题里的 2 字以上片段 */
