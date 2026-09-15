@@ -1,5 +1,8 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import AutoImport from 'unplugin-auto-import/vite'
+import Components from 'unplugin-vue-components/vite'
+import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { resolve } from 'path'
 import { fileURLToPath } from 'url'
 import { readFileSync } from 'fs'
@@ -36,7 +39,20 @@ function sqlJsWasm() {
 }
 
 export default defineConfig({
-  plugins: [vue(), sqlJsWasm()],
+  plugins: [
+    vue(),
+    sqlJsWasm(),
+    // 自动导入 Element Plus API（ElMessage / ElMessageBox 等命令式组件的类型声明）
+    AutoImport({
+      resolvers: [ElementPlusResolver({ importStyle: false })]
+    }),
+    // 自动解析模板中的 EP 组件（<el-button> / <el-table> 等），
+    // importStyle: false 不注入组件 CSS——由 main.js 中全量引入 EP CSS 统一覆盖。
+    // tokens.css 在全量 EP CSS 之后引入，保证主题变量覆盖默认色。
+    Components({
+      resolvers: [ElementPlusResolver({ importStyle: false })]
+    })
+  ],
   root: 'src/renderer',
   base: './',
   // 把包内实际路径暴露给运行时代码（database.js 用它定位 wasm 与元数据文件）

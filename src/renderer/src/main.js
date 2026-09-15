@@ -1,15 +1,16 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import ElementPlus from 'element-plus'
+import zhCn from 'element-plus/es/locale/lang/zh-cn'
+// ── 样式层叠顺序（从低到高）──
+// EP 默认色 < tokens.css 主题覆盖 < 业务组件内联样式
+// order 必须严格：EP 全量 CSS 在前，tokens.css 在后，业务样式最后。
 import 'element-plus/dist/index.css'
 import './styles/tokens.css'
 import './styles/healthReport.css'
-// driver.js 引导卡的主题覆盖。这里静态引入是**必需的**：driver.css 由
-// demoTour.js 动态 import、插到 <head> 最后，覆盖规则必须在它之前就位，
-// 再靠提高优先级取胜（原因写在该文件头部）。规则本身在没人启动引导时
-// 匹配不到任何元素，代价只是一小段文本。
 import './styles/driverTheme.css'
-import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
+// 命令式组件（ElMessage / ElMessageBox）的独立样式——unplugin 无法自动引入
+import 'element-plus/theme-chalk/el-message.css'
+import 'element-plus/theme-chalk/el-message-box.css'
 
 import App from './App.vue'
 import router from './router'
@@ -31,7 +32,8 @@ async function bootstrap() {
 
   app.use(createPinia())
   app.use(router)
-  app.use(ElementPlus, { locale: zhCn })
+  // 中文 locale：按需引入模式下由 globalProperties 注入，与全量 app.use(ElementPlus, { locale }) 等效
+  app.config.globalProperties.$ELEMENT = { locale: zhCn }
 
   // 先把本地数据库装载完再挂载界面，避免首屏闪一下空数据
   const store = useAppStore()
