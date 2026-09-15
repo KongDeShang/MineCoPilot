@@ -178,14 +178,22 @@ function cancel() {
  * 注册 IPC（由主进程 registerIpc 调用）
  */
 function registerLlmIpc({ ipcMain }) {
-  ipcMain.handle('llm:status', () => getStatus())
+  const assertTrusted = (event) => {
+    const url = event.senderFrame?.url || event.sender.getURL()
+    const ok = app.isPackaged ? url.startsWith('file://') : url.startsWith('http://localhost:5173')
+    if (!ok) throw new Error('拒绝来自不可信来源的 IPC 调用')
+  }
 
-  ipcMain.handle('llm:load', async () => {
+  ipcMain.handle('llm:status', (event) => { assertTrusted(event); return getStatus() })
+
+  ipcMain.handle('llm:load', async (event) => {
+    assertTrusted(event)
     const r = await ensureLoaded()
     return { ok: r.ok, error: r.error || '', info: modelInfo, state }
   })
 
   ipcMain.handle('llm:generate', async (event, payload) => {
+    assertTrusted(event)
     const prompt = String(payload && payload.prompt || '').slice(0, 4000)
     if (!prompt) return { ok: false, error: '提示词为空' }
 
@@ -204,7 +212,7 @@ function registerLlmIpc({ ipcMain }) {
     return r
   })
 
-  ipcMain.handle('llm:cancel', () => ({ ok: cancel() }))
+  ipcMain.handle('llm:cancel', (event) => { assertTrusted(event); return { ok: cancel() } })
 }
 
 /**

@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   app: {
     version: () => ipcRenderer.invoke('app:version'),
     userDataPath: () => ipcRenderer.invoke('app:userDataPath'),
+    // ⚠️ 仅允许打开 documents/ 目录内的文件（主进程做边界校验，传越界路径会被拒）
     openPath: (p) => ipcRenderer.invoke('app:openPath', p),
     backup: {
       export: (payload) => ipcRenderer.invoke('backup:export', payload),

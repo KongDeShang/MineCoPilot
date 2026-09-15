@@ -3,6 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- CSP 兜底：主进程通过 onHeadersReceived 注入更完整的策略，
+       这里作为 file:// 加载时的次级防线（Electron 对 meta CSP 支持不完全，但无害）。
+       生产构建后 CSP 由主进程覆盖；此处仅供开发/降级场景参考。 -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>矿山智工 - 工程机械运维AI工作台</title>
 </head>
 <body>

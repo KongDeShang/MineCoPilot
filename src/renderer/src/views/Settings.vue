@@ -133,7 +133,7 @@
         <el-icon><FolderOpened /></el-icon>
         本地数据库位置：<code>{{ dbPath }}</code>
         <span v-if="dbSize">（{{ dbSize }}）</span>
-        <el-button link type="primary" size="small" @click="openDbFolder">打开所在文件夹</el-button>
+        <el-button link type="primary" size="small" @click="copyDbPath">复制路径</el-button>
       </div>
     </el-card>
   </div>
@@ -289,10 +289,8 @@ async function loadDbInfo() {
     /* 非桌面环境不展示 */
   }
 }
-function openDbFolder() {
-  const idx = dbPath.value.lastIndexOf('\\')
-  const folder = idx > 0 ? dbPath.value.slice(0, idx) : dbPath.value
-  if (window.electronAPI && window.electronAPI.app && window.electronAPI.app.openPath) window.electronAPI.app.openPath(folder)
+function copyDbPath() {
+  if (dbPath.value) navigator.clipboard.writeText(dbPath.value)
 }
 loadDbInfo()
 </script>
