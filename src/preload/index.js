@@ -43,6 +43,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     load: () => ipcRenderer.invoke('llm:load'),
     generate: (prompt) => ipcRenderer.invoke('llm:generate', { prompt }),
     cancel: () => ipcRenderer.invoke('llm:cancel'),
+    listModels: () => ipcRenderer.invoke('llm:listModels'),
+    switchModel: (id) => ipcRenderer.invoke('llm:switchModel', id),
     onProgress: (cb) => {
       const listener = (_event, payload) => cb(payload)
       ipcRenderer.on('llm:progress', listener)

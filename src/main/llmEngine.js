@@ -1,35 +1,81 @@
 /**
  * 矿山智工 - 本地模型引擎（node-llama-cpp 封装）
  *
- * 职责：在主进程加载内置 GGUF 模型，向渲染端提供流式生成能力。
+ * 职责：在主进程加载本地 GGUF 模型，向渲染端提供流式生成能力。
  * 设计立场（与"可审计 AI"叙事一致）：
  *   1. 本地模型只做"叙述层"——把规则引擎已核实的结论改写成人话，
  *      不参与任何数字计算（数字永远由规则引擎出，可审计）；
  *   2. 完全离线：模型文件随安装包内置（extraResources），无任何云端依赖；
  *   3. 状态机清晰可观测：idle → loading → ready / failed → generating，
- *      任何失败都带原因，渲染端据此降级回模板叙述。
+ *      任何失败都带原因，渲染端据此降级回模板叙述；
+ *   4. 模型可插拔（Task 06）：档位元数据/自动选档在 ModelRegistry，
+ *      会话加载/生成/释放在 ModelSession，本引擎负责状态机与 IPC。
  *
  * 仅主进程使用（node-llama-cpp 在渲染进程会崩溃）。
  */
 const path = require('path')
 const fs = require('fs')
 const { app } = require('electron')
+const ModelRegistry = require('./ModelRegistry')
+const ModelSession = require('./ModelSession')
 
-/** 模型目录：dev 用项目根 resources/models；打包后用安装目录 resources/models */
-function modelDir() {
+const { scanTiers, autoSelectTier, getTierMeta } = ModelRegistry
+
+/** 会话实例：管理当前档位的模型加载/生成/释放 */
+const session = new ModelSession()
+
+/**
+ * 模型搜索根（双源，Task 07 落地后 userData/models 为可下载落盘目录）：
+ *   1. resources/models（dev 用项目根 resources，打包后用安装目录 resources）——只读随包
+ *   2. userData/models（用户下载/自放的模型）——可写
+ */
+function modelRoots() {
   const base = app.isPackaged
     ? process.resourcesPath
     : path.join(__dirname, '../../resources')
-  return path.join(base, 'models', 'qwen2.5-0.5b')
+  const roots = [path.join(base, 'models')]
+  try { roots.push(path.join(app.getPath('userData'), 'models')) } catch { /* userData 不可用时仅用随包目录 */ }
+  return roots
 }
 
-const MODEL_FILE = 'qwen2.5-0.5b-instruct-q4_k_m.gguf'
-const MODEL_DISPLAY = 'Qwen2.5-0.5B-Instruct（本地内置）'
+/** 档位偏好持久化（userData/model-pref.json） */
+function prefPath() {
+  try { return path.join(app.getPath('userData'), 'model-pref.json') } catch { return '' }
+}
+function readPref() {
+  try { return JSON.parse(fs.readFileSync(prefPath(), 'utf8')) } catch { return {} }
+}
+function writePref() {
+  try { fs.writeFileSync(prefPath(), JSON.stringify({ tierId: currentTierId }, null, 2), 'utf8') } catch { /* 写失败不阻塞 */ }
+}
 
-let llama = null
-let model = null
-let context = null
-let completion = null
+/**
+ * 解析当前档位：优先取持久化偏好（且已安装），否则按内存自动选档。
+ * 目录约定：<root>/<tier.id>/<file>；light 档兼容旧版按模型名目录（qwen2.5-0.5b/）。
+ */
+function resolveCurrentTierId() {
+  const scanned = scanTiers(modelRoots())
+  const pref = readPref().tierId
+  if (pref && scanned.find(t => t.id === pref && t.installed)) return pref
+  return autoSelectTier(scanned)
+}
+
+/** 当前档位 id（可切换并持久化） */
+let currentTierId = resolveCurrentTierId()
+
+/** 按档位解析模型文件绝对路径；找不到返回 null */
+function resolveModelFile(tier) {
+  const subs = [tier.id]
+  if (tier.id === 'light') subs.push('qwen2.5-0.5b') // 旧版目录兼容
+  for (const root of modelRoots()) {
+    for (const sub of subs) {
+      const p = path.join(root, sub, tier.file)
+      if (fs.existsSync(p)) return p
+    }
+  }
+  return null
+}
+
 let activeController = null
 
 let state = 'idle' // idle | loading | ready | generating | failed
@@ -62,14 +108,15 @@ function buildChatPrompt(userPrompt) {
   ].join('')
 }
 
-/** 取模型文件完整路径 */
-function modelPath() {
-  return path.join(modelDir(), MODEL_FILE)
-}
-
 /** 当前引擎状态（供 IPC 查询） */
 function getStatus() {
-  return { state, error: loadError, info: modelInfo, modelDir: modelDir() }
+  return {
+    state,
+    error: loadError,
+    info: modelInfo,
+    currentTierId,
+    modelDir: modelRoots()[0] || null
+  }
 }
 
 /**
@@ -84,33 +131,32 @@ async function ensureLoaded() {
     state = 'idle'
   }
 
+  const tier = getTierMeta(currentTierId) || getTierMeta('light')
+  currentTierId = tier.id
+  const file = resolveModelFile(tier)
+
   state = 'loading'
   loadError = ''
   const started = Date.now()
   try {
-    const file = modelPath()
-    if (!fs.existsSync(file)) {
-      throw new Error(`模型文件不存在：${file}\n（开发模式请先将 GGUF 放入 resources/models/qwen2.5-0.5b/）`)
+    if (!file) {
+      throw new Error(
+        `模型文件不存在（档位：${tier.id} · ${tier.displayName}）\n` +
+        `请将 GGUF 放入 resources/models/${tier.id}/ 或 userData/models/${tier.id}/，再到模型中心切换。`
+      )
     }
 
-    // 主进程懒加载，避免拖慢应用启动
-    // node-llama-cpp 是 ESM-only 包，commonjs 主进程必须用动态 import
-    const { getLlama, LlamaCompletion } = await import('node-llama-cpp')
-    // skipDownload：node-llama-cpp 默认会在找不到本地预编译二进制时联网下载。
-    // 本应用承诺"全离线"，一旦走到那条路径就不只是违背承诺，而是在矿场/内网机器上
-    // 静默挂起直到超时。这里明确禁止联网：二进制缺失就如实报错，宁可不加载模型。
-    llama = await getLlama({ skipDownload: true })
-    model = await llama.loadModel({ modelPath: file })
-    context = await model.createContext({ contextSize: 1024 })
-    completion = new LlamaCompletion({ contextSequence: context.getSequence() })
+    await session.load(tier, file)
 
     const stat = fs.statSync(file)
     modelInfo = {
-      name: MODEL_DISPLAY,
-      file: MODEL_FILE,
+      name: tier.displayName,
+      file: tier.file,
       size: stat.size,
       path: file,
-      loadMs: Date.now() - started
+      loadMs: Date.now() - started,
+      tierId: tier.id,
+      capabilities: tier.capabilities
     }
     state = 'ready'
     return { ok: true, info: modelInfo }
@@ -135,22 +181,12 @@ async function generate(prompt, onChunk, signal) {
   const started = Date.now()
   try {
     const built = buildChatPrompt(prompt)
-    const res = await completion.generateCompletion(built, {
-      maxTokens: 128,
-      // 0.5B 模型理解力有限：低温 + 复述式提示词才能保证语义不失真
-      temperature: 0.2,
-      topP: 0.9,
-      customStopTriggers: ['<|im_end|>'],
-      onTextChunk: (text) => {
-        if (typeof onChunk === 'function') onChunk(text)
-      },
-      signal
-    })
+    const res = await session.generate(built, onChunk, signal)
     const result = {
-      ok: true,
-      // 清理自定义停止词触发的残留分隔符（node-llama-cpp 会把 trigger 片段留在末尾）
-      text: String(res || '').replace(/\|+$/g, '').trim(),
-      elapsedMs: Date.now() - started
+      ok: res.ok,
+      text: res.text || '',
+      elapsedMs: Date.now() - started,
+      tierId: res.tierId
     }
     state = 'ready'
     return result
@@ -172,6 +208,38 @@ function cancel() {
     return true
   }
   return false
+}
+
+/**
+ * 列出所有档位：元数据 + 安装状态 + 当前档位
+ */
+function listModels() {
+  const tiers = scanTiers(modelRoots())
+  return { ok: true, tiers, current: currentTierId, state }
+}
+
+/**
+ * 切换档位：校验 → 释放旧会话（若换档）→ 加载新档；失败回退原档不成立（原档已释放，
+ * 但状态机回到 failed 且带原因，渲染层可一键切回）。
+ */
+async function switchModel(id) {
+  const tier = getTierMeta(id)
+  if (!tier) return { ok: false, error: `未知档位：${id}` }
+
+  if (id === currentTierId && (state === 'ready' || state === 'generating')) {
+    return { ok: true, info: modelInfo, state, current: currentTierId, switched: false }
+  }
+
+  currentTierId = id
+  writePref()
+  if (session.loaded && session.tierId !== id) {
+    await session.dispose()
+  }
+  state = 'idle'
+  loadError = ''
+  modelInfo = null
+  const r = await ensureLoaded()
+  return { ok: r.ok, error: r.error || '', info: modelInfo, state, current: currentTierId, switched: true }
 }
 
 /**
@@ -213,6 +281,15 @@ function registerLlmIpc({ ipcMain }) {
   })
 
   ipcMain.handle('llm:cancel', (event) => { assertTrusted(event); return { ok: cancel() } })
+
+  ipcMain.handle('llm:listModels', (event) => { assertTrusted(event); return listModels() })
+
+  ipcMain.handle('llm:switchModel', async (event, payload) => {
+    assertTrusted(event)
+    const id = String(payload && payload.id || '')
+    if (!id) return { ok: false, error: '缺少档位 id' }
+    return switchModel(id)
+  })
 }
 
 /**
@@ -229,7 +306,8 @@ async function runSelfVerify() {
     loadMs: null,
     generateMs: null,
     text: '',
-    error: ''
+    error: '',
+    tierId: currentTierId
   }
   try {
     const t0 = Date.now()
@@ -311,4 +389,4 @@ function dedupeLoop(text) {
   return t
 }
 
-module.exports = { registerLlmIpc, getStatus, ensureLoaded, runSelfVerify }
+module.exports = { registerLlmIpc, getStatus, ensureLoaded, runSelfVerify, listModels, switchModel }

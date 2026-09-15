@@ -68,6 +68,48 @@
       </div>
     </el-card>
 
+    <!-- ============ 模型档位 ============ -->
+    <el-card shadow="never" class="tier-card">
+      <template #header>
+        <div class="card-header">
+          <span><el-icon><Box /></el-icon> 模型档位</span>
+          <span class="tier-hint">切换即自动加载；换档会释放旧模型内存</span>
+        </div>
+      </template>
+      <div class="tier-grid">
+        <div
+          v-for="t in tiers"
+          :key="t.id"
+          class="tier-item"
+          :class="{ 'tier-current': t.id === currentTierId }"
+        >
+          <div class="tier-top">
+            <span class="tier-name">{{ t.displayName }}</span>
+            <el-tag v-if="t.id === currentTierId" type="success" effect="dark" size="small">当前档位</el-tag>
+            <el-tag v-else-if="t.installed" type="success" size="small">已安装</el-tag>
+            <el-tag v-else type="info" size="small">未安装</el-tag>
+          </div>
+          <div class="tier-desc">{{ t.description }}</div>
+          <div class="tier-meta">
+            <span class="tm">{{ formatSize(t.sizeBytes) }}</span>
+            <span class="tm">内存 ≥ {{ t.minMemoryGB || 0 }}GB</span>
+            <span v-for="c in t.capabilities" :key="c" class="tm cap">{{ capLabel(c) }}</span>
+          </div>
+          <div class="tier-actions">
+            <el-button
+              v-if="t.id !== currentTierId"
+              size="small"
+              :type="t.installed ? 'primary' : 'default'"
+              :disabled="!t.installed"
+              :loading="switching === t.id"
+              @click="switchTo(t.id)"
+            >{{ t.installed ? '切换到该档' : '模型待放入' }}</el-button>
+            <span v-else class="tier-current-tip">使用中</span>
+          </div>
+        </div>
+      </div>
+    </el-card>
+
     <div class="hub-grid">
       <!-- ============ 试玩区 ============ -->
       <el-card shadow="never" class="trial-card">
@@ -122,7 +164,7 @@
           </div>
           <div class="spec-item">
             <div class="spec-label">上下文</div>
-            <div class="spec-value">1024 tokens</div>
+            <div class="spec-value">{{ currentTier ? currentTier.contextSize + ' tokens' : '1024 tokens' }}</div>
           </div>
           <div class="spec-item">
             <div class="spec-label">加载耗时</div>
@@ -162,16 +204,56 @@
 import { ref, computed, onMounted } from 'vue'
 import {
   Cpu, Connection, Lock, MagicStick, Share, DataAnalysis, Reading,
-  ChatDotRound, Odometer, InfoFilled, CircleCheck, WarningFilled, List
+  ChatDotRound, Odometer, InfoFilled, CircleCheck, WarningFilled, List, Box
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useAppStore } from '../stores/appStore'
-import { llmAvailable, llmStatus, llmLoad, llmGenerate, buildNarratePrompt, extractNumbers, normalizeNarrated } from '../utils/llmClient'
+import { llmAvailable, llmStatus, llmLoad, llmGenerate, llmListModels, llmSwitchModel, buildNarratePrompt, extractNumbers, normalizeNarrated } from '../utils/llmClient'
 
 const store = useAppStore()
 
 const status = ref({ state: 'idle', error: '', info: null })
 const enabled = ref(true)
+
+// ---------- 模型档位 ----------
+const tiers = ref([])
+const currentTierId = ref(null)
+const switching = ref('')
+
+const CAP_LABELS = { narrate: '叙述', diagnose: '诊断', summarize: '摘要', reason: '推演' }
+function capLabel(c) { return CAP_LABELS[c] || c }
+
+const currentTier = computed(() => tiers.value.find(t => t.id === currentTierId.value) || null)
+
+async function listTiers() {
+  const r = await llmListModels()
+  if (r && r.ok) {
+    tiers.value = r.tiers || []
+    currentTierId.value = r.current || null
+  } else {
+    tiers.value = []
+    currentTierId.value = null
+  }
+}
+
+async function switchTo(id) {
+  switching.value = id
+  try {
+    const r = await llmSwitchModel(id)
+    if (r && r.ok) {
+      store.addLog({ content: `已切换到模型档位：${(r.info && r.info.name) || id}`, source: 'AI', type: 'llm', tagType: 'success' })
+    } else {
+      ElMessage.error('切换档位失败：' + ((r && r.error) || '未知原因'))
+      store.addLog({ content: `切换档位失败：${(r && r.error) || '未知原因'}`, source: 'AI', type: 'llm', tagType: 'danger' })
+    }
+  } catch (err) {
+    ElMessage.error('切换档位异常：' + (err && err.message || err))
+  } finally {
+    switching.value = ''
+    await refresh()
+    await listTiers()
+  }
+}
 
 const statusLabel = computed(() => ({
   ready: '已就绪',
@@ -257,6 +339,9 @@ function formatSize(bytes) {
 async function refresh() {
   status.value = await llmStatus()
   enabled.value = store.settings ? store.settings.llmEnabled !== false : true
+  if (status.value && status.value.currentTierId) {
+    currentTierId.value = status.value.currentTierId
+  }
 }
 
 async function loadNow() {
@@ -282,6 +367,7 @@ async function onToggle(val) {
 onMounted(async () => {
   enabled.value = store.settings ? store.settings.llmEnabled !== false : true
   await refresh()
+  await listTiers()
   // 默认启用：自动加载
   if (enabled.value && llmAvailable() && (status.value.state === 'idle')) {
     await loadNow()
@@ -524,4 +610,78 @@ onMounted(async () => {
 
 /* ---------- 日志 ---------- */
 .log-card { margin-top: 0; }
+
+/* ---------- 模型档位 ---------- */
+.tier-card { margin-bottom: 16px; }
+.tier-hint {
+  font-size: 12px;
+  color: var(--text-3);
+  font-weight: 400;
+}
+.tier-grid {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.tier-item {
+  flex: 1 1 240px;
+  min-width: 0;
+  border: 1px solid rgba(11, 58, 130, 0.14);
+  border-radius: 10px;
+  padding: 14px;
+  background: rgba(11, 58, 130, 0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tier-item.tier-current {
+  border-color: var(--accent);
+  background: rgba(28, 107, 212, 0.09);
+  box-shadow: 0 0 0 1px rgba(28, 107, 212, 0.25);
+}
+.tier-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.tier-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+.tier-desc {
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.55;
+  min-height: 36px;
+}
+.tier-meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.tm {
+  font-size: 11px;
+  color: var(--text-3);
+  background: rgba(11, 58, 130, 0.06);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.tm.cap {
+  color: var(--accent);
+  background: rgba(28, 107, 212, 0.1);
+}
+.tier-actions {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+}
+.tier-current-tip {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
 </style>

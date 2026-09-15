@@ -68,6 +68,26 @@ export async function llmCancel() {
   }
 }
 
+/** 列出所有模型档位及安装状态 */
+export async function llmListModels() {
+  if (!llmAvailable()) return { ok: false, error: '浏览器模式无本地模型引擎', models: [], current: null }
+  try {
+    return await window.electronAPI.llm.listModels()
+  } catch (err) {
+    return { ok: false, error: err && err.message || String(err), models: [], current: null }
+  }
+}
+
+/** 切换模型档位 */
+export async function llmSwitchModel(id) {
+  if (!llmAvailable()) return { ok: false, error: '浏览器模式无本地模型引擎' }
+  try {
+    return await window.electronAPI.llm.switchModel(id)
+  } catch (err) {
+    return { ok: false, error: err && err.message || String(err) }
+  }
+}
+
 /**
  * 叙述 prompt 模板（"结论说成人话"）
  * 硬约束：逐条复述要点、只润色、不新增数字/事实；原结论数字原样保留
