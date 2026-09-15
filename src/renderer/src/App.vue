@@ -152,6 +152,7 @@ import GlobalSearch from './components/GlobalSearch.vue'
 import { useAppStore } from './stores/appStore'
 import { llmAvailable, llmLoad, llmStatus } from './utils/llmClient'
 import { startTour } from './utils/demoTour'
+import { getMenus } from './domains/registry'
 
 const route = useRoute()
 const router = useRouter()
@@ -203,49 +204,8 @@ onBeforeUnmount(() => {
 /** 最近一次口述录入（决定侧边栏是否显示撤销入口） */
 const lastUndo = computed(() => store.peekUndo())
 
-/** 导航注册表：按"设备健康智能体"三层叙事分组 */
-const NAV_GROUPS = [
-  {
-    name: '设备健康',
-    items: [
-      { path: '/dashboard', label: '数据看板', icon: 'DataBoard' },
-      { path: '/equipment', label: '设备台账', icon: 'SetUp' },
-      { path: '/medical-records', label: '设备病历', icon: 'Notebook', badge: '体检' }
-    ]
-  },
-  {
-    name: '运维执行',
-    items: [
-      { path: '/alert-center', label: '告警中心', icon: 'Bell', badge: '告警' },
-      { path: '/maintenance-calendar', label: '维保日历', icon: 'Calendar' },
-      { path: '/workorder', label: '工单管理', icon: 'EditPen' },
-      { path: '/recheck', label: '复诊管理', icon: 'CircleCheck', badge: '闭环' }
-    ]
-  },
-  {
-    name: 'AI 智能',
-    items: [
-      { path: '/ai-assistant', label: 'AI 助手', icon: 'ChatDotRound' },
-      { path: '/model-hub', label: '本地模型', icon: 'Cpu', badge: '本地' },
-      { path: '/knowledge-base', label: '维修规程库', icon: 'Reading', badge: '规程' },
-      { path: '/documents', label: '手册资料库', icon: 'FolderOpened', badge: '文档' }
-    ]
-  },
-  {
-    name: '数据资产',
-    items: [
-      { path: '/fault-cases', label: '故障案例库', icon: 'Warning', badge: 'TOP' },
-      { path: '/parts-inventory', label: '备件库存', icon: 'Box', badge: '联动' },
-      { path: '/logs', label: '操作日志', icon: 'List' }
-    ]
-  },
-  {
-    name: '系统',
-    items: [
-      { path: '/settings', label: '系统设置', icon: 'Setting' }
-    ]
-  }
-]
+/** 导航注册表：由域注册中心提供，5 组 15 项 */
+const NAV_GROUPS = getMenus()
 
 const allNavItems = NAV_GROUPS.flatMap(g => g.items)
 
@@ -297,24 +257,8 @@ function doUndo() {
 
 const isLanding = computed(() => route.path === '/')
 const currentPageTitle = computed(() => {
-  const titles = {
-    '/dashboard': '数据看板',
-    '/equipment': '设备台账',
-    '/medical-records': '设备病历',
-    '/alert-center': '告警中心',
-    '/parts-inventory': '备件库存',
-    '/maintenance-calendar': '维保日历',
-    '/workorder': '工单管理',
-    '/recheck': '复诊管理',
-    '/ai-assistant': 'AI 助手',
-    '/model-hub': '本地模型',
-    '/knowledge-base': '维修规程库',
-    '/fault-cases': '故障案例库',
-    '/logs': '操作日志',
-    '/documents': '手册资料库',
-    '/settings': '系统设置'
-  }
-  return titles[route.path] || '首页'
+  const item = allNavItems.find(i => i.path === route.path)
+  return item ? item.label : '首页'
 })
 
 // 存储状态：让"数据存在本地"这件事在界面上可见

@@ -12,6 +12,9 @@ import './styles/driverTheme.css'
 import 'element-plus/theme-chalk/el-message.css'
 import 'element-plus/theme-chalk/el-message-box.css'
 
+// ── 域注册（域名 side-effect import 触发 registerDomain）──────────────────────
+import './domains/settings/domain'
+
 import App from './App.vue'
 import router from './router'
 import { APP_ICONS } from './utils/appIcons'
