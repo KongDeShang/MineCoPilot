@@ -79,6 +79,7 @@ import {
   Upload,
   User,
   VideoPause,
+  VideoPlay,
   View,
   Warning,
   WarningFilled
@@ -152,6 +153,7 @@ export const APP_ICONS = {
   Upload,
   User,
   VideoPause,
+  VideoPlay,
   View,
   Warning,
   WarningFilled

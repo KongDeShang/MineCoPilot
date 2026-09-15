@@ -98,19 +98,36 @@
           <GlobalSearch style="margin-left: 24px" />
         </div>
         <div class="header-right">
-          <!-- 引导演示：把"该看什么"固化成一条可重复播放的路线。
+          <!-- 引导演示：把"该看什么"固化成可重复播放的路线（多条可选手动/自动）。
                评委自己上手、或演示的人讲快了，都可以按一下重来。 -->
-          <el-tooltip content="按顺序带你走一遍主线（约 2 分钟）" placement="bottom">
-            <el-button
-              size="small"
-              type="primary"
-              plain
-              :loading="tourStarting"
-              @click="startDemoTour"
-            >
-              <el-icon><Guide /></el-icon> 引导演示
-            </el-button>
-          </el-tooltip>
+          <el-dropdown trigger="click" @command="onPickDemoRoute">
+            <el-tooltip content="按路线自动带你走一遍（可暂停/手动）" placement="bottom">
+              <el-button
+                size="small"
+                type="primary"
+                plain
+                :loading="tourStarting"
+              >
+                <el-icon><Guide /></el-icon> 引导演示
+                <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+              </el-button>
+            </el-tooltip>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item
+                  v-for="r in demoRoutes"
+                  :key="r.id"
+                  :command="r.id"
+                  :disabled="r.pending"
+                >
+                  <div class="demo-route-item">
+                    <span>{{ r.name }}</span>
+                    <span class="demo-route-desc">{{ r.pending ? '待上线' : r.desc }}</span>
+                  </div>
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
           <el-tooltip :content="llmModeTip" placement="bottom">
             <el-tag
               :type="llmMode === 'local' ? 'success' : 'info'"
@@ -145,6 +162,18 @@
 
   <!-- 首次启动模型选择向导（无本地模型时弹出，可跳过） -->
   <ModelWizard v-model="wizardOpen" @installed="onWizardInstalled" />
+
+  <!-- 演示工具条：悬浮右下角，driver 遮罩之上（自动演示的暂停/步进/重置/退出） -->
+  <DemoControlBar
+    v-if="tourApi"
+    :api="tourApi"
+    :route-name="tourState ? tourState.routeName : ''"
+    :step="tourState ? tourState.step : 0"
+    :total="tourState ? tourState.total : 0"
+    :paused="tourState ? tourState.paused : false"
+    :playing="tourState ? tourState.playing : true"
+    @close="tourApi = null"
+  />
 </template>
 
 <script setup>
@@ -152,11 +181,13 @@ import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import GlobalSearch from './components/GlobalSearch.vue'
+import ModelWizard from './components/ModelWizard.vue'
+import DemoControlBar from './components/DemoControlBar.vue'
 import { useAppStore } from './stores/appStore'
 import { llmAvailable, llmLoad, llmStatus } from './utils/llmClient'
 import { modelsAvailable, modelsList } from './utils/modelsClient'
-import ModelWizard from './components/ModelWizard.vue'
 import { startTour } from './utils/demoTour'
+import { DEMO_ROUTES } from './utils/demoRoutes'
 import { getMenus } from './domains/registry'
 
 const route = useRoute()
@@ -167,6 +198,11 @@ const tourStarting = ref(false)
 const navQuery = ref('')
 const pinned = ref(loadPinned())
 const wizardOpen = ref(false)
+
+// 演示路线与工具条状态（任务 14）
+const demoRoutes = DEMO_ROUTES
+const tourApi = ref(null)
+const tourState = ref(null)
 
 // 运行模式（右上角互斥高亮）：local=本地模型就绪 / loading=加载中 / offline=纯离线
 const llmMode = ref('offline')
@@ -327,15 +363,37 @@ async function resetDemo() {
  *
  * `startTour` 只在"环境不支持"时返回 ok:false（正常浏览器里不会发生），
  * 但那句话必须让用户看见 —— 静默什么都不发生，比报错更像坏了。
- * 其余情况（某一步的元素没出现）由 demoTour 内部跳过，不往上抛，
+ * 其余情况（某一步的元素没出现）由播放器内部跳过，不往上抛，
  * 因为演示途中弹错误框是最糟的收场。
+ *
+ * 默认自动演示：每步停留后自动前进，工具条可暂停/手动步进/重来。
  */
-async function startDemoTour() {
+function onPickDemoRoute(routeId) {
+  void startDemoTour(routeId)
+}
+
+async function startDemoTour(routeId) {
   if (tourStarting.value) return
   tourStarting.value = true
   try {
-    const result = await startTour(router)
-    if (!result.ok) ElMessage.warning(result.reason)
+    const result = await startTour(router, routeId, {
+      auto: true,
+      onState: (s) => {
+        if (!s) {
+          tourApi.value = null
+          tourState.value = null
+          return
+        }
+        tourState.value = s
+      }
+    })
+    if (!result.ok) {
+      ElMessage.warning(result.reason)
+      return
+    }
+    tourApi.value = result.api
+    // 若 onState 尚未触发（路线极短），同步一次初始状态
+    if (!tourState.value) tourState.value = result.api.getState()
   } catch (error) {
     ElMessage.error(`引导演示启动失败：${error.message}`)
   } finally {
@@ -674,9 +732,19 @@ html, body, #app {
   transform: translateY(-12px);
 }
 
+.demo-route-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.3;
+}
+.demo-route-desc {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
 /* 响应式：窄屏折叠为图标栏 */
-@media (max-width: 1024px) {
-  .app-aside {
+@media (max-width: 1024px) {  .app-aside {
     width: 64px !important;
   }
   .logo-text-wrap,

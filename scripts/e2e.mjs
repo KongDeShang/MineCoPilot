@@ -1016,6 +1016,62 @@ async function main() {
       resetAfterReload.statValues?.[0] === '60',
       `${resetAfterReload.statValues?.join(',')} | 闭环率 ${resetAfterReload.closing}`)
 
+    // ---------- 12. 引导演示：多路线入口 + 自动演示 + 工具条（任务 14）----------
+    await session.goto(`${BASE}/#/dashboard`, 2600)
+    const tourFlow = await session.eval(`(async () => {
+      const q = (s) => document.querySelector(s)
+      const wait = async (sel, ms) => {
+        const deadline = Date.now() + ms
+        while (Date.now() < deadline) {
+          const el = q(sel)
+          if (el) return el
+          await new Promise(r => setTimeout(r, 150))
+        }
+        return null
+      }
+      // 1) 打开"引导演示"下拉，选"主线"
+      const guideBtn = Array.from(document.querySelectorAll('.header-right button')).find(b => /引导演示/.test(b.textContent))
+      if (!guideBtn) return { ok: false, reason: '找不到引导演示按钮' }
+      guideBtn.click()
+      await new Promise(r => setTimeout(r, 500))
+      const item = Array.from(document.querySelectorAll('.el-dropdown-menu__item')).find(e => /主线/.test(e.textContent))
+      if (!item) return { ok: false, reason: '找不到主线选项' }
+      item.click()
+      // 2) 等 driver 卡片与工具条出现
+      const popover = await wait('.driver-popover', 6000)
+      if (!popover) return { ok: false, reason: 'driver 卡片未出现' }
+      const bar = await wait('.demo-bar', 3000)
+      // 3) 暂停自动演示（避免 3.2s 后自动前进打乱断言时序）
+      const pauseBtn = bar && Array.from(bar.querySelectorAll('button')).find(b => (b.getAttribute('aria-label') || '') === '暂停')
+      if (pauseBtn) pauseBtn.click()
+      await new Promise(r => setTimeout(r, 300))
+      const title1 = (q('.driver-popover-title') || {}).textContent || ''
+      const step1 = (q('.driver-popover-progress-text') || {}).textContent || ''
+      // 4) 手动点下一步 → 应跨路由到 /dashboard 并高亮第 2 步
+      const next = Array.from(document.querySelectorAll('.driver-popover button')).find(b => /下一步/.test(b.textContent))
+      if (next) next.click()
+      await new Promise(r => setTimeout(r, 2400))
+      const title2 = (q('.driver-popover-title') || {}).textContent || ''
+      const step2 = (q('.driver-popover-progress-text') || {}).textContent || ''
+      const onDashboard = location.hash.includes('/dashboard')
+      // 5) 工具条退出 → 卡片与工具条都应消失
+      const exitBtn = bar && Array.from(bar.querySelectorAll('button')).find(b => (b.getAttribute('aria-label') || b.textContent || '').includes('退出'))
+      if (exitBtn) exitBtn.click()
+      await new Promise(r => setTimeout(r, 600))
+      return {
+        ok: true, title1, step1, title2, step2, onDashboard,
+        popoverGone: !q('.driver-popover'), barGone: !q('.demo-bar')
+      }
+    })()`)
+    check('引导演示：下拉选主线可启动并显示第一步（自动演示模式）',
+      /欢迎/.test(tourFlow.title1 || ''), tourFlow.title1)
+    check('引导演示：暂停后手动下一步跨路由高亮（进度 2/N）',
+      /一屏看清/.test(tourFlow.title2 || '') && tourFlow.onDashboard && /2\s*\/\s*12/.test(tourFlow.step2 || ''),
+      `${tourFlow.title2 || '(空)'} | ${tourFlow.step2 || '(空)'} | hash=${tourFlow.onDashboard}`)
+    check('引导演示：工具条退出后卡片与工具条都消失',
+      tourFlow.popoverGone === true && tourFlow.barGone === true,
+      JSON.stringify({ popoverGone: tourFlow.popoverGone, barGone: tourFlow.barGone }))
+
     // ---------- 汇总 ----------
     console.log('')
     for (const c of checks) {
