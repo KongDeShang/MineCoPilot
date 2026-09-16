@@ -12,7 +12,7 @@
     "coverage": "node scripts/coverage.mjs",
     "e2e": "node scripts/e2e.mjs",
     "e2e:nl": "node scripts/e2e-nl.mjs",
-    "audit:contrast": "node scripts/contrast-audit.mjs",
+    "audit:contrast": "node scripts/contrast-audit.mjs", "audit:contrast:dark": "node scripts/contrast-audit.mjs --dark",
     "verify": "npm run lint && npm run self-check && npm run coverage && npm run build && npm run e2e && npm run e2e:nl && npm run audit:contrast",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:build": "vite build && electron-builder --config electron-builder.offline.json",

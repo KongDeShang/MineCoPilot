@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <el-dialog
     :model-value="modelValue"
     :title="step === 'done' ? '模型已就绪' : '欢迎使用矿山智工'"
@@ -208,8 +208,8 @@ onBeforeUnmount(() => unsubProgress())
   font-size: 13px;
   color: var(--text-2);
   line-height: 1.7;
-  background: rgba(11, 58, 130, 0.04);
-  border: 1px solid rgba(11, 58, 130, 0.1);
+  background: var(--accent-glass);
+  border: 1px solid var(--accent-glass-strong);
   border-radius: 8px;
   padding: 10px 14px;
   margin-bottom: 16px;
@@ -226,17 +226,17 @@ onBeforeUnmount(() => unsubProgress())
   gap: 12px;
 }
 .wiz-model {
-  border: 1px solid rgba(11, 58, 130, 0.14);
+  border: 1px solid var(--accent-glass-strong);
   border-radius: 10px;
   padding: 14px;
-  background: rgba(11, 58, 130, 0.03);
+  background: var(--accent-glass);
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 .wiz-model-rec {
   border-color: var(--accent);
-  background: rgba(28, 107, 212, 0.07);
+  background: var(--accent-glass);
 }
 .wiz-model-disabled {
   opacity: 0.65;
@@ -260,13 +260,13 @@ onBeforeUnmount(() => unsubProgress())
 .wm {
   font-size: 11px;
   color: var(--text-3);
-  background: rgba(11, 58, 130, 0.06);
+  background: var(--accent-glass);
   padding: 2px 8px;
   border-radius: 999px;
 }
 .wm.cap {
   color: var(--accent);
-  background: rgba(28, 107, 212, 0.1);
+  background: var(--accent-glass);
 }
 .wiz-model-desc {
   font-size: 12px;

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <el-row :gutter="20">
     <!-- 左侧：上传区域 -->
     <el-col :span="10">
@@ -566,7 +566,7 @@ function exportExcelJSON() {
 .quality-item {
   text-align: center;
   padding: 10px 4px;
-  background: #fff;
+  background: var(--card);
   border-radius: 8px;
   border: 1px solid var(--line-2);
 }

@@ -105,6 +105,28 @@
 .print-doc { display: none; }
 .print-doc-active .print-doc { display: block; }
 
+/* ===== 深色主题：报告保持"纸张"观感 =====
+   报告语义是一张可打印的 A4 纸，且其内联颜色（RISK_LEVELS 字面 hex、
+   趋势 SVG stroke）全部按白底设计 —— 深色下把报告区拉回浅色令牌，
+   否则深色令牌（提亮字色、提亮面色）落在白底上全部失配。
+   只重定义本区用到的令牌，不碰全局。 */
+html[data-theme="dark"] .health-report {
+  --text-1: #0a1326;
+  --text-2: #3d4b63;
+  --text-3: #57647a;
+  --text-mute: #67738a;
+  --accent: #0b3a82;
+  --accent-contrast: #ffffff;
+  --line: #dde4ef;
+  --line-2: #ebf0f7;
+  --bg-sunken: #e6ecf5;
+  --card-2: #fafcff;
+  --warn-ink: #8a5d0a;
+  --amber-soft: #fdf3dc;
+  --danger-ink: #b33431;
+  --danger: #e0413e;
+}
+
 @media print {
   /* 只保留报告本体，隐藏应用外壳与工具栏 */
   body * { visibility: hidden; }

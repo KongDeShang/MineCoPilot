@@ -9,6 +9,8 @@
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>矿山智工 - 工程机械运维AI工作台</title>
+  <!-- 首帧主题（见 public/theme-init.js 注释：CSP 下唯一允许的同步脚本，防深色用户闪白） -->
+  <script src="/theme-init.js"></script>
 </head>
 <body>
   <div id="app"></div>

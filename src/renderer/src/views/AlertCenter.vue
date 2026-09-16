@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="alert-center">
     <!-- 顶部仪表 -->
     <div class="alert-dash">
@@ -270,7 +270,7 @@ function resetAll() {
    压深后标签 4.9:1、数字 5.8:1。 */
 .dash-rate { background: linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3)), linear-gradient(120deg, #15803d, #22a55f); }
 .dash-action {
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line-2);
   color: var(--text-1);
   justify-content: center;
@@ -300,13 +300,13 @@ function resetAll() {
   border: 1px solid var(--line-2);
   border-radius: 10px;
   padding: 10px 12px;
-  background: #fff;
+  background: var(--card);
   position: relative;
   overflow: hidden;
   transition: box-shadow 0.2s;
 }
 .alert-row:hover {
-  box-shadow: 0 4px 14px rgba(11, 58, 130, 0.08);
+  box-shadow: 0 4px 14px var(--accent-shadow);
 }
 .alert-bar {
   position: absolute;

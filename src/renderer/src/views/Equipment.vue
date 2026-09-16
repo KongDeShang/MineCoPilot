@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="equipment">
     <!-- 设备列表视图 -->
     <el-card v-if="!selectedEquipment">
@@ -336,7 +336,7 @@ import {
   statusLabel as statusLabel2, statusTagType as statusTag
 } from '../utils/dictionaries'
 import { now, daysSince } from '../utils/dates'
-import { evaluateHealth, getHealthColor, levelBounds, buildTrendPath, RISK_LEVELS } from '../utils/health'
+import { evaluateHealth, getHealthColor, levelBounds, buildTrendPath } from '../utils/health'
 import { equipmentPhoto } from '../utils/equipmentPhoto'
 import { generateHealthReport } from '../utils/healthReport'
 import { useEnter } from '../utils/motion'
@@ -379,15 +379,16 @@ const equipmentList = computed(() => store.equipmentWithHealth)
 const selectedHealth = computed(() => (selectedEquipment.value ? evaluateHealth(selectedEquipment.value) : null))
 
 /** 健康度概览：按四级分档统计（区间文案跟随系统设置页的阈值）
-    色取 ink —— 这一组色只用在圆环描边和数字上，都是"字/细线"场景。 */
+    色走 CSS 变量通道（--level-text-*）：浅色下与 ink 同值，深色下自动切亮版。
+    圆环描边与数字都是"字/细线"场景，深色下必须可辨，不能用字面 hex。 */
 const healthOverview = computed(() => {
   const levels = store.healthLevelStats
   const b = levelBounds()
   return [
-    { label: `优 A（≥${b.A}）`, count: levels.A, color: RISK_LEVELS.A.ink },
-    { label: `良 B（${b.B}-${b.A - 1}）`, count: levels.B, color: RISK_LEVELS.B.ink },
-    { label: `预警 C（${b.C}-${b.B - 1}）`, count: levels.C, color: RISK_LEVELS.C.ink },
-    { label: `严重 D（<${b.C}）`, count: levels.D, color: RISK_LEVELS.D.ink }
+    { label: `优 A（≥${b.A}）`, count: levels.A, color: 'var(--level-text-a)' },
+    { label: `良 B（${b.B}-${b.A - 1}）`, count: levels.B, color: 'var(--level-text-b)' },
+    { label: `预警 C（${b.C}-${b.B - 1}）`, count: levels.C, color: 'var(--level-text-c)' },
+    { label: `严重 D（<${b.C}）`, count: levels.D, color: 'var(--level-text-d)' }
   ]
 })
 
@@ -776,11 +777,11 @@ function submitRecord() {
   border-radius: 12px;
   overflow: hidden;
   cursor: pointer;
-  background: #fff;
+  background: var(--card);
   transition: all 0.2s;
 }
 .equip-card:hover {
-  box-shadow: 0 6px 18px rgba(11, 58, 130, 0.12);
+  box-shadow: 0 6px 18px var(--accent-shadow);
   transform: translateY(-2px);
   border-color: var(--accent);
 }
@@ -900,7 +901,7 @@ function submitRecord() {
   margin-bottom: 12px;
   position: sticky;
   top: 0;
-  background: #fff;
+  background: var(--card);
   z-index: 5;
 }
 

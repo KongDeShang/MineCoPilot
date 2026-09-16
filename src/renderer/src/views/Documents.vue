@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="documents-page">
     <!-- 顶部统计 -->
     <StatCards :items="statItems" />
@@ -123,8 +123,8 @@ const statItems = computed(() => {
   const s = stats.value
   return [
     { label: '手册资料', value: s.total, unit: '份' },
-    { label: '可问答（已提取文字层）', value: s.ready, unit: '份', color: '#12a06b' },
-    { label: '累计页数', value: s.pages, unit: '页', color: '#0b3a82' }
+    { label: '可问答（已提取文字层）', value: s.ready, unit: '份', color: 'var(--emerald)' },
+    { label: '累计页数', value: s.pages, unit: '页', color: 'var(--accent)' }
   ]
 })
 

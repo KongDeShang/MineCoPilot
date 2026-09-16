@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="workorder">
     <el-card>
       <template #header>
@@ -630,8 +630,8 @@ function addOrder() {
   align-items: flex-start;
   margin-top: 16px;
   padding: 14px 12px;
-  background: linear-gradient(135deg, rgba(11, 58, 130, 0.05), rgba(28, 107, 212, 0.08));
-  border: 1px solid rgba(11, 58, 130, 0.12);
+  background: linear-gradient(135deg, var(--accent-glass), var(--accent-glass-strong));
+  border: 1px solid var(--accent-glass-strong);
   border-radius: 10px;
 }
 .lc-step {
@@ -647,7 +647,7 @@ function addOrder() {
   height: 14px;
   border-radius: 50%;
   border: 2px solid var(--line-strong);
-  background: #fff;
+  background: var(--card);
   transition: all 0.3s;
 }
 .lc-step b {

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="maintenance-calendar">
     <el-card>
       <template #header>
@@ -353,7 +353,7 @@ function createWorkOrder(event) {
 .calendar-cell {
   min-height: 90px;
   padding: 6px 8px;
-  background: #fff;
+  background: var(--card);
   cursor: pointer;
   transition: background 0.2s;
 }

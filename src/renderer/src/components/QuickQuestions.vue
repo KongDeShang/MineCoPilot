@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="quick-wrap">
     <div class="quick-questions quick-main">
       <span class="quick-label">快捷提问：</span>
@@ -177,8 +177,8 @@ function quickPickType(q) {
 .quick-main {
   padding: 8px 10px;
   margin-top: 10px;
-  background: rgba(11, 58, 130, 0.04);
-  border: 1px dashed rgba(11, 58, 130, 0.22);
+  background: var(--accent-glass);
+  border: 1px dashed var(--accent-glass-strong);
   border-radius: 8px;
 }
 .quick-more {

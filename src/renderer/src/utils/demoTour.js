@@ -28,6 +28,10 @@
  * 改文案、加步骤不需要动播放器。
  */
 
+// 静态引入路线注册表（App.vue 同源使用，动态 import 不会拆 chunk 反而多一次往返）。
+// demoRoutes 是纯 JSON 结构，Node 自检（self-check.mjs 镜像 import）可安全解析。
+import { getDemoRoute } from './demoRoutes'
+
 /** 一步的等待上限。超过就跳过 —— 宁可少一步，不要卡住。 */
 const STEP_TIMEOUT_MS = 2500
 
@@ -91,7 +95,6 @@ export async function startTour(router, routeId, { auto = false, onState } = {})
   if (typeof document === 'undefined') return { ok: false, reason: '当前环境不支持引导演示' }
 
   // 路线注册表（纯 JSON，Node 自检可安全 import）
-  const { getDemoRoute } = await import('./demoRoutes')
   const route = getDemoRoute(routeId)
   if (!route.steps || route.steps.length === 0) {
     return { ok: false, reason: `路线「${route.name}」暂无可播放步骤` }

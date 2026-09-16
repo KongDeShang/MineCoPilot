@@ -1,11 +1,11 @@
-<template>
+﻿<template>
   <div class="demo-bar">
     <div class="demo-bar-progress">
       <el-progress
         :percentage="pct"
         :stroke-width="6"
         :show-text="false"
-        :color="'#0BB4C4'"
+        :color="'var(--signal)'"
       />
     </div>
     <div class="demo-bar-info">
@@ -75,8 +75,8 @@ const pct = computed(() => (props.total ? Math.round((props.step / props.total) 
   bottom: 24px;
   z-index: 100000;
   width: 320px;
-  background: rgba(255, 255, 255, 0.97);
-  border: 1px solid rgba(11, 58, 130, 0.16);
+  background: var(--card);
+  border: 1px solid var(--line);
   border-radius: 12px;
   box-shadow: 0 8px 28px rgba(10, 19, 38, 0.22);
   padding: 10px 12px 12px;
@@ -108,7 +108,7 @@ const pct = computed(() => (props.total ? Math.round((props.step / props.total) 
   font-variant-numeric: tabular-nums;
 }
 .demo-bar-paused {
-  color: #e6a23c;
+  color: var(--warn-ink);
   font-weight: 600;
 }
 .demo-bar-auto {

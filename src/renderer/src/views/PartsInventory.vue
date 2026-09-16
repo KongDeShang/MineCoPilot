@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="parts-page">
     <!-- 顶部仪表 -->
     <div class="parts-dash">
@@ -343,7 +343,7 @@ function partName(partId) {
    压深后标签 5.2:1、单位 4.9:1、数字 6.1:1。 */
 .dash-item.dash-warn { background: linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3)), linear-gradient(120deg, #b45309, #d97706); }
 .dash-item.dash-action {
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line-2);
   color: var(--text-1);
   flex-direction: row;

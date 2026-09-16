@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="records-page">
     <!-- 顶部：设备选择 + 概览 -->
     <el-card shadow="never" class="records-head">
@@ -52,7 +52,7 @@
           </div>
         </div>
         <div class="rp-score">
-          <div class="rp-score-num" :style="{ color: scoreInk(health?.score ?? 0) }">{{ health?.score ?? '—' }}</div>
+          <div class="rp-score-num" :style="{ color: scoreText(health?.score ?? 0) }">{{ health?.score ?? '—' }}</div>
           <div class="rp-score-label">健康分</div>
           <div v-if="spark" class="rp-spark">
             <svg :viewBox="`0 0 ${spark.width} ${spark.height}`" class="rp-spark-svg">
@@ -70,8 +70,8 @@
       <div class="rs-item"><b>{{ recordStats.count }}</b><span>历史体检</span></div>
       <div class="rs-item"><b>{{ recordStats.latest }}</b><span>最近体检</span></div>
       <div class="rs-item"><b>{{ recordStats.first }}</b><span>首次体检</span></div>
-      <div class="rs-item"><b :style="{ color: scoreInk(recordStats.max) }">{{ recordStats.max }}</b><span>历史最高分</span></div>
-      <div class="rs-item"><b :style="{ color: scoreInk(recordStats.min) }">{{ recordStats.min }}</b><span>历史最低分</span></div>
+      <div class="rs-item"><b :style="{ color: scoreText(recordStats.max) }">{{ recordStats.max }}</b><span>历史最高分</span></div>
+      <div class="rs-item"><b :style="{ color: scoreText(recordStats.min) }">{{ recordStats.min }}</b><span>历史最低分</span></div>
     </div>
 
     <!-- 主区：报告 + 历史 -->
@@ -105,7 +105,7 @@
           <el-table-column prop="date" label="体检日期" width="120" />
           <el-table-column label="健康分" width="90">
             <template #default="{ row }">
-              <span class="score-cell" :style="{ color: scoreInk(row.score) }">{{ row.score }}</span>
+              <span class="score-cell" :style="{ color: scoreText(row.score) }">{{ row.score }}</span>
             </template>
           </el-table-column>
           <el-table-column label="等级" width="80">
@@ -237,6 +237,19 @@ function scoreColor(score) {
 /** 字：落在白底上的文字 / 承载白字的实色底。面色当字用只有 3.03~4.2:1，不达标 */
 function scoreInk(score) {
   return levelMeta(levelOf(score)).ink
+}
+
+/** 卡片上的彩色大字/分数：走 CSS 变量通道，深色下自动切成 on-dark 亮版。
+    浅色下 --level-text-* 与 ink 同值（互为镜像），外观不变。 */
+const LEVEL_TEXT_VAR = {
+  A: 'var(--level-text-a)',
+  B: 'var(--level-text-b)',
+  C: 'var(--level-text-c)',
+  D: 'var(--level-text-d)'
+}
+
+function scoreText(score) {
+  return LEVEL_TEXT_VAR[levelOf(score)] || 'var(--level-text-a)'
 }
 
 /** 趋势箭头（文案统一用 TREND_KINDS.label，不再手写三元） */
@@ -495,7 +508,7 @@ onMounted(() => {
 .rs-item {
   flex: 1 1 130px;
   min-width: 110px;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line-2);
   border-radius: 10px;
   padding: 10px 12px;

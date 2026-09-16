@@ -96,7 +96,7 @@
   --on-dark-1: #e8eefb;        /* 12.0:1 主文字 */
   --on-dark-2: #a7b5cf;        /*  6.8:1 次要文字 */
   --on-dark-3: #8899b4;        /*  4.8:1 弱化文字 / 说明 */
-  --danger-on-dark: #e86f6d;   /*  4.6:1 */
+  --danger-on-dark: #ec7d7b;   /*  4.6:1 */
   --emerald-on-dark: #4db68d;  /*  5.6:1 */
   --amber-on-dark: #e8b64f;    /*  7.5:1 */
   --signal-bright: #7de8f2;    /* 12.7:1 品牌标记（侧栏 logo / 落地页 logo） */
@@ -136,6 +136,14 @@
      免得两个页面各写一份、改的时候漏掉一处。 */
   --grad-strip: linear-gradient(120deg, #0b3a82 0%, #1457b3 70%, #1c6bd4 100%);
 
+  /* ===== 玻璃色（半透明蓝调，浅色/深色双版本） =====
+     全站有几十处 `rgba(11,58,130,.03~.09)` 的淡蓝软底、`.1~.35` 的蓝描边
+     和蓝色投影。浅色下它们是"工业蓝的呼吸"，深色下同值等于看不见 ——
+     统一收敛成这组令牌，深色块里整体换色相与透明度。 */
+  --accent-glass: rgba(11, 58, 130, 0.05);
+  --accent-glass-strong: rgba(11, 58, 130, 0.14);
+  --accent-shadow: rgba(11, 58, 130, 0.12);
+
   /* ===== 圆角 ===== */
   --r-lg: 18px;
   --r: 13px;
@@ -149,6 +157,9 @@
   --sh-md: 0 6px 14px -3px rgba(16, 24, 40, .08), 0 14px 32px -8px rgba(16, 24, 40, .10);
   --sh-kpi: 0 1px 3px rgba(16, 24, 40, .04), 0 8px 22px -8px rgba(16, 24, 40, .08);
   --sh-focus: 0 0 0 3px rgba(11, 58, 130, .26);
+
+  /* 输入区"渐变到卡片色"用的透明停靠色：带白底分量，避免插值发灰 */
+  --card-transparent: rgba(255, 255, 255, 0);
 
   /* ===== 动效 ===== */
   --ease-out: cubic-bezier(.16, 1, .3, 1);
@@ -457,12 +468,310 @@ body {
   --level-b: var(--accent-mid);
   --level-c: var(--warn-ink);
   --level-d: var(--danger-ink);
+  /* 卡片彩字通道：浅色下与徽标底同值（互为镜像），深色下由深色块拆成亮版 */
+  --level-text-a: var(--level-a);
+  --level-text-b: var(--level-b);
+  --level-text-c: var(--level-c);
+  --level-text-d: var(--level-d);
 }
 
-/* 等级色工具类：挂上类即得到 --lv，各处按需取用 ——
-   徽标记为 background: var(--lv)，白底上的分数记为 color: var(--lv)，
-   圆环记为 border-color: var(--lv)。一处定义，三个场景同色。 */
-.lv-a { --lv: var(--level-a); }
-.lv-b { --lv: var(--level-b); }
-.lv-c { --lv: var(--level-c); }
-.lv-d { --lv: var(--level-d); }
+/* 等级色工具类：挂上类即得到 --lv（徽标底）与 --lv-text（卡片彩字）——
+   徽标记为 background: var(--lv) + 白字，卡片上的分数记为 color: var(--lv-text)，
+   圆环记为 border-color: var(--lv-text)。一处定义，多个场景同色。 */
+.lv-a { --lv: var(--level-a); --lv-text: var(--level-text-a); }
+.lv-b { --lv: var(--level-b); --lv-text: var(--level-text-b); }
+.lv-c { --lv: var(--level-c); --lv-text: var(--level-text-c); }
+.lv-d { --lv: var(--level-d); --lv-text: var(--level-text-d); }
+
+/* ============================================================
+   深色主题（任务 09）
+   ------------------------------------------------------------
+   挂在 html[data-theme="dark"] 上，同名覆盖浅色令牌。
+   取值原则（与浅色同一套对比度纪律，逐档核算过）：
+   · 文字：直接复用已验算的 --on-dark-* 组（它们在 #0b2a5c 上 ≥4.5:1，
+     本主题最深底 #0a1120 更暗，对比只高不低）
+   · 面色：深底上"面"与"字"必须分开 —— 浅色的面色（如 #12a06b）在深底
+     只剩 ~3:1，文字用色与块面色都要提亮一档
+   · 等级色：CSS 变量通道（--level-a 等）在深色下提亮；SVG 字面 hex
+     （health.js RISK_LEVELS）保持不动 —— 那是 SVG 表现属性，不解析 var()，
+     且白字/白底对比在深色下依然成立（见 09-深色主题.md 实现要点）
+   · Element Plus：html.dark 已由 element-plus dark css-vars 提供暗色底子，
+     这里再把它拉回自有令牌的色相（主蓝提亮，避免 EP 默认暗蓝发灰）
+   ============================================================ */
+html[data-theme="dark"] {
+  /* ===== 文字（沿用深底验算组，见上） ===== */
+  --ink: var(--on-dark-1);
+  --ink-2: var(--on-dark-2);
+  --ink-3: var(--on-dark-3);
+  --ink-4: #64748f;
+  --text-1: var(--on-dark-1);
+  --text-2: var(--on-dark-2);
+  --text-3: #8fa0bb;
+  --text-mute: #8a99b4;
+
+  /* ===== 语义字色（深底版，全部 ≥4.5:1） ===== */
+  --success-ink: var(--emerald-on-dark);
+  --warn-ink: var(--amber-on-dark);
+  --danger-ink: var(--danger-on-dark);
+  --signal-ink: var(--signal-bright);
+
+  /* ===== 面色（色块/进度/徽标底，深底提亮一档） ===== */
+  --emerald: var(--emerald-on-dark);
+  --amber: var(--amber-on-dark);
+  --danger: var(--danger-on-dark);
+  --signal: #5ad8e6;
+
+  /* ===== 品牌蓝（深底提亮：链接/强调文字用，深底 ≥4.5:1；
+     solid 主按钮实心底由文件尾规则单独压回 #1c6bd4） ===== */
+  --accent: #6fa3e8;
+  --accent-hover: #7fb0ec;
+  --accent-active: #5f97e0;
+  --accent-soft: #1a2a4d;
+  --accent-line: #3a5f96;
+  --accent-dark: #0a1326;
+  --accent-contrast: #ffffff;
+  --accent-mid: #6d8fd0;
+
+  /* ===== 状态软底（深色变体） ===== */
+  --signal-soft: #0d2730;
+  --signal-line: #1e5660;
+  --amber-soft: #2a2410;
+  --amber-line: #5c4a1e;
+  --emerald-soft: #0d2b1e;
+  --emerald-line: #1f5c41;
+  --danger-soft: #33181a;
+  --danger-line: #6e3030;
+
+  /* ===== 表面与边界 ===== */
+  --bg: #0d1526;
+  --bg-sunken: #0a1120;
+  --card: #151f33;
+  --card-2: #19253c;
+  --line: #26334d;
+  --line-2: #1c2740;
+  --line-strong: #34435f;
+
+  /* ===== 顶栏 / 侧栏 ===== */
+  --chrome-bg: #121b30;
+  --chrome-bg-2: #16213a;
+  --chrome-border: #26334d;
+  --chrome-ink: var(--on-dark-1);
+  --chrome-ink-2: var(--on-dark-2);
+  --chrome-ink-3: #8a99b4;
+  --chrome-hover: #1d2b47;
+  --chrome-sub: #1a2744;
+
+  /* ===== 蓝图网格：深底换信号青（原深蓝 0.045 在深底上等于没有） ===== */
+  --grid-color: rgba(125, 232, 242, 0.05);
+
+  /* ===== 品牌渐变（信息条）：深色下整体提亮一档，但最亮端白字需 ≥4.5:1
+     （#2a7ae0 处白字 4.6 边缘，压到 #2567c4 白字 5.5:1） ===== */
+  --grad-strip: linear-gradient(120deg, #1457b3 0%, #1c6bd4 60%, #2567c4 100%);
+
+  /* ===== 阴影：深色下更暗更重，不然卡片浮不起来 ===== */
+  --sh-xs: 0 1px 2px rgba(0, 0, 0, .28);
+  --sh-sm: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 12px rgba(0, 0, 0, .34);
+  --sh-md: 0 6px 14px -3px rgba(0, 0, 0, .4), 0 14px 32px -8px rgba(0, 0, 0, .46);
+  --sh-kpi: 0 1px 3px rgba(0, 0, 0, .3), 0 8px 22px -8px rgba(0, 0, 0, .4);
+  --sh-focus: 0 0 0 3px rgba(28, 107, 212, .45);
+
+  /* 输入区"渐变到卡片色"用的透明停靠色：必须带主题底色分量，
+     transparent（黑色分量）在 0→1 插值时会让过渡区发灰 */
+  --card-transparent: rgba(13, 21, 38, 0);
+
+  /* ===== 玻璃色深色版：蓝调提亮一档、透明度上调，深底上仍可辨 ===== */
+  --accent-glass: rgba(28, 107, 212, 0.12);
+  --accent-glass-strong: rgba(28, 107, 212, 0.24);
+  --accent-shadow: rgba(0, 0, 0, 0.42);
+
+  /* ===== 等级色（深色下拆两套） =====
+     徽标底（--level-*）沿用 ink 深值（白字 ≥4.5:1，不随语义色提亮），
+     深卡片上的彩色大字/分数（--level-text-*）用 on-dark 亮版。
+     浅色下两者同值（互为镜像），深色下分道。SVG 字面 hex 不动。 */
+  --level-a: #0b7a51;
+  --level-b: #3d5f9c;
+  --level-c: #8a5d0a;
+  --level-d: #b33431;
+  --level-text-a: #4db68d;
+  --level-text-b: #6d8fd0;
+  --level-text-c: #e8b64f;
+  --level-text-d: #ec7d7b;
+
+  /* ============================================================
+     Element Plus：在 EP dark css-vars 之上拉回自有色相
+     主蓝提亮到 #5f97e0 供"文字/边框/tag/tab"使用（深底 ≥4.5:1）；
+     solid 实心底的深蓝由块外规则单独压回（见文件尾）。
+     ============================================================ */
+  --el-color-primary: #6fa3e8;
+  --el-color-primary-light-3: #7fb0ec;
+  --el-color-primary-light-5: #93c0f4;
+  --el-color-primary-light-7: #acd0f8;
+  --el-color-primary-light-8: #c6ddfa;
+  --el-color-primary-light-9: #1a2a4d;
+  --el-color-primary-dark-2: #2a6fd0;
+
+  /* primary 已提亮给"文字/边框"用（#6fa3e8，深底 ≥4.5:1）；
+     实心底 + 白字的 EP 组件逐个压回深蓝（白字 ≥6:1）。
+     注意：EP 把 checked/on 变量定义在组件类上，html 级覆盖无效，
+     必须在类级覆盖（见文件尾 .el-radio-button / .el-checkbox / .el-switch / .el-pagination 规则）。 */
+
+  --el-color-success: var(--emerald-on-dark);
+  --el-color-success-light-3: #3fa67c;
+  --el-color-success-light-5: #5fbd95;
+  --el-color-success-light-7: #86d2b2;
+  --el-color-success-light-8: #a9e0c9;
+  --el-color-success-light-9: #0d2b1e;
+
+  --el-color-warning: var(--amber-on-dark);
+  --el-color-warning-light-3: #c99c3e;
+  --el-color-warning-light-5: #dbb367;
+  --el-color-warning-light-7: #eccd95;
+  --el-color-warning-light-8: #f5e0b8;
+  --el-color-warning-light-9: #2a2410;
+
+  --el-color-danger: var(--danger-on-dark);
+  --el-color-danger-light-3: #c96060;
+  --el-color-danger-light-5: #dd8a88;
+  --el-color-danger-light-7: #ecb5b4;
+  --el-color-danger-light-8: #f5d2d1;
+  --el-color-danger-light-9: #33181a;
+
+  --el-color-info: #8a99b4;
+  --el-color-info-light-3: #71809c;
+  --el-color-info-light-5: #5f6d88;
+  --el-color-info-light-7: #4c5870;
+  --el-color-info-light-8: #3d485d;
+  --el-color-info-light-9: #232c40;
+
+  /* 文字 / 边框 / 背景 */
+  --el-text-color-primary: var(--on-dark-1);
+  --el-text-color-regular: var(--on-dark-2);
+  --el-text-color-secondary: var(--on-dark-3);
+  --el-text-color-placeholder: var(--text-mute);
+  --el-text-color-disabled: #4c5870;
+
+  --el-border-color: #26334d;
+  --el-border-color-light: #1c2740;
+  --el-border-color-lighter: #1a2538;
+  --el-border-color-extra-light: #182236;
+
+  --el-fill-color: #1a2538;
+  --el-fill-color-light: #1d2b47;
+  --el-fill-color-lighter: #22304d;
+  --el-fill-color-blank: #151f33;
+
+  --el-bg-color: #151f33;
+  --el-bg-color-page: #0d1526;
+  --el-bg-color-overlay: #1a2538;
+}
+
+/* ===== 深色下 EP primary solid 按钮 =====
+   文字/边框用的主蓝已提亮到 #5f97e0（深底 ≥4.5:1），但实心底 + 白字
+   在 #5f97e0 上只有 2.9:1 —— 把实心底压回深蓝，两者同时成立。 */
+html[data-theme="dark"] .el-button--primary:not(.is-plain):not(.is-link):not(.is-text) {
+  --el-button-bg-color: #1c6bd4;
+  --el-button-border-color: #1c6bd4;
+  --el-button-hover-bg-color: #2a7ae0;
+  --el-button-hover-border-color: #2a7ae0;
+  --el-button-active-bg-color: #1457b3;
+  --el-button-active-border-color: #1457b3;
+}
+
+/* ===== 深色下 EP 徽标实色底 =====
+   --el-color-danger 等在深色下是提亮后的"文字色"（#ec7d7b），
+   徽标底 + 白字必须用深值（白字 ≥4.5:1），逐个压回。 */
+html[data-theme="dark"] .el-badge__content--danger { background-color: #b33431; }
+html[data-theme="dark"] .el-badge__content--success { background-color: #0b7a51; }
+html[data-theme="dark"] .el-badge__content--warning { background-color: #8a5d0a; }
+html[data-theme="dark"] .el-badge__content--info { background-color: #5f6d88; }
+
+/* ===== 深色下 EP tag（effect="dark" 实底）：深底 + 亮字，白字不再压亮底 ===== */
+html[data-theme="dark"] .el-tag--dark {
+  --el-tag-bg-color: #1c3a66;
+  --el-tag-border-color: #2c4a80;
+  --el-tag-text-color: #8ab6f0;
+}
+html[data-theme="dark"] .el-tag--dark.el-tag--success {
+  --el-tag-bg-color: #0d2b1e; --el-tag-border-color: #1f5c41; --el-tag-text-color: #4db68d;
+}
+html[data-theme="dark"] .el-tag--dark.el-tag--warning {
+  --el-tag-bg-color: #2a2410; --el-tag-border-color: #5c4a1e; --el-tag-text-color: #e8b64f;
+}
+html[data-theme="dark"] .el-tag--dark.el-tag--danger {
+  --el-tag-bg-color: #33181a; --el-tag-border-color: #6e3030; --el-tag-text-color: #ec7d7b;
+}
+html[data-theme="dark"] .el-tag--dark.el-tag--info {
+  --el-tag-bg-color: #232c40; --el-tag-border-color: #3d485d; --el-tag-text-color: #8a99b4;
+}
+
+/* ===== 深色下 EP success/warning/danger/info solid 按钮 =====
+   与 primary 同理：实心底压回 ink 深值，白字 ≥4.5:1 */
+html[data-theme="dark"] .el-button--success:not(.is-plain):not(.is-link):not(.is-text) {
+  --el-button-bg-color: #0b7a51;
+  --el-button-border-color: #0b7a51;
+  --el-button-hover-bg-color: #0f8a5e;
+  --el-button-hover-border-color: #0f8a5e;
+  --el-button-active-bg-color: #08663f;
+  --el-button-active-border-color: #08663f;
+}
+html[data-theme="dark"] .el-button--warning:not(.is-plain):not(.is-link):not(.is-text) {
+  --el-button-bg-color: #8a5d0a;
+  --el-button-border-color: #8a5d0a;
+  --el-button-hover-bg-color: #9c6c0c;
+  --el-button-hover-border-color: #9c6c0c;
+  --el-button-active-bg-color: #734d08;
+  --el-button-active-border-color: #734d08;
+}
+html[data-theme="dark"] .el-button--danger:not(.is-plain):not(.is-link):not(.is-text) {
+  --el-button-bg-color: #b33431;
+  --el-button-border-color: #b33431;
+  --el-button-hover-bg-color: #c43c39;
+  --el-button-hover-border-color: #c43c39;
+  --el-button-active-bg-color: #982c29;
+  --el-button-active-border-color: #982c29;
+}
+html[data-theme="dark"] .el-button--info:not(.is-plain):not(.is-link):not(.is-text) {
+  --el-button-bg-color: #5f6d88;
+  --el-button-border-color: #5f6d88;
+  --el-button-hover-bg-color: #6d7c99;
+  --el-button-hover-border-color: #6d7c99;
+  --el-button-active-bg-color: #4c5870;
+  --el-button-active-border-color: #4c5870;
+}
+
+/* ===== 深色下侧栏渐变：--accent 已提亮给文字用，侧栏顶部的白字
+   （logo / 导航项）必须压在深蓝上，单独拉回品牌渐变 ===== */
+html[data-theme="dark"] .app-aside {
+  background: linear-gradient(180deg, #1c6bd4 0%, #0a1326 100%);
+}
+
+/* ===== 深色下日历"今日"徽标：实心底压回深蓝，白字达标 ===== */
+html[data-theme="dark"] .cell-date.today-badge { background: #1c6bd4; }
+
+/* ===== 深色下导航分类徽标：--signal-ink 提亮成亮青是给"深底上的字"用的，
+   徽标底 + 白字必须用深青（--signal-line），文字用纯白（10px 小字 ≥4.5:1）===== */
+html[data-theme="dark"] .nav-badge,
+html[data-theme="dark"] .nav-badge .el-tag__content {
+  background: var(--signal-line);
+  color: #ffffff;
+}
+
+/* ===== 深色下 EP 实心底组件（类级覆盖，EP 变量定义在类上） =====
+   primary 提亮成文字色后，checked/on 实心底必须压回深蓝，白字才达标 */
+html[data-theme="dark"] .el-radio-button {
+  --el-radio-button-checked-bg-color: #1c6bd4;
+  --el-radio-button-checked-border-color: #1c6bd4;
+}
+html[data-theme="dark"] .el-checkbox {
+  --el-checkbox-checked-bg-color: #1c6bd4;
+  --el-checkbox-checked-input-border-color: #1c6bd4;
+}
+html[data-theme="dark"] .el-switch {
+  --el-switch-on-color: #1c6bd4;
+  --el-switch-border-color: #1c6bd4;
+}
+html[data-theme="dark"] .el-pagination.is-background .el-pager li.is-active,
+html[data-theme="dark"] .el-pagination.is-background .btn-prev.is-active,
+html[data-theme="dark"] .el-pagination.is-background .btn-next.is-active {
+  background-color: #1c6bd4;
+}

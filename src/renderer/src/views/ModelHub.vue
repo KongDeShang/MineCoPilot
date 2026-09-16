@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="model-hub">
     <!-- ============ 顶部状态横幅 ============ -->
     <div class="hero" :class="'hero-' + status.state">
@@ -476,10 +476,15 @@ onBeforeUnmount(() => unsubProgress())
   color: #fff;
   background: var(--grad-strip);
 }
-.hero-ready { background: linear-gradient(120deg, #0b3a82 0%, #1457b3 60%, #1c6bd4 100%); }
-.hero-loading, .hero-generating { background: linear-gradient(120deg, #1457b3 0%, #1c6bd4 70%, #2b7de0 100%); }
-.hero-failed { background: linear-gradient(120deg, #7a1f1f 0%, #a83232 60%, #c04545 100%); }
-.hero-idle { background: linear-gradient(120deg, #334155 0%, #475569 60%, #64748b 100%); }
+.hero-ready { background: linear-gradient(120deg, #0b3a82 0%, #1457b3 55%, #1658b6 100%); }
+/* hero-unavailable 落到 .hero 的 --grad-strip（#1c6bd4 处叠 .hb 白玻璃后白字只有 4.47:1），
+   单独压暗：最亮端 #185fbe 叠白玻璃后白字 ~4.9:1 */
+.hero-unavailable { background: linear-gradient(120deg, #1457b3 0%, #1658b6 55%, #185fbe 100%); }
+/* 渐变最亮端压到白字 ≥4.5:1：原 #2b7de0 处白字 4.47:1、#1c6bd4 处叠白玻璃
+   （.hb 徽标）后 4.47:1，都差一口气，统一压到 #1658b6/#1c6bd4 档 */
+.hero-loading, .hero-generating { background: linear-gradient(120deg, #1457b3 0%, #1658b6 70%, #1c6bd4 100%); }
+.hero-failed { background: linear-gradient(120deg, #7a1f1f 0%, #a83232 60%, #a83232 100%); }
+.hero-idle { background: linear-gradient(120deg, #334155 0%, #475569 60%, #475569 100%); }
 .hero-title {
   display: flex;
   align-items: center;
@@ -535,15 +540,15 @@ onBeforeUnmount(() => unsubProgress())
 .pipe-step {
   flex: 1 1 180px;
   min-width: 0;
-  background: rgba(11, 58, 130, 0.04);
-  border: 1px solid rgba(11, 58, 130, 0.14);
+  background: var(--accent-glass);
+  border: 1px solid var(--accent-glass-strong);
   border-radius: 10px;
   padding: 14px 14px 12px;
   text-align: center;
 }
 .pipe-step-hot {
-  background: rgba(11, 58, 130, 0.09);
-  border-color: rgba(11, 58, 130, 0.35);
+  background: var(--accent-glass);
+  border-color: var(--accent-glass-strong);
 }
 .pipe-icon {
   width: 38px;
@@ -574,7 +579,7 @@ onBeforeUnmount(() => unsubProgress())
   margin-top: 8px;
   font-size: 11px;
   color: var(--accent);
-  background: rgba(28, 107, 212, 0.1);
+  background: var(--accent-glass);
   padding: 2px 8px;
   border-radius: 999px;
 }
@@ -593,7 +598,7 @@ onBeforeUnmount(() => unsubProgress())
   gap: 6px;
   font-size: 12px;
   color: var(--text-3);
-  background: rgba(11, 58, 130, 0.04);
+  background: var(--accent-glass);
   border-radius: 8px;
   padding: 8px 12px;
 }
@@ -622,8 +627,8 @@ onBeforeUnmount(() => unsubProgress())
 }
 .trial-output {
   margin-top: 14px;
-  background: rgba(11, 58, 130, 0.05);
-  border: 1px solid rgba(11, 58, 130, 0.16);
+  background: var(--accent-glass);
+  border: 1px solid var(--accent-glass-strong);
   border-radius: 10px;
   padding: 12px 14px;
 }
@@ -685,7 +690,7 @@ onBeforeUnmount(() => unsubProgress())
   font-size: 11px;
   color: var(--text-3);
   word-break: break-all;
-  background: rgba(11, 58, 130, 0.04);
+  background: var(--accent-glass);
   border-radius: 6px;
   padding: 6px 10px;
 }
@@ -708,18 +713,18 @@ onBeforeUnmount(() => unsubProgress())
 .tier-item {
   flex: 1 1 240px;
   min-width: 0;
-  border: 1px solid rgba(11, 58, 130, 0.14);
+  border: 1px solid var(--accent-glass-strong);
   border-radius: 10px;
   padding: 14px;
-  background: rgba(11, 58, 130, 0.03);
+  background: var(--accent-glass);
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 .tier-item.tier-current {
   border-color: var(--accent);
-  background: rgba(28, 107, 212, 0.09);
-  box-shadow: 0 0 0 1px rgba(28, 107, 212, 0.25);
+  background: var(--accent-glass);
+  box-shadow: 0 0 0 1px var(--accent-shadow);
 }
 .tier-top {
   display: flex;
@@ -747,13 +752,13 @@ onBeforeUnmount(() => unsubProgress())
 .tm {
   font-size: 11px;
   color: var(--text-3);
-  background: rgba(11, 58, 130, 0.06);
+  background: var(--accent-glass);
   padding: 2px 8px;
   border-radius: 999px;
 }
 .tm.cap {
   color: var(--accent);
-  background: rgba(28, 107, 212, 0.1);
+  background: var(--accent-glass);
 }
 .tier-actions {
   margin-top: auto;
@@ -786,6 +791,6 @@ onBeforeUnmount(() => unsubProgress())
 }
 .tier-dl-err {
   font-size: 12px;
-  color: #e6a23c;
+  color: var(--warn-ink);
 }
 </style>

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="global-search">
     <el-input
       v-model="searchText"
@@ -169,7 +169,7 @@ function navigateTo(item) {
   left: 0;
   right: 0;
   z-index: 100;
-  background: white;
+  background: var(--card);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
   margin-top: 4px;

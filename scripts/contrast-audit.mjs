@@ -30,6 +30,13 @@ const BASE = process.env.E2E_BASE_URL || 'http://localhost:5173'
 const CDP_PORT = Number(process.env.E2E_CDP_PORT || 9223)
 const CDP = `http://127.0.0.1:${CDP_PORT}`
 
+/** 审计主题：light | dark（--dark 或 CONTRAST_THEME=dark 跑深色令牌下的 16 路由） */
+const THEME = (process.argv.includes('--dark') || process.env.CONTRAST_THEME === 'dark') ? 'dark' : 'light'
+const isDark = THEME === 'dark'
+
+/** 深色注入脚本：文档创建早期就设好，避免深色偏好用户闪白干扰采样 */
+const DARK_INJECT = `document.documentElement.setAttribute('data-theme','dark');document.documentElement.classList.add('dark');'ok'`
+
 const ROUTES = [
   '/', '/dashboard', '/equipment', '/medical-records', '/alert-center',
   '/maintenance-calendar', '/workorder', '/recheck', '/ai-assistant',
@@ -412,6 +419,10 @@ async function main() {
     await send('Runtime.enable')
     await send('Page.enable')
     await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false })
+    // 深色模式：文档创建早期注入（覆盖首次导航；SPA 内 hash 导航不重建文档，无影响）
+    if (isDark) {
+      await send('Page.addScriptToEvaluateOnNewDocument', { source: DARK_INJECT })
+    }
     // 首启要播种演示数据 + 导入随包手册
     await send('Page.navigate', { url: `${BASE}/#/dashboard` })
     await sleep(9000)
@@ -420,6 +431,11 @@ async function main() {
     for (const route of ROUTES) {
       await send('Page.navigate', { url: `${BASE}/#${route}` })
       await sleep(2600)
+      // 深色兜底：bootstrap 的 applyPref 可能把主题改回浅色（新库 meta 无偏好），
+      // 采样前再设一次，保证所有路由都在深色令牌下判定
+      if (isDark) {
+        await send('Runtime.evaluate', { expression: DARK_INJECT })
+      }
       const res = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })
       if (res.exceptionDetails) {
         console.error(`  ${route}  探针抛错: ${res.exceptionDetails.exception?.description?.slice(0, 160)}`)
@@ -442,6 +458,7 @@ async function main() {
   }
 
   console.log('')
+  console.log(`对比度审计（${THEME === 'dark' ? '深色' : '浅色'}主题）`)
   for (const r of perRoute) {
     if (r.error) { console.log(`  ${r.route.padEnd(22)} 探针失败`); continue }
     const worst = r.n ? `  ← ${r.n} 处` : ''

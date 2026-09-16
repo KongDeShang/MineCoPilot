@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div :class="['message', msg ? msg.role : 'assistant']">
     <div class="message-avatar">
       <el-icon v-if="msg && msg.role === 'user'" :size="20"><User /></el-icon>
@@ -225,7 +225,7 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
 }
 
 .message.assistant .message-text {
-  background: white;
+  background: var(--card);
   color: var(--text-1);
   border-top-left-radius: 4px;
   box-shadow: 0 1px 4px rgba(0,0,0,0.08);
@@ -329,7 +329,7 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
 
 .cmd-item {
   padding: 10px 12px;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: 8px;
   margin-bottom: 8px;
@@ -404,7 +404,7 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
 
 .cmd-result.undone {
   background: var(--line-2);
-  border-left-color: #909399;
+  border-left-color: var(--line-strong);
 }
 
 .cmd-result-line {

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <el-row :gutter="16" class="stat-cards">
     <el-col v-for="(item, i) in items" :key="i" :xs="12" :sm="span">
       <div class="stat-card">
@@ -49,7 +49,7 @@ function valueStyle(item) {
 
 <style scoped>
 .stat-card {
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: 13px;
   padding: 14px 16px;

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="ai-assistant">
     <!-- 顶部 Tab 切换 -->
     <el-tabs v-model="activeTab" class="ai-tabs">
@@ -640,7 +640,7 @@ async function sendMessage() {
 /** 本地模型解读块的外壳（正文留给流式填充；tone=ok 时带上最终文本） */
 function narrateBlockHtml(boxId, bodyHtml) {
   return [
-    '<div class="llm-narrate" style="margin-bottom:10px;padding:10px 12px;background:rgba(11,58,130,0.06);border:1px solid rgba(11,58,130,0.18);border-radius:8px;">',
+    '<div class="llm-narrate" style="margin-bottom:10px;padding:10px 12px;background:var(--accent-glass);border:1px solid var(--accent-glass-strong);border-radius:8px;">',
     '<div style="font-size:12px;font-weight:600;color:var(--accent);margin-bottom:4px;">本地模型解读</div>',
     `<div id="${boxId}" style="font-size:13px;line-height:1.7;color:var(--text-1);white-space:pre-wrap;">${bodyHtml || ''}</div>`,
     '<div style="margin-top:6px;font-size:11px;color:var(--text-3);">本地模型生成 · 数据未出本机</div>',
@@ -654,7 +654,7 @@ function narrateFallbackHtml(reason) {
     ? '本次叙述未通过数字一致性校验，已回退'
     : '本地模型暂不可用，本次由内置规则叙述'
   return [
-    '<div class="llm-narrate" style="margin-bottom:10px;padding:8px 12px;background:rgba(11,58,130,0.04);border:1px dashed rgba(11,58,130,0.25);border-radius:8px;">',
+    '<div class="llm-narrate" style="margin-bottom:10px;padding:8px 12px;background:var(--accent-glass);border:1px dashed var(--accent-glass-strong);border-radius:8px;">',
     `<span style="font-size:12px;color:var(--text-3);">${detail} · 数据未出本机</span>`,
     '</div>'
   ].join('')
@@ -1053,7 +1053,10 @@ onBeforeUnmount(() => {
 .chat-input {
   padding-top: 12px;
   border-top: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(255,255,255,0) 0%, #fff 18px);
+  /* 白渐变是浅色残留：深色主题下会把输入面板整个抬成白底。
+     透明→var(--card) 必须用主题感知的透明色（transparent 是黑色分量，
+     插值到卡片色会发灰），两个主题都成立。 */
+  background: linear-gradient(180deg, var(--card-transparent) 0%, var(--card) 18px);
 }
 
 /* 输入框：圆角 + 聚焦高亮 */
@@ -1063,7 +1066,7 @@ onBeforeUnmount(() => {
   transition: box-shadow 0.2s;
 }
 .chat-input :deep(.el-input__wrapper.is-focus) {
-  box-shadow: 0 0 0 1.5px var(--accent) inset, 0 0 0 4px rgba(11, 58, 130, 0.08);
+  box-shadow: 0 0 0 1.5px var(--accent) inset, 0 0 0 4px var(--accent-shadow);
 }
 .chat-input :deep(.el-input-group__append) {
   border-radius: 0 10px 10px 0;

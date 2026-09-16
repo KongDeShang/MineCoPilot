@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="fault-page">
     <!-- 顶部统计 -->
     <StatCards :items="statItems" />
@@ -105,7 +105,7 @@ const statItems = computed(() => {
   return [
     { label: '自动分类样本（本地真实记录）', value: s.total || 0, unit: '条' },
     { label: '系统分类', value: s.top?.length || 0, unit: '类' },
-    { label: 'TOP1 系统', value: top1.value?.system || '—', color: '#0b3a82', small: true }
+    { label: 'TOP1 系统', value: top1.value?.system || '—', color: 'var(--accent)', small: true }
   ]
 })
 const expandedItem = computed(() =>
@@ -122,7 +122,7 @@ function barWidth(percent) {
 }
 
 function barColor(i) {
-  const colors = ['#e0413e', '#e0a020', '#0b3a82', '#0bb4c4', '#12a06b', '#8a95a7']
+  const colors = ['var(--danger)', 'var(--amber)', 'var(--accent)', 'var(--signal)', 'var(--emerald)', 'var(--ink-4)']
   return colors[i % colors.length]
 }
 </script>
@@ -181,6 +181,9 @@ function barColor(i) {
 .fault-rank.rank-2 { background: var(--level-c); }
 .fault-rank.rank-3 { background: var(--level-b); }
 .fault-rank.rank-4, .fault-rank.rank-5 { background: var(--text-3); }
+/* 深色下 rank-4/5 灰底要压深，白字才达标（--text-3 提亮后白字只有 ~2.7:1） */
+html[data-theme="dark"] .fault-rank.rank-4,
+html[data-theme="dark"] .fault-rank.rank-5 { background: #4c5870; }
 
 .fault-system {
   width: 88px;
@@ -261,7 +264,7 @@ function barColor(i) {
   transition: box-shadow .2s, transform .2s;
 }
 .case-card:hover {
-  box-shadow: 0 6px 16px rgba(11, 58, 130, 0.1);
+  box-shadow: 0 6px 16px var(--accent-shadow);
   transform: translateY(-1px);
 }
 .case-head {

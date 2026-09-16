@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="dashboard">
     <!-- 首屏信息条（痛点一句话呈现，不做大色块） -->
     <div class="status-strip">
@@ -1214,6 +1214,9 @@ function goEquipment(item) {
 .fault-rank.rank-2 { background: var(--level-c); }
 .fault-rank.rank-3 { background: var(--level-b); }
 .fault-rank.rank-4, .fault-rank.rank-5 { background: var(--text-3); }
+/* 深色下 rank-4/5 灰底要压深，白字才达标（--text-3 提亮后白字只有 ~2.7:1） */
+html[data-theme="dark"] .fault-rank.rank-4,
+html[data-theme="dark"] .fault-rank.rank-5 { background: #4c5870; }
 
 .fault-system {
   width: 76px;
@@ -1365,10 +1368,10 @@ function goEquipment(item) {
   overflow: hidden;
   cursor: pointer;
   transition: all 0.2s;
-  background: #fff;
+  background: var(--card);
 }
 .focus-item:hover {
-  box-shadow: 0 6px 18px rgba(11, 58, 130, 0.12);
+  box-shadow: 0 6px 18px var(--accent-shadow);
   transform: translateY(-2px);
   border-color: var(--accent);
 }
@@ -1414,7 +1417,7 @@ function goEquipment(item) {
   margin-top: 6px;
 }
 /* 白底上的等级色文字走 --lv 的"ink"取值（≥5.36:1），不是面色 */
-.focus-score { font-size: 12.5px; font-weight: 700; color: var(--lv); }
+.focus-score { font-size: 12.5px; font-weight: 700; color: var(--lv-text); }
 .focus-reason {
   margin-top: 6px;
   font-size: 12px;

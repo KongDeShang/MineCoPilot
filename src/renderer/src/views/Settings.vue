@@ -1,5 +1,27 @@
-<template>
+﻿<template>
   <div class="settings-page">
+    <!-- ===== 外观 · 主题 ===== -->
+    <el-card shadow="never" style="margin-bottom: 16px">
+      <template #header>
+        <div class="card-header">
+          <span><el-icon><Moon /></el-icon> 外观 · 主题</span>
+          <el-tag size="small" type="info" effect="plain">立即生效 · 重启保持 · 随备份迁移</el-tag>
+        </div>
+      </template>
+
+      <div class="theme-row">
+        <el-radio-group v-model="themePref" @change="setTheme">
+          <el-radio-button value="light">浅色</el-radio-button>
+          <el-radio-button value="dark">深色</el-radio-button>
+          <el-radio-button value="system">跟随系统</el-radio-button>
+        </el-radio-group>
+        <div class="theme-hint">
+          深色主题为夜间答辩 / 数据大屏场景准备；「跟随系统」会随操作系统深浅自动切换。
+          <span v-if="themePref === 'system'" class="theme-sys-now">当前系统为{{ systemIsDark ? '深色' : '浅色' }}，应用现处于{{ systemIsDark ? '深色' : '浅色' }}模式。</span>
+        </div>
+      </div>
+    </el-card>
+
     <!-- ===== 演示参数 ===== -->
     <el-card shadow="never">
       <template #header>
@@ -140,11 +162,13 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAppStore } from '../stores/appStore'
 import { DAILY_OUTPUT_LOSS, PRESET_SCENARIOS } from '../utils/health'
 import { exportBackup, importBackup } from '../utils/backup'
+import { applyPref, readMirror, watchSystem, THEME_PREF_META_KEY } from '../utils/theme'
+import * as db from '../utils/database'
 
 const store = useAppStore()
 const saving = ref(false)
@@ -152,6 +176,30 @@ const exporting = ref(false)
 const importing = ref(false)
 const dbPath = ref('')
 const dbSize = ref('')
+
+// ---------- 主题（任务 09） ----------
+const themePref = ref(db.getMeta(THEME_PREF_META_KEY) || readMirror())
+const systemIsDark = ref(typeof window !== 'undefined' && window.matchMedia
+  ? window.matchMedia('(prefers-color-scheme: dark)').matches
+  : false)
+// 跟随系统模式下，系统切换时同步"当前系统为XX"提示
+const stopSystemWatch = watchSystem(() => {
+  systemIsDark.value = window.matchMedia('(prefers-color-scheme: dark)').matches
+})
+
+/** 写入 meta（权威）+ 应用 + 回写镜像（供首帧 theme-init 用） */
+function setTheme() {
+  const p = themePref.value
+  db.setMeta(THEME_PREF_META_KEY, p)
+  applyPref(p)
+  systemIsDark.value = window.matchMedia('(prefers-color-scheme: dark)').matches
+  ElMessage.success(`已切换为${p === 'dark' ? '深色' : p === 'light' ? '浅色' : '跟随系统'}主题`)
+}
+
+onMounted(() => {
+  systemIsDark.value = window.matchMedia('(prefers-color-scheme: dark)').matches
+})
+onBeforeUnmount(() => stopSystemWatch())
 
 const categories = Object.keys(DAILY_OUTPUT_LOSS)
 const levelDesc = { A: '优', B: '良', C: '预警', D: '严重' }
@@ -302,6 +350,23 @@ loadDbInfo()
   gap: 16px;
 }
 
+.theme-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.theme-hint {
+  font-size: 12.5px;
+  color: var(--text-3);
+  line-height: 1.6;
+  max-width: 420px;
+  padding-top: 4px;
+}
+.theme-sys-now {
+  color: var(--text-2);
+}
+
 .card-header {
   display: flex;
   align-items: center;
@@ -375,16 +440,16 @@ loadDbInfo()
   padding: 12px 14px;
   cursor: pointer;
   transition: all 0.2s;
-  background: #fff;
+  background: var(--card);
 }
 .scenario-card:hover {
   border-color: var(--accent);
-  box-shadow: 0 4px 14px rgba(11, 58, 130, 0.1);
+  box-shadow: 0 4px 14px var(--accent-shadow);
 }
 .scenario-card.active {
   border-color: var(--accent);
-  background: linear-gradient(135deg, rgba(11, 58, 130, 0.06), rgba(28, 107, 212, 0.1));
-  box-shadow: 0 4px 14px rgba(11, 58, 130, 0.16);
+  background: linear-gradient(135deg, var(--accent-glass), var(--accent-glass-strong));
+  box-shadow: 0 4px 14px var(--accent-shadow);
 }
 .scenario-name {
   font-size: 14px;
@@ -462,6 +527,8 @@ loadDbInfo()
   justify-content: center;
   flex-shrink: 0;
 }
+/* 深色下 --accent 提亮成文字色，步骤号实心底 + 白字必须压回深蓝 */
+html[data-theme="dark"] .step-num { background: #1c6bd4; }
 .step-txt {
   display: flex;
   flex-direction: column;

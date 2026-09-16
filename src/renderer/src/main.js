@@ -5,6 +5,8 @@ import zhCn from 'element-plus/es/locale/lang/zh-cn'
 // EP 默认色 < tokens.css 主题覆盖 < 业务组件内联样式
 // order 必须严格：EP 全量 CSS 在前，tokens.css 在后，业务样式最后。
 import 'element-plus/dist/index.css'
+// Element Plus 暗色方案（html.dark 下的 --el-* 底子；色相对齐见 tokens.css 深色块）
+import 'element-plus/theme-chalk/dark/css-vars.css'
 import './styles/tokens.css'
 import './styles/healthReport.css'
 import './styles/driverTheme.css'
@@ -19,6 +21,8 @@ import App from './App.vue'
 import router from './router'
 import { APP_ICONS } from './utils/appIcons'
 import { useAppStore } from './stores/appStore'
+import { applyPref, readMirror, watchSystem, THEME_PREF_META_KEY } from './utils/theme'
+import * as db from './utils/database'
 
 async function bootstrap() {
   const app = createApp(App)
@@ -52,6 +56,12 @@ async function bootstrap() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') flush()
   })
+
+  // 主题：meta 表是权威（随 .mbak 备份走），localStorage 只是首帧镜像。
+  // theme-init.js 已在首帧按镜像设过一次，这里用权威值校正（含换机导入备份的场景）。
+  // watchSystem() 让"跟随系统"模式在系统切换深浅时自动跟随。
+  applyPref(db.getMeta(THEME_PREF_META_KEY) || readMirror())
+  watchSystem()
 
   app.mount('#app')
 }
