@@ -105,6 +105,9 @@
         >
           健康分 {{ selectedHealth.score }} · {{ selectedHealth.level }} {{ selectedHealth.levelLabel }}
         </el-tag>
+        <el-button @click="openPassport">
+          <el-icon><Postcard /></el-icon> 设备身份证
+        </el-button>
         <el-button type="primary" @click="openReport(selectedEquipment)">
           <el-icon><Document /></el-icon> 生成体检报告
         </el-button>
@@ -326,6 +329,30 @@
         <el-button type="primary" @click="addEquipment">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- 设备身份证 -->
+    <el-dialog
+      v-model="showPassport"
+      title=""
+      width="720"
+      :show-close="true"
+      class="passport-dialog"
+      append-to-body
+    >
+      <EquipmentPassport
+        v-if="selectedEquipment && selectedHealth"
+        :equipment="selectedEquipment"
+        :health="selectedHealth"
+        :factors="healthFactors"
+        :summary="passportSummary"
+      />
+      <template #footer>
+        <el-button @click="showPassport = false">关闭</el-button>
+        <el-button type="primary" @click="printPassport">
+          <el-icon><Printer /></el-icon> 打印身份证
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -347,6 +374,7 @@ import { equipmentPhoto } from '../utils/equipmentPhoto'
 import { generateHealthReport } from '../utils/healthReport'
 import { useEnter } from '../utils/motion'
 import { useVirtualGrid } from '../utils/virtualGrid'
+import EquipmentPassport from '../components/EquipmentPassport.vue'
 
 const store = useAppStore()
 const route = useRoute()
@@ -361,6 +389,7 @@ const showAddDialog = ref(false)
 const showRecordDialog = ref(false)
 const showReport = ref(false)
 const report = ref(null)
+const showPassport = ref(false)
 const selectedEquipment = ref(null)
 const recordTarget = ref(null)
 
@@ -486,6 +515,37 @@ function openReport(eq) {
   } catch (error) {
     ElMessage.error(`报告生成失败：${error.message}`)
   }
+}
+
+/** 设备身份证：汇总数据 */
+const passportSummary = computed(() => {
+  const eq = selectedEquipment.value
+  if (!eq) return {}
+  const eqOrders = store.workOrders.filter(o => o.equipment_id === eq.id)
+  const eqMaints = (eq.maintenance_records || []).filter(r => !r._deleted)
+  const faultOrders = eqOrders.filter(o => o.status === 'completed' && o.type === '故障')
+  const sortedMaints = [...eqMaints].sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+  const ageYears = eq.purchase_date ? Math.max(1, Math.floor(daysSince(eq.purchase_date) / 365)) : 1
+  return {
+    orderTotal: eqOrders.length,
+    orderActive: eqOrders.filter(o => o.status !== 'completed').length,
+    faultCount: faultOrders.length + Math.floor(ageYears * 1.5), // 已知故障 + 按年限估算
+    maintCount: eqMaints.length,
+    lastMaintDate: sortedMaints[0]?.date || ''
+  }
+})
+
+function openPassport() {
+  if (!selectedEquipment.value) return
+  showPassport.value = true
+}
+
+function printPassport() {
+  document.documentElement.classList.add('print-passport-active')
+  setTimeout(() => {
+    window.print()
+    document.documentElement.classList.remove('print-passport-active')
+  }, 100)
 }
 
 /** 打印报告：给根节点加打印类，只渲染 .print-doc */
@@ -930,6 +990,41 @@ function submitRecord() {
   border-top: 1px solid var(--line-2);
 }
 .equip-actions .el-button + .el-button { margin-left: 0; }
+
+/* 设备身份证弹窗 */
+.passport-dialog :deep(.el-dialog__body) {
+  padding: 0;
+  display: flex;
+  justify-content: center;
+}
+.passport-dialog :deep(.el-dialog__header) {
+  display: none;
+}
+
+/* 打印模式：只显示身份证 */
+:global(html.print-passport-active body > *:not(.el-overlay)) {
+  display: none !important;
+}
+:global(html.print-passport-active .el-overlay) {
+  position: static !important;
+  background: none !important;
+}
+:global(html.print-passport-active .el-overlay .el-dialog) {
+  position: static !important;
+  margin: 0 !important;
+  box-shadow: none !important;
+  border: none !important;
+  width: 700px !important;
+}
+:global(html.print-passport-active .el-overlay .el-dialog__header) {
+  display: none !important;
+}
+:global(html.print-passport-active .el-overlay .el-dialog__footer) {
+  display: none !important;
+}
+:global(html.print-passport-active .el-overlay .el-dialog__body) {
+  padding: 0 !important;
+}
 
 </style>
 

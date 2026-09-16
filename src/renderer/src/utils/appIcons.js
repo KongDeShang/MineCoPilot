@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 全局注册的 Element Plus 图标白名单
  *
  * 为什么集中在这里而不是在 main.js 里写 `Object.entries(ElementPlusIconsVue)`：
@@ -47,6 +47,7 @@ import {
   Fold,
   FolderOpened,
   Guide,
+  Iphone,
   InfoFilled,
   Link,
   List,
@@ -60,6 +61,7 @@ import {
   Odometer,
   PieChart,
   Plus,
+  Postcard,
   Printer,
   Promotion,
   Reading,
@@ -123,6 +125,7 @@ export const APP_ICONS = {
   Fold,
   FolderOpened,
   Guide,
+  Iphone,
   InfoFilled,
   Link,
   List,
@@ -136,6 +139,7 @@ export const APP_ICONS = {
   Odometer,
   PieChart,
   Plus,
+  Postcard,
   Printer,
   Promotion,
   Reading,
