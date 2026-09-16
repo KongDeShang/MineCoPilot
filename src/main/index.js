@@ -239,6 +239,86 @@ function registerIpc() {
     }
   })
 
+  // 读取 documents/ 目录全部文件（备份用）。带体积上限防止异常大文件把内存打爆：
+  // 单文件 50MB / 总量 200MB，超限返回失败并点名是哪个文件（调用方提示用户）。
+  ipcMain.handle('docs:readAll', async (event) => {
+    assertTrusted(event)
+    try {
+      const dir = DOCS_DIR()
+      const names = await fs.promises.readdir(dir).catch(() => [])
+      const files = []
+      let total = 0
+      for (const name of names) {
+        const p = path.join(dir, name)
+        let stat = null
+        try { stat = await fs.promises.stat(p) } catch { continue }
+        if (!stat.isFile()) continue
+        if (stat.size > 50 * 1024 * 1024) {
+          return { ok: false, error: `文档「${name}」超过 50MB，无法打包进备份，请先删除或换机后重新导入该文档` }
+        }
+        total += stat.size
+        if (total > 200 * 1024 * 1024) {
+          return { ok: false, error: '资料库文件总量超过 200MB，无法打包进备份' }
+        }
+        const buf = await fs.promises.readFile(p)
+        files.push({ name, dataBase64: buf.toString('base64'), size: buf.length })
+      }
+      return { ok: true, files }
+    } catch (error) {
+      return { ok: false, error: error.message }
+    }
+  })
+
+  // 恢复 documents/ 目录（导入备份用）：先清空再写回，保证与备份一致
+  ipcMain.handle('docs:restoreAll', async (event, payload) => {
+    assertTrusted(event)
+    const files = payload && Array.isArray(payload.files) ? payload.files : []
+    try {
+      const dir = DOCS_DIR()
+      await fs.promises.mkdir(dir, { recursive: true })
+      // 清空现有文件（保留目录本身）
+      const existing = await fs.promises.readdir(dir).catch(() => [])
+      for (const name of existing) {
+        await fs.promises.unlink(path.join(dir, name)).catch(() => {})
+      }
+      // 写回备份文件；文件名做安全清洗，禁止路径穿越
+      let total = 0
+      for (const f of files) {
+        const name = String(f && f.name || 'unnamed.pdf')
+          .split(/[\\/]/).pop()
+          .replace(/[^\w.\-\u4e00-\u9fa5]/g, '_')
+          .slice(0, 80)
+        if (!name) continue
+        const buf = Buffer.from(String(f.dataBase64 || ''), 'base64')
+        if (!buf.length) continue
+        total += buf.length
+        if (total > 200 * 1024 * 1024) return { ok: false, error: '备份内文档总量超过 200MB，恢复中止' }
+        await fs.promises.writeFile(path.join(dir, name), buf)
+      }
+      return { ok: true, restored: files.length }
+    } catch (error) {
+      return { ok: false, error: error.message }
+    }
+  })
+
+  // 导入前的自动备份：静默写入 userData/backups/（不弹对话框，不打断导入流程）
+  ipcMain.handle('backup:auto-backup', async (event, payload) => {
+    assertTrusted(event)
+    const content = payload && payload.content
+    if (typeof content !== 'string' || !content.length) return { ok: false, error: '备份内容为空' }
+    try {
+      const backupsDir = path.join(app.getPath('userData'), 'backups')
+      await fs.promises.mkdir(backupsDir, { recursive: true })
+      const d = new Date()
+      const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}_${String(d.getHours()).padStart(2, '0')}-${String(d.getMinutes()).padStart(2, '0')}-${String(d.getSeconds()).padStart(2, '0')}`
+      const filePath = path.join(backupsDir, `矿山智工导入前自动备份_${stamp}.mbak`)
+      await fs.promises.writeFile(filePath, content, 'utf8')
+      return { ok: true, path: filePath, size: content.length }
+    } catch (error) {
+      return { ok: false, error: error.message }
+    }
+  })
+
   // 随包示例手册目录：开发时是仓库里的 public/manuals，安装后是 resources/manuals。
   // 打包后不能用 asar 里的路径——shell.openPath 打不开 asar 内的文件，
   // 所以由 electron-builder 的 extraResources 把它复制到 resources/ 下再读。

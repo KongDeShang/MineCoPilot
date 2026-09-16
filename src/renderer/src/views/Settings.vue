@@ -152,13 +152,13 @@
           <el-button type="primary" size="large" :loading="exporting" @click="doExport">
             <el-icon style="margin-right: 4px"><Download /></el-icon>一键导出备份
           </el-button>
-          <div class="backup-desc">生成单个 .mbak 文件：设备台账、维保记录、工单、健康快照、知识库、AI 聊天记录全带走</div>
+          <div class="backup-desc">生成单个 .mbak 文件：设备台账、维保记录、工单、健康快照、知识库、文档资料、设置、AI 聊天记录全带走（含完整性校验）</div>
         </div>
         <div class="backup-action">
           <el-button type="success" size="large" :loading="importing" @click="doImport">
             <el-icon style="margin-right: 4px"><Upload /></el-icon>一键导入备份
           </el-button>
-          <div class="backup-desc">选择 .mbak 文件恢复全部数据，完成后重启应用生效</div>
+          <div class="backup-desc">选择 .mbak 文件恢复全部数据（导入前自动备份当前数据，可回滚），完成后重启应用生效</div>
         </div>
       </div>
 
@@ -318,7 +318,7 @@ async function doExport() {
 async function doImport() {
   try {
     await ElMessageBox.confirm(
-      '导入将覆盖当前全部本地数据（设备台账、维保、工单、快照、知识库、聊天记录）。建议先导出当前备份再导入。是否继续？',
+      '导入将覆盖当前全部本地数据（设备台账、维保、工单、快照、知识库、文档资料、设置、聊天记录）。导入前会自动备份当前数据到本机 backups 目录。是否继续？',
       '导入备份',
       { confirmButtonText: '继续导入', cancelButtonText: '取消', type: 'warning' }
     )
@@ -334,7 +334,8 @@ async function doImport() {
       // 一次"导入成功"的日志写入就会把整库覆盖回旧数据。
       await store.reloadFromDb()
       ElMessageBox.alert(
-        '备份恢复成功，界面已同步刷新。设备台账、维保记录、工单、健康快照、知识库、操作日志与聊天记录均已替换为备份内容。',
+        '备份恢复成功，界面已同步刷新。设备台账、维保记录、工单、健康快照、知识库、文档资料、设置与聊天记录均已替换为备份内容。' +
+          (r.autoBackupPath ? `\n\n导入前已自动备份当前数据到：\n${r.autoBackupPath}\n（导入后如有问题可凭此文件回滚）` : ''),
         '导入完成',
         { confirmButtonText: '知道了' }
       )

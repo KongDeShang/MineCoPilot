@@ -603,6 +603,56 @@ async function main() {
       check(`路由 ${route}（${label}）正常渲染`, count > 0, `${selector}=${count}`)
     }
 
+    // ---------- 7c. 数据备份与迁移（一键换机） ----------
+    // 浏览器模式：导出走 buildBackup、导入走 importBackup(内容)；Electron 弹框路径无法 headless 自动化。
+    // 关键验收：往返数据一致、篡改被 SHA 拦截、v1 旧备份兼容导入。
+    await session.goto(`${BASE}/#/settings`, 2400)
+    const backupUI = await session.eval(`(() => ({
+      hasCard: !!document.querySelector('.backup-row'),
+      hasExport: !!Array.from(document.querySelectorAll('.backup-row button')).find(b => /一键导出备份/.test(b.textContent)),
+      hasImport: !!Array.from(document.querySelectorAll('.backup-row button')).find(b => /一键导入备份/.test(b.textContent))
+    }))()`)
+    check('设置页出现备份与迁移卡（一键导出/导入）', backupUI.hasCard && backupUI.hasExport && backupUI.hasImport,
+      JSON.stringify(backupUI))
+
+    const backupFlow = await session.eval(`(async () => {
+      const { buildBackup, importBackup } = await import('/src/utils/backup.js')
+      const json = await buildBackup()
+      const parsed = JSON.parse(json)
+      const r = await importBackup(json)
+      const after = {
+        equip: document.querySelectorAll('.equip-card').length,
+        ok: !!(r && r.ok)
+      }
+      return { after, exportedAt: parsed.exportedAt || null, version: parsed.version || null,
+        hasSha: !!(parsed.sha256), hasSettings: typeof parsed.settings === 'object' }
+    })()`)
+    check('备份导出→导入往返成功且版本/SHA/设置齐全',
+      backupFlow.after.ok && backupFlow.hasSha && backupFlow.hasSettings && backupFlow.version === '2.0.0',
+      JSON.stringify(backupFlow).slice(0, 200))
+
+    const backupTamper = await session.eval(`(async () => {
+      const { buildBackup, importBackup } = await import('/src/utils/backup.js')
+      const json = await buildBackup()
+      const obj = JSON.parse(json)
+      obj.dbBase64 = obj.dbBase64.slice(0, -10) + 'AAAAAAAAAA='
+      const r = await importBackup(JSON.stringify(obj))
+      return { ok: !!(r && r.ok), error: (r && r.error) || '' }
+    })()`)
+    check('篡改备份内容被 SHA-256 完整性校验拦截',
+      !backupTamper.ok && /完整性/.test(backupTamper.error), backupTamper.error)
+
+    const backupV1 = await session.eval(`(async () => {
+      const { buildBackup, importBackup } = await import('/src/utils/backup.js')
+      // 构造 v1 旧备份（无 sha256/settings/docFiles），应兼容导入
+      const json = await buildBackup()
+      const cur = JSON.parse(json)
+      const v1 = { app: cur.app, version: '1.0.0', exportedAt: cur.exportedAt, dbBase64: cur.dbBase64, chatHistory: [] }
+      const r = await importBackup(JSON.stringify(v1))
+      return { ok: !!(r && r.ok), version: (r && r.version) || '' }
+    })()`)
+    check('v1 旧备份兼容导入', backupV1.ok && backupV1.version === '1.0.0', JSON.stringify(backupV1))
+
     // ---------- 7b. UI 升级：分组侧边栏 + 导航搜索 + 钉住常用 ----------
     await session.goto(`${BASE}/#/dashboard`, 2400)
     const nav = await session.eval(`(() => ({

@@ -21,11 +21,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     version: () => ipcRenderer.invoke('app:version'),
     userDataPath: () => ipcRenderer.invoke('app:userDataPath'),
     // ⚠️ 仅允许打开 documents/ 目录内的文件（主进程做边界校验，传越界路径会被拒）
-    openPath: (p) => ipcRenderer.invoke('app:openPath', p),
-    backup: {
-      export: (payload) => ipcRenderer.invoke('backup:export', payload),
-      import: () => ipcRenderer.invoke('backup:import')
-    }
+    openPath: (p) => ipcRenderer.invoke('app:openPath', p)
+  },
+
+  // 数据备份与迁移（一键换机）
+  backup: {
+    export: (payload) => ipcRenderer.invoke('backup:export', payload),
+    import: () => ipcRenderer.invoke('backup:import'),
+    // 导入前的自动备份：静默写入 userData/backups/，不弹框
+    autoBackup: (payload) => ipcRenderer.invoke('backup:auto-backup', payload)
   },
 
   // 文档资料库（文件只在本机 documents/ 目录内读写）
@@ -34,7 +38,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     open: (payload) => ipcRenderer.invoke('docs:open', payload),
     deleteFile: (payload) => ipcRenderer.invoke('docs:delete', payload),
     // 随包示例手册：由主进程从 resources/manuals 复制进 documents/ 后再读
-    importBundled: (payload) => ipcRenderer.invoke('docs:importBundled', payload)
+    importBundled: (payload) => ipcRenderer.invoke('docs:importBundled', payload),
+    // 备份/恢复用：读取或还原 documents/ 目录全部文件
+    readAll: () => ipcRenderer.invoke('docs:readAll'),
+    restoreAll: (payload) => ipcRenderer.invoke('docs:restoreAll', payload)
   },
 
   // 本地模型引擎（node-llama-cpp，仅 Electron 模式可用）
