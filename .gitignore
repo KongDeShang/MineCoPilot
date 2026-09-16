@@ -1,7 +1,9 @@
 node_modules/
 dist/
 release/
-.tmp-*/
+# 临时/中间文件（.tmp-*/ 只忽略目录，漏掉了同前缀的**文件**——
+# 曾经因为这条漏网，一次 git add -A 把 .tmp-commit-msg.txt 提交了进去）
+.tmp-*
 .DS_Store
 *.log
 
