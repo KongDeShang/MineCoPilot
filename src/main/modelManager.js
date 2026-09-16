@@ -3,14 +3,14 @@
  *
  * 职责（任务 07）：
  * 1. 云端清单（models.json）：内置兜底清单 + 可选的远端拉取（失败静默降级，不阻塞）；
- * 2. 下载器：GitHub Releases 302 重定向跟随（保留 Range）、断点续传（.part）、
+ * 2. 下载器：多源自动切换（HF 官方 → hf-mirror 镜像 → ModelScope 魔搭 → GitHub Release 兜底）、
+ *    GitHub Releases 302 重定向跟随（保留 Range）、断点续传（.part）、
  *    SHA-256 校验（不符删残档可重试）、超时/失败自动重试（指数退避）；
  * 3. 删除模型释放空间；4. 双源扫描合并（resources/models + userData/models）。
  *
  * 铁律：下载只发生在用户明确点击时；运行期无任何自动联网下载。
- * 注意：模型上传仓库 https://github.com/KongDeShang/MineCoPilot（Release tag: models-v1.0.0）。
- *       sha256 占位 null —— 上传后用 `Get-FileHash <file> -Algorithm SHA256` 实测填写，
- *       不得编造。sha256 为空时下载完成跳过校验并返回实际哈希（便于登记）。
+ * 注意：SHA-256 已于 2026-09-16 实测登记（0.5B 本地实测 + HF/魔搭交叉一致；1.5B HF X-Linked-Etag 与魔搭 API 一致），
+ *       非占位。GitHub Release 兜底源待模型上传后生效（当前 404 不影响：前面的源成功即不走到该源）。
  */
 
 const path = require('path')
@@ -45,39 +45,45 @@ function modelRoots() {
 const MANIFEST_URL =
   'https://raw.githubusercontent.com/KongDeShang/MineCoPilot/main/models.json'
 
-/** 内置兜底清单：URL 已确定（GitHub Releases 直链），SHA 上传后填实际值 */
+/** 内置兜底清单：多源直链（HF 官方 / hf-mirror / ModelScope / GitHub Release 兜底），SHA 已实测登记 */
 const FALLBACK_MANIFEST = {
-  version: '1.0.0',
-  updatedAt: '2026-09-15',
+  version: '1.1.0',
+  updatedAt: '2026-09-16',
   models: [
     {
       id: 'light',
       name: 'Qwen2.5-0.5B-Instruct',
       tier: 'light',
       file: 'qwen2.5-0.5b-instruct-q4_k_m.gguf',
-      sizeBytes: 491318888,
+      sizeBytes: 491400032,
       minMemoryGB: 4,
       capabilities: ['narrate'],
-      sha256: null, // 待填：模型上传后 Get-FileHash 实测
+      sha256: '74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db', // 本地实测 = HF 官方 = 魔搭
       version: '1.0.0',
       license: 'Apache-2.0',
       urls: [
+        'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf',
+        'https://hf-mirror.com/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf',
+        'https://modelscope.cn/models/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/master/qwen2.5-0.5b-instruct-q4_k_m.gguf',
         'https://github.com/KongDeShang/MineCoPilot/releases/download/models-v1.0.0/qwen2.5-0.5b-instruct-q4_k_m.gguf'
       ]
     },
     {
       id: 'standard',
-      name: 'Qwen2.5-1.7B-Instruct',
+      name: 'Qwen2.5-1.5B-Instruct',
       tier: 'standard',
-      file: 'qwen2.5-1.7b-instruct-q4_k_m.gguf',
-      sizeBytes: 1144000000,
+      file: 'qwen2.5-1.5b-instruct-q4_k_m.gguf',
+      sizeBytes: 1117320736,
       minMemoryGB: 8,
       capabilities: ['narrate', 'diagnose', 'summarize'],
-      sha256: null, // 待填
+      sha256: '6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e', // HF X-Linked-Etag = 魔搭 API
       version: '1.0.0',
       license: 'Apache-2.0',
       urls: [
-        'https://github.com/KongDeShang/MineCoPilot/releases/download/models-v1.0.0/qwen2.5-1.7b-instruct-q4_k_m.gguf'
+        'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf',
+        'https://hf-mirror.com/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf',
+        'https://modelscope.cn/models/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/master/qwen2.5-1.5b-instruct-q4_k_m.gguf',
+        'https://github.com/KongDeShang/MineCoPilot/releases/download/models-v1.0.0/qwen2.5-1.5b-instruct-q4_k_m.gguf'
       ]
     }
   ]
@@ -161,6 +167,16 @@ async function getManifest() {
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)) }
 
+/**
+ * 默认请求头：魔搭（modelscope）的 resolve 直链对无 UA/Referer 的裸请求返回 403，
+ * 对 HF / hf-mirror / GitHub 无副作用；统一带上保证多源全部可达。
+ */
+const DEFAULT_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 MineCoPilot/1.0.0',
+  Referer: 'https://modelscope.cn/'
+}
+
 function httpRequest(url, { method = 'GET', headers = {}, timeoutMs = 30000 } = {}) {
   return new Promise((resolve, reject) => {
     const mod = url.startsWith('https:') ? https : http
@@ -202,8 +218,8 @@ async function downloadAttempt(sourceUrl, destFile, { onProgress, expectedSha })
   const partFile = destFile + '.part'
   const start = fs.existsSync(partFile) ? fs.statSync(partFile).size : 0
 
-  // 首次/续传统一带 Range 跟随重定向（GitHub Releases → objects.githubusercontent.com，保留 Range）
-  const res = await resolveWithRedirects(sourceUrl, { Range: `bytes=${start}-` }, 5)
+  // 首次/续传统一带 Range 跟随重定向（GitHub Releases / HF / 魔搭 → CDN，保留 Range）
+  const res = await resolveWithRedirects(sourceUrl, { ...DEFAULT_HEADERS, Range: `bytes=${start}-` }, 5)
 
   if (res.statusCode === 403 || res.statusCode === 429) {
     res.resume()
@@ -339,7 +355,21 @@ async function downloadModel(id, { onProgress } = {}) {
   const record = { id: m.tier, startedAt: Date.now() }
   currentDownload = record
   try {
-    const result = await downloadOne(m.urls[0], destFile, { onProgress, expectedSha: m.sha256 || null })
+    // 多源自动切换：按清单 urls 顺序逐个尝试（HF 官方 → 镜像 → 魔搭 → GitHub 兜底）。
+    // 断点续传的 .part 跨源共享（源内容不一致时最终 SHA 校验会删残档换源重试，不产生坏文件）。
+    const sources = m.urls && m.urls.length ? m.urls : []
+    if (!sources.length) throw new Error(`模型 ${id} 暂无可用下载地址（待扩展）`)
+    let lastErr = null
+    let result = null
+    for (const url of sources) {
+      try {
+        result = await downloadOne(url, destFile, { onProgress, expectedSha: m.sha256 || null })
+        break
+      } catch (err) {
+        lastErr = err
+      }
+    }
+    if (!result) throw lastErr || new Error(`模型 ${id} 所有下载源均失败`)
     // 登记安装信息（版本/哈希/时间）
     fs.writeFileSync(
       path.join(destDir, 'model-meta.json'),

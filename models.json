@@ -1,0 +1,48 @@
+{
+  "version": "1.1.0",
+  "updatedAt": "2026-09-16",
+  "models": [
+    {
+      "id": "light",
+      "name": "Qwen2.5-0.5B-Instruct",
+      "tier": "light",
+      "file": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+      "sizeBytes": 491400032,
+      "minMemoryGB": 4,
+      "capabilities": [
+        "narrate"
+      ],
+      "sha256": "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db",
+      "version": "1.0.0",
+      "license": "Apache-2.0",
+      "urls": [
+        "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+        "https://hf-mirror.com/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+        "https://modelscope.cn/models/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/master/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+        "https://github.com/KongDeShang/MineCoPilot/releases/download/models-v1.0.0/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+      ]
+    },
+    {
+      "id": "standard",
+      "name": "Qwen2.5-1.5B-Instruct",
+      "tier": "standard",
+      "file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+      "sizeBytes": 1117320736,
+      "minMemoryGB": 8,
+      "capabilities": [
+        "narrate",
+        "diagnose",
+        "summarize"
+      ],
+      "sha256": "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e",
+      "version": "1.0.0",
+      "license": "Apache-2.0",
+      "urls": [
+        "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
+        "https://hf-mirror.com/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
+        "https://modelscope.cn/models/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/master/qwen2.5-1.5b-instruct-q4_k_m.gguf",
+        "https://github.com/KongDeShang/MineCoPilot/releases/download/models-v1.0.0/qwen2.5-1.5b-instruct-q4_k_m.gguf"
+      ]
+    }
+  ]
+}

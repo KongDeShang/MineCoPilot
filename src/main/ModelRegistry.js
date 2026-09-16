@@ -3,9 +3,9 @@
  *
  * 管理可用模型档位的元数据、安装状态检测、自动选档逻辑。
  *
- * 档位设计（Q4_K_M 量化）：
+ * 档位设计（Q4_K_M 量化，2026-09-16 修正：Qwen2.5 无 1.7B 型号，标准档实为 1.5B）：
  *   light     — Qwen2.5-0.5B  468MB  任意内存   narrate（叙述润色）
- *   standard  — Qwen2.5-1.7B  ~1.1GB  ≥8GB     narrate + diagnose + summarize
+ *   standard  — Qwen2.5-1.5B  ~1.04GB ≥8GB     narrate + diagnose + summarize
  *   enhanced  — Qwen3-4B      ~2.5GB  ≥16GB    + 复杂推演
  *
  * 铁律：注册表只做元数据和选档，不加载模型。
@@ -32,9 +32,9 @@ const TIERS = [
   {
     id: 'standard',
     name: '标准档',
-    displayName: 'Qwen2.5-1.7B-Instruct',
-    file: 'qwen2.5-1.7b-instruct-q4_k_m.gguf',
-    sizeBytes: 1.1 * 1024 * 1024 * 1024,
+    displayName: 'Qwen2.5-1.5B-Instruct',
+    file: 'qwen2.5-1.5b-instruct-q4_k_m.gguf',
+    sizeBytes: 1117320736,
     minMemoryGB: 8,
     capabilities: ['narrate', 'diagnose', 'summarize'],
     description: '叙述 + 诊断 + 摘要：可分析故障模式并给出初步诊断',
