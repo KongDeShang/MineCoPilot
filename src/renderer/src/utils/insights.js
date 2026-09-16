@@ -90,7 +90,9 @@ function calcMaintenanceRate(store) {
  * 集中度越高，说明故障集中在少数设备，可能是老化或操作问题
  */
 function calcFaultConcentration(store) {
-  const faultStats = store.faultTopStats || []
+  // faultTopStats 是 { total, top, entries } 对象，top 才是数组；防御非数组脏数据
+  const raw = store.faultTopStats
+  const faultStats = Array.isArray(raw) ? raw : ((raw && Array.isArray(raw.top)) ? raw.top : [])
   if (faultStats.length === 0) return { value: '暂无', level: 'ok', advice: '暂无故障数据或设备运行良好', raw: 0 }
 
   const totalFaults = faultStats.reduce((sum, f) => sum + (f.count || f.total || 0), 0)

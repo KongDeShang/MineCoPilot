@@ -64,7 +64,7 @@ const RULES = [
     name: '高频故障设备',
     severity: 'warning',
     test: (eq, ctx) => (ctx.faultCounts[eq.id] || 0) >= 3,
-    reason: (eq) => `${eq.name} 近期故障 ${ctx.faultCounts[eq.id]} 次，属高频故障`,
+    reason: (eq, ctx) => `${eq.name} 近期故障 ${ctx.faultCounts[eq.id]} 次，属高频故障`,
     suggestion: (eq) => `建议对 ${eq.name} 进行根因分析（RCA），评估是否需要大修或更换`
   },
   {
@@ -72,7 +72,7 @@ const RULES = [
     name: '极高频故障设备',
     severity: 'critical',
     test: (eq, ctx) => (ctx.faultCounts[eq.id] || 0) >= 5,
-    reason: (eq) => `${eq.name} 近期故障 ${ctx.faultCounts[eq.id]} 次，严重影响产线`,
+    reason: (eq, ctx) => `${eq.name} 近期故障 ${ctx.faultCounts[eq.id]} 次，严重影响产线`,
     suggestion: (eq) => `建议评估 ${eq.name} 是否需要停用更换，并上报管理层`
   },
   {
@@ -100,10 +100,11 @@ const RULES = [
  */
 function buildContext(store) {
   const faultCounts = {}
-  if (store.faultTopStats) {
-    for (const f of store.faultTopStats) {
-      faultCounts[f.equipmentId || f.id] = f.count || f.total || 0
-    }
+  // faultTopStats 是 { total, top, entries } 对象，top 才是数组；防御非数组脏数据
+  const faultTop = store.faultTopStats
+  const topList = Array.isArray(faultTop) ? faultTop : ((faultTop && Array.isArray(faultTop.top)) ? faultTop.top : [])
+  for (const f of topList) {
+    faultCounts[f.equipmentId || f.id] = f.count || f.total || 0
   }
 
   // 从工单统计故障次数
@@ -165,8 +166,8 @@ export function scanAlerts(store, options = {}) {
           severity: rule.severity,
           equipmentId: eq.id,
           equipmentName: eq.name,
-          reason: rule.reason(eq),
-          suggestion: rule.suggestion(eq),
+          reason: rule.reason(eq, ctx),
+          suggestion: rule.suggestion(eq, ctx),
           at: Date.now()
         })
       }

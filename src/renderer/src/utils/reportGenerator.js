@@ -135,8 +135,8 @@ export function generateReportData(store, period = 'week') {
     ? Math.round((periodRecheckDone / periodRecheckOrders.length) * 100)
     : null
 
-  // 6. 高频故障
-  const faultTop = store.faultTopStats.slice(0, 5)
+  // 6. 高频故障（faultTopStats 是 { total, top, entries } 对象，top 才是数组）
+  const faultTop = (Array.isArray(store.faultTopStats) ? store.faultTopStats : (store.faultTopStats?.top || [])).slice(0, 5)
 
   return {
     period,

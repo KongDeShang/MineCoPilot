@@ -140,7 +140,9 @@ const ASK_HELPER = `
     const send = Array.from(document.querySelectorAll('.chat-input button')).find(b => /提问|发送/.test(b.textContent))
     if (!send) return { error: '找不到发送按钮' }
     send.click()
-    await new Promise(r => setTimeout(r, 2200))
+    // 主答案走本地规则引擎即时给出，但上方还有逐字打字动画（约 200 字 × 18ms ≈ 3.6s）
+    // 加思考步骤逐帧展示，等 9s 足够内容打完，避免断言读到未完成的半句
+    await new Promise(r => setTimeout(r, 9000))
     const messages = Array.from(document.querySelectorAll('.message'))
     const last = messages[messages.length - 1]
     return {
@@ -343,22 +345,31 @@ async function main() {
       JSON.stringify(recheckFlow))
 
     // ---------- 4. 设备台账：健康分档 + 报告 ----------
+    // 设备量 >50 时页面启用虚拟滚动，只渲染可见卡片（首屏约 12 张）——
+    // 断言按"数据规模 60 台 + 首屏卡片完整渲染"验收，不再要求 DOM 同时存在 60 张。
     await session.goto(`${BASE}/#/equipment`, 2600)
     const equipment = await session.eval(`(() => {
       const cards = Array.from(document.querySelectorAll('.equip-card'))
+      const parseCount = (s) => parseInt(String(s || '').match(/\\d+/)?.[0] || '0', 10)
+      const overview = Array.from(document.querySelectorAll('.health-item')).map(e => e.textContent.replace(/\\s+/g, ' ').trim())
+      const overviewTotal = overview.reduce((sum, t) => sum + parseCount(t), 0)
       return {
         cards: cards.length,
-        overview: Array.from(document.querySelectorAll('.health-item')).map(e => e.textContent.replace(/\\s+/g, ' ').trim()),
+        overview,
+        overviewTotal,
         levels: cards.slice(0, 5).map(c => c.querySelector('.equip-level')?.textContent.replace(/\\s+/g, ' ').trim() || ''),
         reportButtons: cards.filter(c => Array.from(c.querySelectorAll('button')).some(b => /体检/.test(b.textContent))).length,
         photos: cards.filter(c => /equipment-photos\\/.*\\.jpg/.test(c.querySelector('.equip-photo img')?.getAttribute('src') || '')).length
       }
     })()`)
-    check('设备台账渲染 60 张设备卡片', equipment.cards === 60, String(equipment.cards))
+    check('设备台账渲染设备卡片（虚拟滚动首屏）', equipment.cards >= 1 && equipment.cards <= 60, `首屏=${equipment.cards}`)
     check('健康度按四级分档展示（验收 #2）', equipment.overview.length === 4, equipment.overview.join(' | '))
+    check('设备台账共 60 台（四档合计）', equipment.overviewTotal === 60, `合计=${equipment.overviewTotal}`)
     check('每张卡片都带等级与健康分', equipment.levels.length === 5 && equipment.levels.every(t => /级.*分/.test(t)), equipment.levels.join(','))
-    check('每张卡片按类别渲染设备照片', equipment.photos === 60, String(equipment.photos))
-    check('卡片可直接发起体检', equipment.reportButtons >= 60, String(equipment.reportButtons))
+    check('每张卡片按类别渲染设备照片', equipment.photos === equipment.cards && equipment.cards > 0,
+      `照片=${equipment.photos}/${equipment.cards}`)
+    check('卡片可直接发起体检', equipment.reportButtons >= equipment.cards && equipment.cards > 0,
+      `按钮=${equipment.reportButtons}/${equipment.cards}`)
 
     // 生成体检报告：挑健康分最低的一台（体检内容最丰富）
     const reportFlow = await session.eval(`(async () => {
@@ -540,7 +551,8 @@ async function main() {
       if (!healthTag) return { ok: false, reason: '找不到健康类快捷提问', tagCount: tags.length }
       const question = healthTag.textContent.trim()
       healthTag.click()
-      await new Promise(r => setTimeout(r, 2000))
+      // 等打字动画 + 思考步骤播完（约 4-5s），留足余量
+      await new Promise(r => setTimeout(r, 9000))
       const messages = Array.from(document.querySelectorAll('.message'))
       const last = messages[messages.length - 1]
       return {

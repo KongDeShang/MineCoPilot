@@ -4,6 +4,9 @@
  * 将 HTML 字符串逐字注入到 reactive 对象的 content 属性。
  * 纯文本部分逐字出现，HTML 标签整体注入（保证 <span class="health-a">A</span> 不会被拆散）。
  *
+ * 长文保护：超过 maxTypedChars 个字符后，剩余内容一次性填入——
+ * 打字动画只覆盖开头一小段（兼顾"正在输出"的体感），长回答不会让用户干等十几秒。
+ *
  * 用法：
  *   const msg = reactive({ content: '' })
  *   await typewriterHTML(msg, '<p>设备健康</p>', { charDelay: 18, scrollToBottom })
@@ -45,6 +48,7 @@ export function tokenizeHTML(html) {
  * @param {string} html - 完整 HTML 字符串
  * @param {object} opts
  * @param {number} [opts.charDelay=18] - 每个字符间隔（ms），0 表示无延迟（无障碍模式）
+ * @param {number} [opts.maxTypedChars=200] - 逐字打字的字符数上限，超出部分一次性填入
  * @param {function} [opts.scrollToBottom] - 每次内容更新后调用
  * @param {AbortSignal} [opts.signal] - 可选的取消信号
  * @returns {Promise<void>}
@@ -52,6 +56,7 @@ export function tokenizeHTML(html) {
 export function typewriterHTML(msg, html, opts = {}) {
   const {
     charDelay = 18,
+    maxTypedChars = 200,
     scrollToBottom,
     signal
   } = opts
@@ -68,16 +73,26 @@ export function typewriterHTML(msg, html, opts = {}) {
     let buffer = ''
     let tokenIdx = 0
     let charIdx = 0
+    let typedChars = 0
     let cancelled = false
 
     if (signal) {
       signal.addEventListener('abort', () => { cancelled = true }, { once: true })
     }
 
+    /** 把剩余 token 全部拼进 buffer（长文快进 / 取消时用） */
+    function flushRest() {
+      for (let i = tokenIdx; i < tokens.length; i++) {
+        buffer += tokens[i].content
+      }
+      msg.content = buffer
+      scrollToBottom?.()
+    }
+
     function tick() {
       if (cancelled) {
         // 取消时直接填入剩余内容
-        msg.content = html
+        flushRest()
         resolve()
         return
       }
@@ -90,15 +105,20 @@ export function typewriterHTML(msg, html, opts = {}) {
       const token = tokens[tokenIdx]
 
       if (token.type === 'tag') {
-        // 标签整体注入，不延迟
+        // 标签整体注入，不延迟、不计入打字字数
         buffer += token.content
         tokenIdx++
         msg.content = buffer
         tick()
+      } else if (typedChars >= maxTypedChars) {
+        // 超过打字上限：剩余全部直接填入，避免长回答让用户干等
+        flushRest()
+        resolve()
       } else {
         // 纯文本逐字注入
         buffer += token.content[charIdx]
         charIdx++
+        typedChars++
         msg.content = buffer
         scrollToBottom?.()
 

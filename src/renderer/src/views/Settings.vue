@@ -447,8 +447,9 @@ loadDbInfo()
   z-index: 1;
   font-size: 16px;
   font-weight: 700;
-  color: #fff;
-  text-shadow: 0 1px 3px rgba(0,0,0,0.4);
+  /* 深色对勾 + 白晕：深色/浅色 swatch 上都可辨认（白字在浅底上 1:1 不达标） */
+  color: var(--ink-1);
+  text-shadow: 0 0 2px #fff, 0 0 2px #fff;
 }
 
 .card-header {

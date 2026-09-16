@@ -30,6 +30,38 @@
       </div>
     </div>
 
+    <!-- 数据洞察卡（自动分析核心指标） -->
+    <div class="insight-grid">
+      <InsightCard
+        v-for="(card, i) in insights"
+        :key="i"
+        :icon="card.icon"
+        :label="card.label"
+        :value="card.value"
+        :level="card.level"
+        :advice="card.advice"
+        :detail="card.detail"
+        :raw="card.raw"
+      />
+    </div>
+
+    <!-- 预警摘要条（规则引擎驱动） -->
+    <div v-if="alertSummary.total > 0" class="alert-summary-strip">
+      <div class="alert-summary-content">
+        <el-icon><WarningFilled /></el-icon>
+        <span>
+          <b>{{ alertSummary.critical }}</b> 条严重预警 ·
+          <b>{{ alertSummary.warning }}</b> 条注意 ·
+          <b>{{ alertSummary.info }}</b> 条提示
+        </span>
+        <span class="alert-summary-sep">|</span>
+        <span class="alert-summary-tip">{{ alertSummary.topSuggestions[0] || '' }}</span>
+      </div>
+      <el-button size="small" type="warning" plain @click="router.push('/alerts')">
+        查看全部
+      </el-button>
+    </div>
+
     <!-- 健康等级分布（A/B/C/D，设备当病人管的第一眼） -->
     <el-card shadow="never" class="health-dist-card">
       <div class="health-dist">
@@ -405,7 +437,7 @@ import { now } from '../utils/dates'
 import AnimatedNumber from '../components/AnimatedNumber.vue'
 import InsightCard from '../components/InsightCard.vue'
 import { buildInsights } from '../utils/insights'
-import { scanAlerts, getAlertSummary } from '../utils/alertRules'
+import { getAlertSummary } from '../utils/alertRules'
 import { useEnter } from '../utils/motion'
 
 // 异步引入：echarts 体积不小，让它单独成一个 chunk 晚一拍到，
@@ -693,7 +725,62 @@ function goEquipment(item) {
 </script>
 
 <style scoped>
-/* 健康等级分布条 */
+/* ── 数据洞察卡 ── */
+.insight-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-top: 16px;
+}
+
+@media (max-width: 900px) {
+  .insight-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── 预警摘要条 ── */
+.alert-summary-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px 16px;
+  background: var(--amber-soft);
+  border: 1px solid var(--amber-line);
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  color: var(--text-1);
+}
+
+.alert-summary-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.alert-summary-content .el-icon {
+  color: var(--warn-ink);
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.alert-summary-sep {
+  /* --text-mute 在 --amber-soft 底上仅 4.33:1，换 --text-3 保证 ≥4.5:1 */
+  color: var(--text-3);
+}
+
+.alert-summary-tip {
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 健康等级分布条 ── */
 .health-dist-card {
   margin-top: 16px;
   border-radius: 13px;
