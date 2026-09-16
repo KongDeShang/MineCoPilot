@@ -403,6 +403,9 @@ import { equipmentPhoto } from '../utils/equipmentPhoto'
 import { generateReport } from '../utils/reportGenerator'
 import { now } from '../utils/dates'
 import AnimatedNumber from '../components/AnimatedNumber.vue'
+import InsightCard from '../components/InsightCard.vue'
+import { buildInsights } from '../utils/insights'
+import { scanAlerts, getAlertSummary } from '../utils/alertRules'
 import { useEnter } from '../utils/motion'
 
 // 异步引入：echarts 体积不小，让它单独成一个 chunk 晚一拍到，
@@ -431,6 +434,12 @@ const entered = useEnter()
 // `const stats = store.stats` 等于给台账拍了张快照。页面停留期间导入/重置数据，
 // 四张统计卡片的数字不会跟着变，看上去就像"操作没生效"（同类问题在工单抽屉里也踩过一次）。
 const stats = computed(() => store.stats)
+
+// 数据洞察卡（自动计算核心运营指标）
+const insights = computed(() => buildInsights(store))
+
+// 预警规则引擎结果
+const alertSummary = computed(() => getAlertSummary(store))
 
 // D 级（需立即处置）设备预计停机损失总额：逐个用 estimateLoss 现算，口径与体检报告同源
 const totalLoss = computed(() => {
