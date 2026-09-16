@@ -42,6 +42,55 @@
       </div>
     </el-card>
 
+    <!-- ===== AI 助手（老师傅人设 + 排查思路表） ===== -->
+    <el-card shadow="never" style="margin-bottom: 16px">
+      <template #header>
+        <div class="card-header">
+          <span><el-icon><ChatDotRound /></el-icon> AI 助手 · 老师傅模式与排查经验</span>
+          <el-tag size="small" type="info" effect="plain">即时生效 · 随备份迁移</el-tag>
+        </div>
+      </template>
+
+      <!-- 老师傅模式开关 -->
+      <div class="theme-row">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <el-switch v-model="masterMode" @change="toggleMaster" />
+          <span style="font-weight:600">AI 老师傅模式</span>
+          <span class="theme-hint">开启后 AI 助手以矿山老机修的口吻回答：直接、带经验式引导（先查→再换→后试），仍只动语气不动事实——数字来自本地台账、规程来自知识库，不新增任何内容。</span>
+        </div>
+      </div>
+
+      <el-divider />
+
+      <!-- 四类排查思路表（用户可维护） -->
+      <div class="section-title">四类故障排查思路表（未命中知识库时的兜底经验，可现场维护）</div>
+      <div style="margin-bottom:12px;font-size:12px;color:var(--text-3);line-height:1.7">
+        每类思路按「先看 → 再查 → 后动」分层，供 AI 助手在知识库没有精确条目时给出排查方向。
+        编辑格式：<strong>每行一条，格式「步骤名：步骤详情」</strong>；保存后 AI 助手立即生效。
+      </div>
+      <el-collapse>
+        <el-collapse-item v-for="m in troubleshootMaps" :key="m.id" :name="m.id">
+          <template #title>
+            <span style="font-weight:600">{{ m.system }}</span>
+            <span style="margin-left:12px;font-size:12px;color:var(--text-3)">
+              {{ (m.checkOrder || []).length }} 步 · {{ (m.userNotes || []).length ? `${m.userNotes.length} 条现场备注` : '默认思路' }}
+            </span>
+          </template>
+          <el-input
+            v-model="troubleshootDrafts[m.id]"
+            type="textarea"
+            :rows="(m.checkOrder || []).length + 1"
+            style="margin-bottom:8px"
+          />
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <el-button type="primary" size="small" @click="saveTroubleshoot(m.id)">保存该类思路</el-button>
+            <el-button size="small" @click="resetTroubleshoot(m.id)">恢复该类默认</el-button>
+            <el-button size="small" plain @click="resetAllTroubleshoot">恢复全部默认</el-button>
+          </div>
+        </el-collapse-item>
+      </el-collapse>
+    </el-card>
+
     <!-- ===== 演示参数 ===== -->
     <el-card shadow="never">
       <template #header>
@@ -187,6 +236,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAppStore } from '../stores/appStore'
 import { DAILY_OUTPUT_LOSS, PRESET_SCENARIOS } from '../utils/health'
 import { exportBackup, importBackup } from '../utils/backup'
+import { masterEnabled, setMasterEnabled } from '../utils/masterPersona'
+import { getTroubleshootMaps, saveTroubleshootMap, resetTroubleshootMaps } from '../utils/troubleshootMaps'
 import { applyPref, readMirror, readColorMirror, applyColor, saveColorMirror, watchSystem, THEME_PREF_META_KEY, COLOR_THEMES } from '../utils/theme'
 import * as db from '../utils/database'
 
@@ -196,6 +247,55 @@ const exporting = ref(false)
 const importing = ref(false)
 const dbPath = ref('')
 const dbSize = ref('')
+
+// ---------- AI 助手（老师傅人设 + 排查思路表） ----------
+const masterMode = ref(masterEnabled())
+function toggleMaster(on) {
+  setMasterEnabled(on)
+  masterMode.value = on
+  ElMessage.success(on ? '已开启「AI 老师傅」模式：AI 助手将以老机修口吻回答（数字与规程仍来自本地）' : '已关闭「AI 老师傅」模式')
+}
+
+const troubleshootMaps = ref([])
+const troubleshootDrafts = reactive({})
+function loadTroubleshootMaps() {
+  troubleshootMaps.value = getTroubleshootMaps()
+  for (const m of troubleshootMaps.value) {
+    // textarea 编辑格式：每行"步骤：详情"，便于现场维护
+    troubleshootDrafts[m.id] = (m.checkOrder || []).map(c => `${c.step}：${c.detail}`).join('\n')
+  }
+}
+function saveTroubleshoot(id) {
+  const text = String(troubleshootDrafts[id] || '').trim()
+  if (!text) return
+  const checkOrder = text.split('\n').map(line => line.trim()).filter(Boolean).map(line => {
+    const idx = line.indexOf('：')
+    return idx > 0
+      ? { step: line.slice(0, idx).trim(), detail: line.slice(idx + 1).trim() }
+      : { step: line.slice(0, 12), detail: line }
+  }).filter(c => c.step)
+  const r = saveTroubleshootMap(id, { checkOrder })
+  if (r.ok) {
+    ElMessage.success('排查思路已保存（本机生效，随备份迁移）')
+    loadTroubleshootMaps()
+  } else {
+    ElMessage.error((r && r.error) || '保存失败')
+  }
+}
+function resetTroubleshoot(id) {
+  const r = saveTroubleshootMap(id, null)
+  if (r.ok) {
+    ElMessage.success('已恢复默认排查思路')
+    loadTroubleshootMaps()
+  } else {
+    ElMessage.error((r && r.error) || '恢复失败')
+  }
+}
+function resetAllTroubleshoot() {
+  resetTroubleshootMaps()
+  ElMessage.success('已恢复全部默认排查思路')
+  loadTroubleshootMaps()
+}
 
 // ---------- 主题（任务 09） ----------
 const themePref = ref(db.getMeta(THEME_PREF_META_KEY) || readMirror())
@@ -229,6 +329,7 @@ function setColor(key) {
 
 onMounted(() => {
   systemIsDark.value = window.matchMedia('(prefers-color-scheme: dark)').matches
+  loadTroubleshootMaps()
 })
 onBeforeUnmount(() => stopSystemWatch())
 

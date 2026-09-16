@@ -653,6 +653,86 @@ async function main() {
     })()`)
     check('v1 旧备份兼容导入', backupV1.ok && backupV1.version === '1.0.0', JSON.stringify(backupV1))
 
+    // ---------- 7d. AI 老师傅人设 + 对话式 AI（任务 17 Batch B） ----------
+    // 纯函数直调（不依赖 store）：B2 症状通道 / B3 排查思路 / B4 追问与摘要 / 人设开关。
+    await session.goto(`${BASE}/#/settings`, 2400)
+    const masterUI = await session.eval(`(() => ({
+      hasSwitch: !!document.querySelector('.settings-page .el-switch'),
+      hasLabel: document.body.innerText.includes('AI 老师傅模式')
+    }))()`)
+    check('设置页出现 AI 老师傅开关', masterUI.hasSwitch && masterUI.hasLabel, JSON.stringify(masterUI))
+
+    const personaFn = await session.eval(`(async () => {
+      const { masterEnabled, setMasterEnabled, masterGreeting, MASTER_NARRATE_PERSONA } = await import('/src/utils/masterPersona.js')
+      setMasterEnabled(true)
+      const on = masterEnabled()
+      setMasterEnabled(false)
+      const off = masterEnabled()
+      return { on, off, persona: !!MASTER_NARRATE_PERSONA }
+    })()`)
+    check('老师傅模式开关读写生效（localStorage）',
+      personaFn.on && !personaFn.off && personaFn.persona, JSON.stringify(personaFn))
+
+    const tripletFn = await session.eval(`(async () => {
+      const { KNOWLEDGE_BASE } = await import('/src/utils/knowledgeBase.js')
+      const { matchFaultTriplet, renderTripletCard, tripletRefs } = await import('/src/utils/faultTriplet.js')
+      const hits = matchFaultTriplet('钻杆摆动大怎么处理', KNOWLEDGE_BASE)
+      const hit = hits[0]
+      const html = hit ? renderTripletCard(hit.triplet, '经验引导') : ''
+      return {
+        hit: !!hit,
+        matchedBy: hit && hit.matchedBy,
+        symptom: hit && hit.triplet && hit.triplet.symptom || '',
+        hasCauses: !!(hit && hit.triplet && hit.triplet.causes && hit.triplet.causes.length),
+        hasSteps: !!(hit && hit.triplet && hit.triplet.steps && hit.triplet.steps.length),
+        hasSource: !!(hit && hit.triplet && hit.triplet.source),
+        refs: hit ? tripletRefs(hit.triplet) : [],
+        htmlHasSteps: html.includes('处理步骤')
+      }
+    })()`)
+    check('B2 症状通道：现象描述命中三元组（症状/原因/步骤/来源齐全）',
+      tripletFn.hit && tripletFn.matchedBy === 'symptom' && tripletFn.hasCauses && tripletFn.hasSteps && tripletFn.hasSource && tripletFn.refs.length > 0,
+      JSON.stringify(tripletFn).slice(0, 220))
+
+    const tmapFn = await session.eval(`(async () => {
+      const { matchTroubleshootMap, renderTroubleshootMap } = await import('/src/utils/troubleshootMaps.js')
+      const m = matchTroubleshootMap('液压系统压力低怎么办')
+      const html = m ? renderTroubleshootMap(m) : ''
+      return { hit: !!m, id: m && m.id, htmlHasSteps: html.includes('先看'), orderLen: m ? m.checkOrder.length : 0 }
+    })()`)
+    check('B3 排查思路：系统关键词命中分层思路表',
+      tmapFn.hit && tmapFn.id === 'hydraulic' && tmapFn.orderLen >= 3 && tmapFn.htmlHasSteps,
+      JSON.stringify(tmapFn))
+
+    const followupsFn = await session.eval(`(async () => {
+      const { KNOWLEDGE_BASE } = await import('/src/utils/knowledgeBase.js')
+      const { matchFaultTriplet } = await import('/src/utils/faultTriplet.js')
+      const { masterFollowups } = await import('/src/utils/masterPersona.js')
+      const hits = matchFaultTriplet('钻杆摆动大怎么处理', KNOWLEDGE_BASE)
+      const f = masterFollowups('钻杆摆动大怎么处理', { source: 'knowledge', hits })
+      return { list: f, ok: Array.isArray(f) && f.length > 0 && f.length <= 3 }
+    })()`)
+    check('B4 追问候选：知识回答后生成 1~3 个追问',
+      followupsFn.ok, JSON.stringify(followupsFn.list))
+
+    const summaryFn = await session.eval(`(async () => {
+      const { buildConversationSummary } = await import('/src/utils/conversationSummary.js')
+      const s = buildConversationSummary([
+        { role: 'user', text: '1号挖掘机液压油压力低', equipmentName: '1号挖掘机', timestamp: 't1' },
+        { role: 'assistant', text: '已按液压系统条目回答', equipmentName: '1号挖掘机', timestamp: 't2' }
+      ], { overdueCount: 3 })
+      return {
+        ok: !!s,
+        hasRounds: s.includes('问答轮数：1'),
+        hasDevice: s.includes('1号挖掘机'),
+        hasSystem: s.includes('液压系统'),
+        hasOverdue: s.includes('3 台')
+      }
+    })()`)
+    check('B4 会话摘要：轮数/设备/系统/待办齐全',
+      summaryFn.ok && summaryFn.hasRounds && summaryFn.hasDevice && summaryFn.hasSystem && summaryFn.hasOverdue,
+      JSON.stringify(summaryFn))
+
     // ---------- 7b. UI 升级：分组侧边栏 + 导航搜索 + 钉住常用 ----------
     await session.goto(`${BASE}/#/dashboard`, 2400)
     const nav = await session.eval(`(() => ({

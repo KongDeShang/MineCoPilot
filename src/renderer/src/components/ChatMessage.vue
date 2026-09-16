@@ -138,6 +138,17 @@
           <span class="refs-label">依据</span>
           <span v-for="(ref, ri) in msg.refs" :key="ri" class="ref-item">{{ ref }}</span>
         </div>
+        <div v-if="msg.followups && msg.followups.length" class="message-followups">
+          <span class="followups-label">可能还想问</span>
+          <el-tag
+            v-for="(f, fi) in msg.followups"
+            :key="fi"
+            size="small"
+            effect="plain"
+            class="followup-tag"
+            @click="$emit('ask-followup', f)"
+          >{{ f }}</el-tag>
+        </div>
         <div class="message-time">{{ msg.time }}</div>
       </template>
     </div>
@@ -168,7 +179,7 @@ defineProps({
   typing: { type: Boolean, default: false }
 })
 
-defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'toggle-thinking'])
+defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'toggle-thinking', 'ask-followup'])
 </script>
 
 <style scoped>
@@ -534,5 +545,32 @@ defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'togg
 .ref-item {
   font-size: 11px;
   color: var(--text-2);
+}
+
+/* 追问候选（动态生成，点击即问） */
+.message-followups {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.followups-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.followup-tag {
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+
+.followup-tag:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 </style>

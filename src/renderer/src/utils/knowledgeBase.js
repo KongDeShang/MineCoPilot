@@ -992,7 +992,8 @@ export function answerQuestion(store, question, items = KNOWLEDGE_BASE) {
     return {
       html,
       source: 'knowledge',
-      refs: hits.map(hit => `《${hit.entry.title}》· ${hit.entry.source}`)
+      refs: hits.map(hit => `《${hit.entry.title}》· ${hit.entry.source}`),
+      hits: hits.map(hit => ({ entry: hit.entry, score: hit.score }))
     }
   }
 

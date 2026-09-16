@@ -25,7 +25,9 @@ const SETTINGS_KEYS = [
   'ks:color',          // 色彩主题
   'ks:wizard-dismissed', // 模型向导已跳过
   'mining-nav-pinned', // 侧边栏钉住项
-  'hasSeenLanding'     // 落地页已看过
+  'hasSeenLanding',    // 落地页已看过
+  'ks:master-mode',    // AI 老师傅模式开关（任务 17）
+  'ks:troubleshoot-maps' // 四类排查思路表用户版（任务 17）
 ]
 
 // 浏览器模式的文档文件库（与 docFileStore 同一库）

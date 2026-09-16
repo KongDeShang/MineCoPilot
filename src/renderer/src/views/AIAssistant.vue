@@ -125,6 +125,7 @@
                   @cancel-plan="cancelPlan(msg)"
                   @undo-plan="undoPlan(msg)"
                   @toggle-thinking="toggleThinking(msg)"
+                  @ask-followup="askFollowup"
                 />
                 <ChatMessage v-if="isLoading" typing />
               </div>
@@ -179,6 +180,12 @@ import { htmlToText, narrateConclusionStream } from '../utils/narrate'
 import { statusLabel, priorityLabel } from '../utils/dictionaries'
 import { escapeHtml } from '../utils/html'
 import { typewriterHTML } from '../utils/typewriter'
+import {
+  masterEnabled, masterGreeting, masterTip, masterFollowups, MASTER_NARRATE_PERSONA
+} from '../utils/masterPersona'
+import { matchFaultTriplet, renderTripletCard, tripletRefs } from '../utils/faultTriplet'
+import { matchTroubleshootMap, renderTroubleshootMap } from '../utils/troubleshootMaps'
+import { buildConversationSummary } from '../utils/conversationSummary'
 
 /**
  * Excel 解析面板改为懒加载。
@@ -271,6 +278,14 @@ const messages = ref([])
 const CHAT_MAX_AGE_MS = 30 * 60 * 1000
 
 function welcomeMessage() {
+  // 老师傅模式开启时，开场白换成"老机修"口吻（数字同样实时，不新增事实）
+  if (masterEnabled()) {
+    return {
+      role: 'assistant',
+      content: masterGreeting(store),
+      time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    }
+  }
   return {
     role: 'assistant',
     content: buildWelcomeMessage(),
@@ -467,6 +482,13 @@ function askQuick(question) {
   sendMessage()
 }
 
+/** 追问候选点击（B4）：填入输入框并走完整问答流程 */
+function askFollowup(question) {
+  if (isLoading.value) return
+  inputText.value = question
+  sendMessage()
+}
+
 /**
  * 回车发送（要避开中文输入法的候选词确认）
  *
@@ -605,25 +627,47 @@ async function sendMessage() {
   // 本地检索：台账优先，其次知识库 + 手册资料库（含 PDF 原文切片，命中带页码出处）；不做任何网络请求
   const result = answerQuestion(store, question, store.answerItems)
 
+  // ---- B2/B3 兜底通道：知识库关键词未命中时，先试"症状→原因→处理"三元组，
+  //      再试四类排查思路表——一线问的是现象（"干活没劲还抖"），不该直接回"查不到"
+  let finalHtml = result.html
   msg.refs = result.refs
+  let tripletHit = null
+  if (result.source === 'none') {
+    const triplets = matchFaultTriplet(question, store.knowledgeItems)
+    if (triplets.length) {
+      tripletHit = triplets[0]
+      finalHtml = renderTripletCard(tripletHit.triplet,
+        masterEnabled() ? '按经验，先对现象、再查原因、后动手。这种情况多数是油路/气路或磨损的事，按下面的顺序走一遍。' : '已根据您描述的现象匹配到以下经验条目（来自本地知识库）：')
+      msg.refs = tripletRefs(tripletHit.triplet)
+    } else {
+      const tmap = matchTroubleshootMap(question)
+      if (tmap) {
+        finalHtml = renderTroubleshootMap(tmap)
+        msg.refs = ['本地排查经验表（可在系统设置 → AI 助手维护）']
+      }
+    }
+  }
+
+  // 追问候选（B4）：基于回答内容动态生成 2~3 个"可能还想问"
+  msg.followups = masterFollowups(question, { ...result, hits: tripletHit ? [tripletHit] : result.hits })
 
   // 逐字打字效果：规则引擎回复逐字显现，增强"正在思考"的体感
   // prefers-reduced-motion 下 charDelay 自动降为 0（typewriterHTML 内部处理）
-  await typewriterHTML(msg, result.html, {
+  await typewriterHTML(msg, finalHtml, {
     charDelay: 18,
     scrollToBottom: () => scrollToBottom(true)
   })
 
   // 本地模型叙述层：把已核实的结论"说成人话"（流式；未就绪/失败自动回退，不阻塞主答案）
-  narrateStream(msg, result.html)
+  narrateStream(msg, finalHtml, { persona: masterEnabled() ? MASTER_NARRATE_PERSONA : null })
 
   // 查询意图 + 提到了设备 → 给一个直达体检报告的入口
   if (plan.notFound && plan.notFound.length) {
     msg.content += `<div style="margin-top:8px;color:var(--warn-ink)">顺带提示：${plan.notFound[0].reason}（原话："${plan.notFound[0].clause}"）</div>`
   }
 
-  // 追加"智工小提示"（与问题类型相关的行动建议）
-  msg.content += buildTip(question, result)
+  // 追加行动提示：老师傅模式开 → 老师傅口吻；关 → 原"智工小提示"
+  msg.content += masterEnabled() ? masterTip(question, result, store) : buildTip(question, result)
 
   store.addLog({
     content: `AI 助手回答：${rawQuestion}`,
@@ -677,7 +721,7 @@ function narrateFallbackHtml(reason) {
  *   2) 任何环节不可用都明示降级，主答案照常展示。
  *   3) 最终文本写回 msg.content，刷新/导出后仍在（此前只写 DOM，刷新就是空盒子）。
  */
-async function narrateStream(msg, resultHtml) {
+async function narrateStream(msg, resultHtml, { persona } = {}) {
   try {
     if (!llmAvailable()) return
     const plain = htmlToText(resultHtml).slice(0, 1200)
@@ -693,6 +737,7 @@ async function narrateStream(msg, resultHtml) {
 
     let acc = ''
     const r = await narrateConclusionStream(resultHtml, {
+      persona,
       onChunk: (t) => {
         acc += t
         box.textContent = acc
@@ -897,17 +942,23 @@ function scrollToBottom(force = false) {
   })
 }
 
-/** 导出 AI 对话记录为 Markdown（供交接班使用） */
+/** 导出 AI 对话记录为 Markdown（供交接班使用；头部附会话摘要） */
 function exportConversation() {
+  const summary = buildConversationSummary(conversation.value, {
+    overdueCount: store.overdueList.length,
+    equipmentCount: store.equipmentList.length
+  })
   const lines = [
     `# 矿山智工 AI 对话记录`,
     ``,
     `导出时间：${now().slice(0, 16).replace('T', ' ')}`,
     `设备总数：${store.equipmentList.length} 台`,
-    ``,
-    `---`,
     ``
   ]
+  if (summary) {
+    lines.push(summary)
+  }
+  lines.push(`---`, ``)
   for (const msg of messages.value) {
     // 导出的是要交接班传阅的 Markdown 文档，不用 emoji 做角色标记
     const role = msg.role === 'user' ? '用户' : '智工'

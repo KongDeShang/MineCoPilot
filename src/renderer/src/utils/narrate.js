@@ -42,7 +42,7 @@ export async function narrateConclusion(html, { maxChars = 1200 } = {}) {
  * @param {string} html
  * @param {{ maxChars?: number, onChunk?: (t:string)=>void }} opts
  */
-export async function narrateConclusionStream(html, { maxChars = 1200, onChunk } = {}) {
+export async function narrateConclusionStream(html, { maxChars = 1200, onChunk, persona } = {}) {
   if (!llmAvailable()) return { mode: 'fallback', reason: 'browser' }
 
   const st = await llmStatus()
@@ -53,7 +53,7 @@ export async function narrateConclusionStream(html, { maxChars = 1200, onChunk }
   const plain = htmlToText(html).slice(0, maxChars)
   if (!plain) return { mode: 'fallback', reason: 'empty-conclusion' }
 
-  const prompt = buildNarratePrompt(plain)
+  const prompt = buildNarratePrompt(plain, persona)
   const r = await llmGenerate(prompt, { onChunk })
   if (!r.ok || !r.text || !r.text.trim()) {
     return { mode: 'fallback', reason: r.error || 'empty-output' }

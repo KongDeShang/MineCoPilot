@@ -94,17 +94,22 @@ export async function llmSwitchModel(id) {
  * （0.5B 模型自由概括会失真，必须引导它"复述"，语义才能保真）
  * @param {string} conclusionText 规则引擎已核实的结论（纯文本）
  */
-export function buildNarratePrompt(conclusionText) {
+export function buildNarratePrompt(conclusionText, persona) {
   const text = String(conclusionText || '').trim()
   if (!text) return ''
   return [
-    '你是矿山设备健康管理助理。请把下面这段已经核实的结论，逐条复述要点，改写成几句口语化的中文说明，给矿场一线人员看。',
+    persona
+      ? `你是矿山设备健康管理助理。${persona}`
+      : '你是矿山设备健康管理助理。请把下面这段已经核实的结论，逐条复述要点，改写成几句口语化的中文说明，给矿场一线人员看。',
+    persona
+      ? '请把下面这段已经核实的结论，按上面的要求逐条复述要点，改写成几句口语化的中文说明，给矿场一线人员看。'
+      : '',
     '要求：只润色表达、逐条复述，禁止新增、删减或改写任何数字、型号、日期、健康状态、设备名称等事实；原结论中的数字必须原样保留。',
     '重要：不要使用任何序号、编号或项目符号（如 加括号的编号、第一、其一），直接按要点自然连成通顺的话。',
     '重要：不要提到原结论中没有的任何设备、编号或数值。',
     '原结论如下：',
     text
-  ].join('\n')
+  ].filter(Boolean).join('\n')
 }
 
 /** 从文本中提取数字集合（用于"数字不变量"断言） */
