@@ -1,6 +1,6 @@
 {
   "name": "kuangshan-zhigong",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "矿山智工 - 工程机械运维AI工作台",
   "main": "src/main/index.js",
   "scripts": {
