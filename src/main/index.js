@@ -139,6 +139,14 @@ function registerIpc() {
 
   ipcMain.handle('app:version', (event) => { assertTrusted(event); return app.getVersion() })
   ipcMain.handle('app:userDataPath', (event) => { assertTrusted(event); return app.getPath('userData') })
+  // sql.js 的 WASM：渲染层 fetch 读不了 file:///asar 资源（Chromium 网络栈限制），
+  // 由主进程用 fs 读（asar 对 Node fs 透明）后经 IPC 传回，渲染层走 wasmBinary 注入。
+  ipcMain.handle('app:readWasm', (event) => {
+    assertTrusted(event)
+    const wasmPath = path.join(__dirname, '../../dist/assets/sql-wasm.wasm')
+    if (!fs.existsSync(wasmPath)) return null
+    return fs.readFileSync(wasmPath)
+  })
   ipcMain.handle('app:openPath', async (event, p) => {
     assertTrusted(event)
     const safe = resolveInDocs(p)

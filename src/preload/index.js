@@ -21,7 +21,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     version: () => ipcRenderer.invoke('app:version'),
     userDataPath: () => ipcRenderer.invoke('app:userDataPath'),
     // ⚠️ 仅允许打开 documents/ 目录内的文件（主进程做边界校验，传越界路径会被拒）
-    openPath: (p) => ipcRenderer.invoke('app:openPath', p)
+    openPath: (p) => ipcRenderer.invoke('app:openPath', p),
+    // sql.js WASM 二进制（打包版用：渲染层 fetch 读不了 file://，主进程 fs 读后注入）
+    readWasm: () => ipcRenderer.invoke('app:readWasm')
   },
 
   // 数据备份与迁移（一键换机）

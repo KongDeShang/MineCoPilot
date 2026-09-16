@@ -18,7 +18,8 @@
   "asar": true,
   "asarUnpack": [
     "node_modules/node-llama-cpp/**/*",
-    "node_modules/@node-llama-cpp/**/*"
+    "node_modules/@node-llama-cpp/**/*",
+    "**/*.wasm"
   ],
   "extraResources": [
     {

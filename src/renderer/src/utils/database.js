@@ -32,11 +32,42 @@ function getSqlJsInitializer() {
  *   - 开发模式：vite 插件把它挂在 /sql-wasm.wasm
  *   - 生产构建：它被复制到 assets/sql-wasm.wasm
  * 两者都基于当前模块的 URL 解析，保证 Electron file:// 与浏览器 http 下都能找到。
+ *
+ * Electron 打包细节（2026-09-16 修复，真机白屏根因）：
+ * Chromium 网络栈禁止 file:// 页面用 fetch() 读 file:// 资源，sql.js 的
+ * wasm 永远加载不出来。因此打包版优先走 getWasmBinary()（主进程 fs 读
+ * asar 内文件经 IPC 传入 wasmBinary，见 preload app.readWasm / main app:readWasm）；
+ * fetch locateFile 仅作浏览器模式兜底。asarUnpack 配置同时保留，主进程读
+ * asar 内外路径均兼容。
  */
 function locateSqlWasm() {
   const bundled = typeof __SQLJS_WASM_URL__ !== 'undefined' ? __SQLJS_WASM_URL__ : './assets/sql-wasm.wasm'
   const isDev = typeof import.meta !== 'undefined' && import.meta.url && import.meta.url.includes('/src/')
-  return isDev ? '/sql-wasm.wasm' : new URL(bundled, import.meta.url).href
+  if (isDev) return '/sql-wasm.wasm'
+  return new URL(bundled, import.meta.url).href.replace('/app.asar/', '/app.asar.unpacked/')
+}
+
+/**
+ * 优先拿主进程注入的 wasm 二进制（Electron 打包版，绕开 fetch file:// 限制）；
+ * 拿不到返回 null（浏览器模式走 locateFile 正常 fetch）。
+ */
+async function getWasmBinary() {
+  try {
+    if (typeof window !== 'undefined' && window.electronAPI && window.electronAPI.app && window.electronAPI.app.readWasm) {
+      const buf = await window.electronAPI.app.readWasm()
+      if (buf) return new Uint8Array(buf)
+    }
+  } catch { /* 静默降级为 locateFile */ }
+  return null
+}
+
+/** 组装 sql.js 初始化参数：Electron 走 wasmBinary，浏览器走 locateFile */
+async function createSqlJsConfig() {
+  const wasmBinary = await getWasmBinary()
+  return {
+    locateFile: (file) => (file.endsWith('.wasm') ? locateSqlWasm() : file),
+    ...(wasmBinary ? { wasmBinary } : {})
+  }
 }
 
 /** 表结构定义：版本号用于将来的迁移 */
@@ -244,7 +275,7 @@ function runMigrations() {
 export async function initDatabase() {
   if (db) return db
 
-  if (!SQL) SQL = await getSqlJsInitializer()({ locateFile: (file) => (file.endsWith('.wasm') ? locateSqlWasm() : file) })
+  if (!SQL) SQL = await getSqlJsInitializer()(await createSqlJsConfig())
 
   let restored = null
   try {
@@ -408,7 +439,7 @@ export function exportBase64() {
  * 重建内存库 + 建表 + 立即落盘；调用方应随后提示重启应用以重载各页数据。
  */
 export async function restoreFromBytes(bytes) {
-  if (!SQL) SQL = await getSqlJsInitializer()({ locateFile: (file) => (file.endsWith('.wasm') ? locateSqlWasm() : file) })
+  if (!SQL) SQL = await getSqlJsInitializer()(await createSqlJsConfig())
   db = new SQL.Database(bytes)
   createSchema()
   await persist(true)
