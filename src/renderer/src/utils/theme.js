@@ -1,5 +1,5 @@
 /**
- * 主题偏好与切换（浅色 / 深色 / 跟随系统）
+ * 主题偏好与切换（浅色 / 深色 / 跟随系统）+ 色彩主题变体
  *
  * ## 两条存储路径，各司其职
  *
@@ -20,11 +20,25 @@
  */
 export const THEME_PREF_META_KEY = 'theme_pref'
 export const THEME_PREF_MIRROR_KEY = 'ks:theme'
+export const COLOR_PREF_MIRROR_KEY = 'ks:color'
 export const THEME_MODES = ['light', 'dark', 'system']
+
+/** 色彩主题定义：name → { label, accent, signal } */
+export const COLOR_THEMES = {
+  blue:   { label: '默认蓝', accent: '#0b3a82', signal: '#0bb4c4' },
+  green:  { label: '工程绿', accent: '#1a6b3c', signal: '#2ecc71' },
+  orange: { label: '矿石橙', accent: '#a0522d', signal: '#f39c12' },
+  red:    { label: '警示红', accent: '#8b1a1a', signal: '#e74c3c' }
+}
 
 /** 归一化非法值：meta/localStorage 里的脏数据一律回落 system */
 export function normalizePref(v) {
   return THEME_MODES.includes(v) ? v : 'system'
+}
+
+/** 归一化色彩主题：非法值回落 blue */
+export function normalizeColor(v) {
+  return (v && v in COLOR_THEMES) ? v : 'blue'
 }
 
 /** 偏好 → 实际模式：system 按系统色 */
@@ -48,6 +62,22 @@ export function applyMode(mode) {
 }
 
 /**
+ * 应用色彩主题到文档：
+ * - `<html data-color="blue|green|orange|red">`：tokens.css 的色彩变体块挂在这里
+ * - blue 为默认色，不写 data-color 属性
+ */
+export function applyColor(color) {
+  if (typeof document === 'undefined') return
+  const c = normalizeColor(color)
+  const root = document.documentElement
+  if (c === 'blue') {
+    root.removeAttribute('data-color')
+  } else {
+    root.setAttribute('data-color', c)
+  }
+}
+
+/**
  * 应用偏好（写镜像并应用实际模式）。meta 的写入由调用方负责
  * （本模块不 import database，保持纯浏览器工具，便于 theme-init 复用）。
  */
@@ -61,6 +91,16 @@ export function applyPref(pref) {
 /** 读取镜像（theme-init 与 bootstrap 共用） */
 export function readMirror() {
   try { return normalizePref(localStorage.getItem(THEME_PREF_MIRROR_KEY)) } catch { return 'system' }
+}
+
+/** 读取色彩主题镜像 */
+export function readColorMirror() {
+  try { return normalizeColor(localStorage.getItem(COLOR_PREF_MIRROR_KEY)) } catch { return 'blue' }
+}
+
+/** 保存色彩主题到 localStorage 镜像 */
+export function saveColorMirror(color) {
+  try { localStorage.setItem(COLOR_PREF_MIRROR_KEY, normalizeColor(color)) } catch { /* ignore */ }
 }
 
 const MQ = '(prefers-color-scheme: dark)'

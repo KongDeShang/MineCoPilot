@@ -21,7 +21,7 @@ import App from './App.vue'
 import router from './router'
 import { APP_ICONS } from './utils/appIcons'
 import { useAppStore } from './stores/appStore'
-import { applyPref, readMirror, watchSystem, THEME_PREF_META_KEY } from './utils/theme'
+import { applyPref, readMirror, readColorMirror, applyColor, watchSystem, THEME_PREF_META_KEY } from './utils/theme'
 import * as db from './utils/database'
 
 async function bootstrap() {
@@ -61,6 +61,7 @@ async function bootstrap() {
   // theme-init.js 已在首帧按镜像设过一次，这里用权威值校正（含换机导入备份的场景）。
   // watchSystem() 让"跟随系统"模式在系统切换深浅时自动跟随。
   applyPref(db.getMeta(THEME_PREF_META_KEY) || readMirror())
+  applyColor(readColorMirror())
   watchSystem()
 
   app.mount('#app')

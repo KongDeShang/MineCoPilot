@@ -20,6 +20,26 @@
           <span v-if="themePref === 'system'" class="theme-sys-now">当前系统为{{ systemIsDark ? '深色' : '浅色' }}，应用现处于{{ systemIsDark ? '深色' : '浅色' }}模式。</span>
         </div>
       </div>
+
+      <!-- 色彩主题 -->
+      <div class="theme-row" style="margin-top: 16px">
+        <div class="color-theme-label">色彩主题</div>
+        <div class="color-swatches">
+          <div
+            v-for="(theme, key) in colorThemes"
+            :key="key"
+            class="color-swatch"
+            :class="{ active: colorPref === key }"
+            :title="theme.label"
+            @click="setColor(key)"
+          >
+            <span class="swatch-fill" :style="{ background: theme.accent }"></span>
+            <span class="swatch-signal" :style="{ background: theme.signal }"></span>
+            <span v-if="colorPref === key" class="swatch-check">✓</span>
+          </div>
+        </div>
+        <div class="theme-hint">选择品牌色调，覆盖全局主色和强调色。深色模式下同样生效。</div>
+      </div>
     </el-card>
 
     <!-- ===== 演示参数 ===== -->
@@ -167,7 +187,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAppStore } from '../stores/appStore'
 import { DAILY_OUTPUT_LOSS, PRESET_SCENARIOS } from '../utils/health'
 import { exportBackup, importBackup } from '../utils/backup'
-import { applyPref, readMirror, watchSystem, THEME_PREF_META_KEY } from '../utils/theme'
+import { applyPref, readMirror, readColorMirror, applyColor, saveColorMirror, watchSystem, THEME_PREF_META_KEY, COLOR_THEMES } from '../utils/theme'
 import * as db from '../utils/database'
 
 const store = useAppStore()
@@ -194,6 +214,17 @@ function setTheme() {
   applyPref(p)
   systemIsDark.value = window.matchMedia('(prefers-color-scheme: dark)').matches
   ElMessage.success(`已切换为${p === 'dark' ? '深色' : p === 'light' ? '浅色' : '跟随系统'}主题`)
+}
+
+// ---------- 色彩主题 ----------
+const colorThemes = COLOR_THEMES
+const colorPref = ref(readColorMirror())
+
+function setColor(key) {
+  colorPref.value = key
+  applyColor(key)
+  saveColorMirror(key)
+  ElMessage.success(`已切换为「${COLOR_THEMES[key]?.label || key}」色彩主题`)
 }
 
 onMounted(() => {
@@ -365,6 +396,59 @@ loadDbInfo()
 }
 .theme-sys-now {
   color: var(--text-2);
+}
+
+.color-theme-label {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-1);
+  padding-top: 4px;
+}
+.color-swatches {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.color-swatch {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  cursor: pointer;
+  position: relative;
+  border: 3px solid transparent;
+  transition: border-color 0.2s var(--ease-out), transform 0.2s var(--ease-out), box-shadow 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.color-swatch:hover {
+  transform: scale(1.1);
+  box-shadow: var(--sh-sm);
+}
+.color-swatch.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft), var(--sh-sm);
+}
+.swatch-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+.swatch-signal {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+}
+.swatch-check {
+  position: relative;
+  z-index: 1;
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.4);
 }
 
 .card-header {

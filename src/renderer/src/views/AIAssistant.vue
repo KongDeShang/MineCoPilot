@@ -178,6 +178,7 @@ import { llmAvailable, llmLoad } from '../utils/llmClient'
 import { htmlToText, narrateConclusionStream } from '../utils/narrate'
 import { statusLabel, priorityLabel } from '../utils/dictionaries'
 import { escapeHtml } from '../utils/html'
+import { typewriterHTML } from '../utils/typewriter'
 
 /**
  * Excel 解析面板改为懒加载。
@@ -604,8 +605,14 @@ async function sendMessage() {
   // 本地检索：台账优先，其次知识库 + 手册资料库（含 PDF 原文切片，命中带页码出处）；不做任何网络请求
   const result = answerQuestion(store, question, store.answerItems)
 
-  msg.content = result.html
   msg.refs = result.refs
+
+  // 逐字打字效果：规则引擎回复逐字显现，增强"正在思考"的体感
+  // prefers-reduced-motion 下 charDelay 自动降为 0（typewriterHTML 内部处理）
+  await typewriterHTML(msg, result.html, {
+    charDelay: 18,
+    scrollToBottom: () => scrollToBottom(true)
+  })
 
   // 本地模型叙述层：把已核实的结论"说成人话"（流式；未就绪/失败自动回退，不阻塞主答案）
   narrateStream(msg, result.html)

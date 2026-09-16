@@ -484,6 +484,182 @@ body {
 .lv-d { --lv: var(--level-d); --lv-text: var(--level-text-d); }
 
 /* ============================================================
+   色彩主题变体（工程绿 / 矿石橙 / 警示红）
+   ------------------------------------------------------------
+   通过 html[data-color="green|orange|red"] 激活，覆盖品牌核心色。
+   暗色模式由 data-theme="dark" 叠加生效（选择器组合）。
+   只覆盖 ~10 个核心色，其余由现有派生规则继承。
+   ============================================================ */
+
+/* ── 工程绿（环保/矿山绿化场景） ── */
+html[data-color="green"] {
+  --accent: #1a6b3c;
+  --accent-hover: #1b7542;
+  --accent-active: #166034;
+  --accent-soft: #e8f5ee;
+  --accent-line: #b8dfc8;
+  --accent-dark: #0f4d2b;
+  --accent-mid: #3d8a5c;
+  --signal: #2ecc71;
+  --signal-hover: #27ae60;
+  --signal-soft: #eafaf1;
+  --signal-line: #a3e4be;
+  --signal-ink: #1a7a42;
+  --el-color-primary: #1a6b3c;
+  --el-color-primary-light-3: #3d8a5c;
+  --el-color-primary-light-5: #6daa84;
+  --el-color-primary-light-7: #9dc8ac;
+  --el-color-primary-light-8: #b8dfc8;
+  --el-color-primary-light-9: #e8f5ee;
+  --el-color-primary-dark-2: #166034;
+  --grad-strip: linear-gradient(120deg, #1a6b3c 0%, #27ae60 70%, #2ecc71 100%);
+  --grid-color: rgba(46, 204, 113, 0.045);
+  --sh-focus: 0 0 0 3px rgba(26, 107, 60, 0.26);
+  --accent-glass: rgba(26, 107, 60, 0.05);
+  --accent-glass-strong: rgba(26, 107, 60, 0.14);
+  --accent-shadow: rgba(26, 107, 60, 0.12);
+}
+
+html[data-color="green"][data-theme="dark"] {
+  --accent: #5fc88a;
+  --accent-hover: #6fd497;
+  --accent-active: #4fbc7e;
+  --accent-soft: #122a1e;
+  --accent-line: #2a6040;
+  --accent-dark: #0a1326;
+  --accent-mid: #5aad7c;
+  --signal: #4de8a0;
+  --signal-soft: #0d2b1e;
+  --signal-line: #1f5c41;
+  --signal-ink: #4de8a0;
+  --el-color-primary: #5fc88a;
+  --el-color-primary-light-3: #6fd497;
+  --el-color-primary-light-5: #8fe0b0;
+  --el-color-primary-light-7: #afecc8;
+  --el-color-primary-light-8: #c7f2da;
+  --el-color-primary-light-9: #122a1e;
+  --el-color-primary-dark-2: #2a8050;
+  --grad-strip: linear-gradient(120deg, #1a6b3c 0%, #1a8050 60%, #2a9060 100%);
+  --grid-color: rgba(77, 232, 160, 0.05);
+  --sh-focus: 0 0 0 3px rgba(42, 128, 80, 0.45);
+  --accent-glass: rgba(42, 128, 80, 0.12);
+  --accent-glass-strong: rgba(42, 128, 80, 0.24);
+  --accent-shadow: rgba(0, 0, 0, 0.42);
+}
+
+/* ── 矿石橙（矿山/金属质感） ── */
+html[data-color="orange"] {
+  --accent: #a0522d;
+  --accent-hover: #b05a32;
+  --accent-active: #904a28;
+  --accent-soft: #fdf0e8;
+  --accent-line: #f0c8ad;
+  --accent-dark: #7a3e22;
+  --accent-mid: #b87050;
+  --signal: #f39c12;
+  --signal-hover: #e08e0e;
+  --signal-soft: #fef9ec;
+  --signal-line: #f7d78e;
+  --signal-ink: #a06a0c;
+  --el-color-primary: #a0522d;
+  --el-color-primary-light-3: #b87050;
+  --el-color-primary-light-5: #cc9478;
+  --el-color-primary-light-7: #e0b8a2;
+  --el-color-primary-light-8: #f0d0be;
+  --el-color-primary-light-9: #fdf0e8;
+  --el-color-primary-dark-2: #904a28;
+  --grad-strip: linear-gradient(120deg, #a0522d 0%, #d06830 70%, #f39c12 100%);
+  --grid-color: rgba(243, 156, 18, 0.045);
+  --sh-focus: 0 0 0 3px rgba(160, 82, 45, 0.26);
+  --accent-glass: rgba(160, 82, 45, 0.05);
+  --accent-glass-strong: rgba(160, 82, 45, 0.14);
+  --accent-shadow: rgba(160, 82, 45, 0.12);
+}
+
+html[data-color="orange"][data-theme="dark"] {
+  --accent: #d08060;
+  --accent-hover: #da9070;
+  --accent-active: #c47050;
+  --accent-soft: #2a1a12;
+  --accent-line: #6a4030;
+  --accent-dark: #0a1326;
+  --accent-mid: #c07858;
+  --signal: #f0b050;
+  --signal-soft: #2a2410;
+  --signal-line: #5c4a1e;
+  --signal-ink: #f0b050;
+  --el-color-primary: #d08060;
+  --el-color-primary-light-3: #da9070;
+  --el-color-primary-light-5: #e4a88a;
+  --el-color-primary-light-7: #eec0a8;
+  --el-color-primary-light-8: #f4d4c0;
+  --el-color-primary-light-9: #2a1a12;
+  --el-color-primary-dark-2: #a06040;
+  --grad-strip: linear-gradient(120deg, #a0522d 0%, #b06030 60%, #c07040 100%);
+  --grid-color: rgba(240, 176, 80, 0.05);
+  --sh-focus: 0 0 0 3px rgba(160, 96, 64, 0.45);
+  --accent-glass: rgba(160, 96, 64, 0.12);
+  --accent-glass-strong: rgba(160, 96, 64, 0.24);
+  --accent-shadow: rgba(0, 0, 0, 0.42);
+}
+
+/* ── 警示红（高危作业模式） ── */
+html[data-color="red"] {
+  --accent: #8b1a1a;
+  --accent-hover: #9c2020;
+  --accent-active: #7a1616;
+  --accent-soft: #fdecec;
+  --accent-line: #f0b8b8;
+  --accent-dark: #6a1212;
+  --accent-mid: #a84040;
+  --signal: #e74c3c;
+  --signal-hover: #d44336;
+  --signal-soft: #fdf0ef;
+  --signal-line: #f0a0a0;
+  --signal-ink: #a03030;
+  --el-color-primary: #8b1a1a;
+  --el-color-primary-light-3: #a84040;
+  --el-color-primary-light-5: #c06868;
+  --el-color-primary-light-7: #d89898;
+  --el-color-primary-light-8: #e8b8b8;
+  --el-color-primary-light-9: #fdecec;
+  --el-color-primary-dark-2: #7a1616;
+  --grad-strip: linear-gradient(120deg, #8b1a1a 0%, #c03030 70%, #e74c3c 100%);
+  --grid-color: rgba(231, 76, 60, 0.045);
+  --sh-focus: 0 0 0 3px rgba(139, 26, 26, 0.26);
+  --accent-glass: rgba(139, 26, 26, 0.05);
+  --accent-glass-strong: rgba(139, 26, 26, 0.14);
+  --accent-shadow: rgba(139, 26, 26, 0.12);
+}
+
+html[data-color="red"][data-theme="dark"] {
+  --accent: #d06060;
+  --accent-hover: #da7070;
+  --accent-active: #c45050;
+  --accent-soft: #2a1212;
+  --accent-line: #6a3030;
+  --accent-dark: #0a1326;
+  --accent-mid: #c05858;
+  --signal: #f07060;
+  --signal-soft: #33181a;
+  --signal-line: #6e3030;
+  --signal-ink: #f07060;
+  --el-color-primary: #d06060;
+  --el-color-primary-light-3: #da7070;
+  --el-color-primary-light-5: #e49090;
+  --el-color-primary-light-7: #eeb0b0;
+  --el-color-primary-light-8: #f4c8c8;
+  --el-color-primary-light-9: #2a1212;
+  --el-color-primary-dark-2: #a04040;
+  --grad-strip: linear-gradient(120deg, #8b1a1a 0%, #a03030 60%, #b84040 100%);
+  --grid-color: rgba(240, 112, 96, 0.05);
+  --sh-focus: 0 0 0 3px rgba(160, 64, 64, 0.45);
+  --accent-glass: rgba(160, 64, 64, 0.12);
+  --accent-glass-strong: rgba(160, 64, 64, 0.24);
+  --accent-shadow: rgba(0, 0, 0, 0.42);
+}
+
+/* ============================================================
    深色主题（任务 09）
    ------------------------------------------------------------
    挂在 html[data-theme="dark"] 上，同名覆盖浅色令牌。

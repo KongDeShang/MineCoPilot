@@ -544,15 +544,37 @@ html, body, #app {
   color: rgba(255, 255, 255, 0.72);
   font-size: 13.5px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  /* 精确列出过渡属性，避免 transition: all 性能开销 */
+  transition: transform 0.22s var(--ease-out), background 0.22s var(--ease-out),
+              color 0.22s, box-shadow 0.22s var(--ease-out);
   border-left: 3px solid transparent;
   position: relative;
   white-space: nowrap;
+  will-change: transform;
 }
 
+/* ── hover 位移反馈（参考外贸智能体） ── */
 .nav-item:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.1);
   color: var(--accent-contrast);
+  transform: translateX(3px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+}
+
+/* hover 时图标微旋转缩放 */
+.nav-item:hover > .el-icon:first-child {
+  transform: scale(1.12) rotate(-3deg);
+  transition: transform 0.25s var(--ease-out);
+}
+
+.nav-item > .el-icon:first-child {
+  transition: transform 0.25s var(--ease-out);
+}
+
+/* ── active 入场动画 ── */
+@keyframes navActiveIn {
+  from { opacity: 0.72; transform: translateX(-5px) scale(0.985); }
+  to   { opacity: 1;    transform: translateX(0)    scale(1); }
 }
 
 .nav-item.active {
@@ -560,6 +582,7 @@ html, body, #app {
   color: var(--accent-contrast);
   border-left-color: var(--signal);
   font-weight: 600;
+  animation: navActiveIn 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .nav-item.active .nav-label {
@@ -584,6 +607,12 @@ html, body, #app {
   padding: 0 7px;
   height: 17px;
   line-height: 17px;
+  transition: transform 0.2s var(--ease-out);
+}
+
+/* badge hover 微动 */
+.nav-item:hover .nav-badge {
+  transform: translateX(-1px) scale(1.05);
 }
 
 .nav-pin {
@@ -594,7 +623,7 @@ html, body, #app {
   font-size: 13px;
   opacity: 0;
   cursor: pointer;
-  transition: opacity 0.15s;
+  transition: opacity 0.15s, transform 0.2s var(--ease-out);
   flex-shrink: 0;
 }
 
