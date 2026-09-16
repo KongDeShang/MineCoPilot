@@ -59,33 +59,40 @@ const RULES = [
     reason: (eq) => `${eq.name} 连续多个周期健康评分下降，趋势恶化`,
     suggestion: (eq) => `排查 ${eq.name} 是否存在隐性故障或老化加速`
   },
+  // 下面两条按"累计维修次数"判定：数据源是维修类工单（见 buildContext）。
+  // 文案写「累计」而不是「近期」—— 手上没有时间窗口的定义，统计的是全部历史工单。
   {
     id: 'fault-repeat',
     name: '高频故障设备',
     severity: 'warning',
-    test: (eq, ctx) => (ctx.faultCounts[eq.id] || 0) >= 3,
-    reason: (eq, ctx) => `${eq.name} 近期故障 ${ctx.faultCounts[eq.id]} 次，属高频故障`,
+    test: (eq, ctx) => (ctx.faultCounts[String(eq.id)] || 0) >= 3,
+    reason: (eq, ctx) => `${eq.name} 累计维修 ${ctx.faultCounts[String(eq.id)]} 次，属高频故障`,
     suggestion: (eq) => `建议对 ${eq.name} 进行根因分析（RCA），评估是否需要大修或更换`
   },
   {
     id: 'fault-repeat-severe',
     name: '极高频故障设备',
     severity: 'critical',
-    test: (eq, ctx) => (ctx.faultCounts[eq.id] || 0) >= 5,
-    reason: (eq, ctx) => `${eq.name} 近期故障 ${ctx.faultCounts[eq.id]} 次，严重影响产线`,
+    test: (eq, ctx) => (ctx.faultCounts[String(eq.id)] || 0) >= 5,
+    reason: (eq, ctx) => `${eq.name} 累计维修 ${ctx.faultCounts[String(eq.id)]} 次，严重影响产线`,
     suggestion: (eq) => `建议评估 ${eq.name} 是否需要停用更换，并上报管理层`
   },
-  {
-    id: 'parts-low',
-    name: '备件库存不足',
-    severity: 'info',
-    test: (eq, ctx) => ctx.lowParts.some(p => p.equipmentId === eq.id || p.eqCategory === eq.category),
-    reason: (eq) => `${eq.name} 关联备件库存不足，可能影响维保时效`,
-    suggestion: (eq) => `建议补充 ${eq.name} 常用备件，确保维保时有件可用`
-  },
+  /**
+   * 这里原先有一条 'parts-low'（备件库存不足）。已删除，原因是它按设备挂靠备件，
+   * 而备件台账里根本没有这层关系：
+   *   · 取数路径写的是 store.partsDomain?.lowStockParts，可 store 是把 lowStockParts
+   *     直接暴露出来的（partsDomain 那一层不存在），所以 ctx.lowParts 恒为空数组；
+   *   · 就算取到了，参数也是 p.equipmentId === eq.id || p.eqCategory === eq.category ——
+   *     备件没有 equipmentId；备件的 category（液压件/滤芯/易损件…）与设备的 category
+   *     （挖掘机/装载机/矿卡…）是两套分类体系，永远不可能相等。
+   * 低库存这件事已经有正经出口：备件台账的缺料标记 + 告警中心的「备件缺料」。
+   * 与其留一条只会静默的空转规则，不如删掉。
+   */
   {
     id: 'idle-long',
-    name: '长期闲置设备',
+    // 名字不写「长期」：台账里没有"闲置起始日"这类字段，判不了闲置多久，
+    // 这条规则实际只看当前状态。名字与判定对不上的话，日后有人照着名字改阈值会踩空。
+    name: '闲置设备',
     severity: 'info',
     test: (eq) => eq.status === 'idle',
     reason: (eq) => `${eq.name} 当前闲置状态，建议评估是否有调度价值`,
@@ -95,43 +102,50 @@ const RULES = [
 
 /**
  * 构建扫描上下文
+ *
+ * 键一律用 String(设备 id)：工单的 equipment_id 可能来自 Excel 导入或表单，
+ * 是数字还是字符串不确定，faultCounts 用字符串键、规则里也用 String(eq.id) 取，
+ * 两边对齐才不会出现"明明有 3 张维修单却查不到"。
+ *
  * @param {object} store - appStore 实例
  * @returns {object}
  */
 function buildContext(store) {
+  /**
+   * 故障次数：按设备累计"维修类工单"张数。
+   *
+   * 原先这里有两处字段全对不上，导致 fault-repeat / fault-repeat-severe 永远不触发：
+   *   1) 拿 faultTopStats.top 当数据源 —— 那是**按系统**汇总的高频故障榜，
+   *      条目形如 { system, count, samples, percent }，压根没有 equipmentId/id，
+   *      写进去的是 faultCounts[undefined]；
+   *   2) 工单循环判 `wo.type === 'fault' || wo.category === '故障'` ——
+   *      真实工单的 type 枚举是 maintenance/repair/inspection，没有 'fault'，
+   *      工单表也没有 category 字段，而设备外键叫 equipment_id 不是 equipmentId。
+   *
+   * 口径：repair 类工单，排除已取消（取消的单不代表真的坏过）。
+   * 不叠加维保记录 —— 完成归档时会把维修工单写成一条「故障维修」病历，
+   * 两个都数等于同一件事计两次。
+   */
   const faultCounts = {}
-  // faultTopStats 是 { total, top, entries } 对象，top 才是数组；防御非数组脏数据
-  const faultTop = store.faultTopStats
-  const topList = Array.isArray(faultTop) ? faultTop : ((faultTop && Array.isArray(faultTop.top)) ? faultTop.top : [])
-  for (const f of topList) {
-    faultCounts[f.equipmentId || f.id] = f.count || f.total || 0
-  }
-
-  // 从工单统计故障次数
-  if (store.workOrders) {
-    for (const wo of store.workOrders) {
-      if (wo.type === 'fault' || wo.category === '故障') {
-        faultCounts[wo.equipmentId] = (faultCounts[wo.equipmentId] || 0) + 1
-      }
-    }
-  }
-
-  const lowParts = []
-  if (store.partsDomain?.lowStockParts) {
-    lowParts.push(...store.partsDomain.lowStockParts)
+  for (const wo of store.workOrders || []) {
+    if (!wo || wo.type !== 'repair' || wo.status === 'cancelled') continue
+    const key = wo.equipment_id ?? wo.equipmentId
+    if (key === null || key === undefined || key === '') continue
+    faultCounts[String(key)] = (faultCounts[String(key)] || 0) + 1
   }
 
   return {
     worseningIds: new Set((store.worseningList || []).map(e => e.id)),
-    faultCounts,
-    lowParts
+    faultCounts
   }
 }
 
 /**
  * 扫描所有设备，返回触发的预警列表
  *
- * @param {object} store - appStore 实例（需要 equipmentWithHealth / worseningList / faultTopStats）
+ * @param {object} store - appStore 实例
+ *   需要：equipmentWithHealth（健康等级/评分）、overdueList（超期天数）、
+ *        workOrders（故障次数）、worseningList（恶化趋势）
  * @param {object} [options]
  * @param {Severity} [options.severity] - 只返回该严重级别
  * @param {string[]} [options.equipmentIds] - 只扫描指定设备
@@ -142,12 +156,21 @@ export function scanAlerts(store, options = {}) {
 
   const ctx = buildContext(store)
 
+  /**
+   * 超期天数要单独取：equipmentWithHealth 只带 health，**没有 overdueDays**，
+   * 所以 `eq.overdueDays ?? 0` 永远是 0，overdue-30 / overdue-45 两条规则
+   * 无论设备超期多少天都不会命中。真正带这列的是 store.overdueList。
+   */
+  const overdueById = new Map(
+    (store.overdueList || []).map(e => [String(e.id), e.overdueDays])
+  )
+
   // 设备池：带健康评估的设备列表
   const allEquipment = (store.equipmentWithHealth || []).map(eq => ({
     ...eq,
     healthLevel: eq.health?.level || eq.healthLevel || 'A',
     healthScore: eq.health?.score ?? eq.healthScore ?? 100,
-    overdueDays: eq.overdueDays ?? 0
+    overdueDays: overdueById.get(String(eq.id)) ?? eq.overdueDays ?? 0
   }))
 
   const pool = equipmentIds

@@ -15,13 +15,17 @@
         </div>
       </template>
 
-      <!-- 图例 -->
+      <!-- 图例：只列日历上真会出现的状态。
+           level 的取值只有 nodata / overdue / today / upcoming / normal 五种，
+           原先的「已完成」没有任何一条计划会产生（日历画的是"下次该保养"，
+           保养做没做看工单），而真会出现的「无维保记录」（新录入的设备还没保养过）
+           反倒没写 —— 等于图例同时多编了一个状态、漏掉了一个状态。 -->
       <div class="calendar-legend">
         <span class="legend-item"><span class="legend-dot overdue"></span> 已超期</span>
         <span class="legend-item"><span class="legend-dot today"></span> 今日到期</span>
         <span class="legend-item"><span class="legend-dot upcoming"></span> 即将到期</span>
         <span class="legend-item"><span class="legend-dot normal"></span> 计划维保</span>
-        <span class="legend-item"><span class="legend-dot completed"></span> 已完成</span>
+        <span class="legend-item"><span class="legend-dot nodata"></span> 无维保记录</span>
       </div>
 
       <!-- 日历主体 -->
@@ -88,7 +92,7 @@
             </div>
           </div>
           <el-button type="primary" size="small" @click="createWorkOrder(event)">
-            {{ event.level === 'overdue' ? '紧急建单' : '创建工单' }}
+            {{ event.level === 'overdue' ? '紧急建单' : '发起建单' }}
           </el-button>
         </div>
       </div>
@@ -276,15 +280,22 @@ function applyFocusQuery() {
 onMounted(applyFocusQuery)
 watch(() => route.query.focus, applyFocusQuery)
 
-/** 一键把维保计划变成工单，带到工单页并自动预填 */
+/**
+ * 把维保计划带到工单页并预填建单表单。
+ *
+ * 这里**不建单**：工单要选优先级、指派负责人，交给工单页的建单表单确认更合适。
+ * 原先的文案写成"由维保日历发起工单…"、提示"正在创建工单…"，
+ * 但工单此时并不存在 —— 操作日志里会多出一条查无此单的记录，
+ * 用户若没在工单页点保存，日志就成了假的。文案按实际动作说。
+ */
 function createWorkOrder(event) {
   store.addLog({
-    content: `由维保日历发起工单：${event.equipment} ${event.type}`,
+    content: `维保日历发起建单：${event.equipment} ${event.type}（已带入工单页，待确认保存）`,
     source: '日历',
     type: event.level === 'overdue' ? 'danger' : 'primary',
     tagType: event.level === 'overdue' ? 'danger' : 'primary'
   })
-  ElMessage.success(`正在为「${event.equipment}」创建工单…`)
+  ElMessage.success(`已带出「${event.equipment}」的建单表单，确认后保存即建单`)
   router.push({
     path: '/workorder',
     query: {
@@ -329,7 +340,8 @@ function createWorkOrder(event) {
 .legend-dot.today { background: var(--accent); }
 .legend-dot.upcoming { background: var(--amber); }
 .legend-dot.normal { background: var(--ink-4); }
-.legend-dot.completed { background: var(--emerald); }
+/* 空心点对应日历格子里那条虚线边（.event-tag.nodata），一眼能对上"这条没数据" */
+.legend-dot.nodata { background: transparent; border: 1px dashed var(--text-3); }
 
 .calendar-grid {
   display: grid;
@@ -430,8 +442,11 @@ function createWorkOrder(event) {
 
 .event-tag.nodata {
   background: var(--line-2);
-  color: var(--text-mute);
-  border: 1px dashed var(--line-2);
+  /* 里面写的是设备名，属正文不是占位符 —— --text-mute 规范上只留给占位/分隔/网格线。
+     边线取 --line-strong：原来用的 --line-2 和底色同值，等于没有边框，
+     虚线这个"没数据"的视觉信号其实是看不见的。 */
+  color: var(--text-3);
+  border: 1px dashed var(--line-strong);
 }
 
 .event-more {

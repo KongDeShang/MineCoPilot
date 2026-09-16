@@ -43,7 +43,11 @@ import { useAppStore } from '../stores/appStore'
 const store = useAppStore()
 const sourceFilter = ref('')
 
-const sources = computed(() => [...new Set(store.recentLogs.map(l => l.source))].slice(0, 12))
+// 来源下拉的选项：日志来源是开放的（静态的有「体检/工单/知识库」等十几种，
+// 动态的还有「本地手册 · xxx」这种按文档名生成的），不能截断——
+// 原来这里有个 .slice(0, 12)，一旦来源超过 12 种就会有来源在下拉里查不到，
+// 而「共 N 条」仍把它们算进去，用户看到数字对不上、又筛不出来。
+const sources = computed(() => [...new Set(store.recentLogs.map(l => l.source))])
 
 const filteredLogs = computed(() => {
   const list = store.recentLogs

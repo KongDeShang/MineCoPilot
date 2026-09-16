@@ -837,7 +837,29 @@ export function executePlanItem(store, item, options = {}) {
     case INTENTS.COMPLETE_ORDER: {
       if (!item.order) return { ok: false, error: item.preflightError || '找不到可完成的工单' }
       const snapshot = snapshotEquipment(store, eq)
+      // 完成工单是一次"多点开花"的写入（工单字段 + 病历 + 快照 + 复诊任务 + 日志 +
+      // 知识草案 + 故障案例卡），撤销必须把每一路都收回去，所以先把工单字段和
+      // 两类会新增的集合各拍一张"写入前"的快照。
+      // ⚠️ 这几个字段在"完成"之前可能**整个键都不存在**（待处理工单身上没有 archived_at），
+      // 那样展开出来的快照里就没有它们，Object.assign 自然也就清不掉。
+      // 必须显式补 null，把"当时没有"这件事也写进快照。
+      const orderBefore = {
+        ...item.order,
+        archived_at: item.order.archived_at ?? null,
+        completed_at: item.order.completed_at ?? null,
+        recheck_date: item.order.recheck_date ?? null,
+        recheck_status: item.order.recheck_status ?? null
+      }
+      const faultCaseIdsBefore = new Set((store.faultCases || []).map(c => String(c.id)))
+      const knowledgeIdsBefore = new Set((store.knowledgeItems || []).map(k => String(k.id)))
+
       store.updateWorkOrderStatus(item.order.id, 'completed')
+
+      const newFaultCaseIds = (store.faultCases || [])
+        .filter(c => !faultCaseIdsBefore.has(String(c.id))).map(c => c.id)
+      const newKnowledgeIds = (store.knowledgeItems || [])
+        .filter(k => !knowledgeIdsBefore.has(String(k.id))).map(k => k.id)
+
       const updated = (store.workOrders || []).find(o => o.id === item.order.id)
       changes.push({ label: '工单完成', detail: `#${item.order.id} ${item.order.title}`, kind: 'work_order', id: item.order.id })
       if (updated && updated.recheck_date) {
@@ -849,7 +871,15 @@ export function executePlanItem(store, item, options = {}) {
         summary: `工单 #${item.order.id} 已完成，病历已归档${updated && updated.recheck_date ? `，${updated.recheck_date} 复诊` : ''}`,
         changes,
         undo: () => {
-          store.updateWorkOrderStatus(item.order.id, 'processing')
+          // 工单字段**整体**还原，不能只把 status 改回 processing：
+          // 归档时置的 archived_at 会留下，而 appStore 的归档守卫正是以
+          // `!order.archived_at` 为准 —— 残留会让"撤销后再次完成"整段跳过归档，
+          // 病历、健康快照、复诊任务再也补不回来，且全程不报错。
+          // recheck_date / recheck_status 同理，否则复诊管理页会挂着一条幽灵任务。
+          store.updateWorkOrder(item.order.id, orderBefore)
+          // 本次归档连带沉淀出来的案例卡与知识草案一并收回
+          if (store.removeFaultCasesByIds) store.removeFaultCasesByIds(newFaultCaseIds)
+          if (store.removeKnowledgeItemsByIds) store.removeKnowledgeItemsByIds(newKnowledgeIds)
           restoreEquipment(store, snapshot)
         }
       }
@@ -860,9 +890,9 @@ export function executePlanItem(store, item, options = {}) {
       // 快照改由 addMaintenanceRecord 内部落（snapshot: true）—— 原先这里
       // 在外面自己补一次，台账页那条门漏了，同一操作两个门的数据不一样。
       // 现在只有一个地方决定"要不要落快照"，不会再漏。
-      store.addMaintenanceRecord(eq.id, {
+      const added = store.addMaintenanceRecord(eq.id, {
         date: item.date,
-        type: item.serviceLevel === '月度保养' ? '定期保养' : '定期保养',
+        type: maintenanceRecordType(item),
         description: item.description,
         parts_used: item.partsText,
         technician: ''
@@ -870,11 +900,21 @@ export function executePlanItem(store, item, options = {}) {
       changes.push({ label: '新增维保记录', detail: `${item.date} ${item.description}`, kind: 'maintenance' })
       changes.push({ label: '更新设备', detail: `上次维保日期 → ${item.date}`, kind: 'equipment', id: eq.id })
       changes.push({ label: '健康快照', detail: `${item.date} 记录一次健康分`, kind: 'snapshot' })
+      if (added && added.partsResult && added.partsResult.consumed > 0) {
+        changes.push({ label: '备件扣减', detail: `自动出库 ${added.partsResult.consumed} 项：${added.partsResult.matched.join('、')}`, kind: 'parts' })
+      }
       return {
         ok: true,
         summary: `已为「${eq.name}」记录${item.serviceLevel}（${item.date}）`,
         changes,
-        undo: () => restoreEquipment(store, snapshot)
+        undo: () => {
+          // 备件库存和出库流水必须一起回滚：设备病历撤了、账却已经扣了，
+          // 是典型的"账实不符且查不出原因"。
+          if (added && added.partsResult && store.revertConsumption) {
+            store.revertConsumption(added.partsResult.applied)
+          }
+          restoreEquipment(store, snapshot)
+        }
       }
     }
 
@@ -934,6 +974,23 @@ function priorityLabel(priority) {
 
 function statusLabel(status) {
   return { running: '运行中', idle: '闲置', maintenance: '维保中', fault: '故障' }[status] || status
+}
+
+/**
+ * 口述"记维保"落到维保记录的 type 字段
+ *
+ * 维保记录只认字典里的四种类型（定期保养 / 故障维修 / 部件更换 / 巡检），
+ * 而口述抽出来的是**保养级别**（月度保养 / 一级保养 / 二级保养 / 大保养 / 定期保养）——
+ * 级别比类型细一档，四种保养级别本质上都是"定期保养"。
+ * 级别本身不会丢：它写在 description 里（无配件时 description 就是级别原文）。
+ *
+ * 这里原先写的是 `item.serviceLevel === '月度保养' ? '定期保养' : '定期保养'`——
+ * 两个分支同一个值，看着像在做映射、其实什么也没判。改成显式函数，
+ * 并补上"带配件即部件更换"这一档，与台账页手动选类型时的口径对齐。
+ */
+function maintenanceRecordType(item) {
+  const hasParts = !!(item.partsText && String(item.partsText).trim())
+  return hasParts ? '部件更换' : '定期保养'
 }
 
 function formatStamp(date) {

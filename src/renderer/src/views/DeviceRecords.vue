@@ -124,7 +124,8 @@
           <el-table-column prop="note" label="备注" min-width="160" show-overflow-tooltip />
         </el-table>
         <div class="history-note">
-          快照在每次生成体检报告、工单完成归档时自动落库——这就是"病历越攒越全、经验越用越厚"的数据资产。
+          快照在<strong>记录维保</strong>与<strong>工单完成归档</strong>时自动落库——这就是"病历越攒越全、经验越用越厚"的数据资产。
+          （生成体检报告是只读的，不会写库）
         </div>
       </el-card>
     </div>

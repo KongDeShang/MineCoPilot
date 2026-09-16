@@ -18,6 +18,7 @@ import { buildDemoDataset, auditDataset, DEFAULT_FLEET_SIZE } from '../utils/fle
 import { evaluateHealth, evaluateTrend, computeOverdueDays as healthComputeOverdueDays,
   resetHealthConfig } from '../utils/health'
 import { buildFaultStats } from '../utils/faultStats'
+import { parseAliases } from '../utils/aliases'
 import { buildDefaultKnowledge, extractKnowledgeFromOrders } from '../utils/knowledgeBase'
 import { draftFaultCase, buildFaultCasesFromOrders } from '../utils/faultCaseDraft'
 import { createNlActions } from './nlActions'
@@ -143,7 +144,7 @@ export const useAppStore = defineStore('app', () => {
   // 备件领域对外的接口原样接回 store（页面/端到端脚本刚才怎么用，现在还怎么用）
   const {
     getPartByName, adjustPartStock, restockPart, issuePart,
-    addPart, consumePartsFromText, lowStockParts
+    addPart, consumePartsFromText, revertConsumption, lowStockParts
   } = parts
 
   // ---------- 手册库 ----------
@@ -409,6 +410,22 @@ export const useAppStore = defineStore('app', () => {
     return faultCases.value
   }
 
+  /**
+   * 按 id 批量删除故障案例卡 —— 撤销工单完成时，回滚本次自动沉淀出来的案例。
+   *
+   * 传 id 名单而不是"按来源工单删"：演示数据里就有由历史工单派生的案例卡，
+   * 按 order_id 匹配会连它们一起误删；只删"本次操作新出现的那些"才精确。
+   */
+  function removeFaultCasesByIds(ids) {
+    const set = new Set((ids || []).map(v => String(v)))
+    if (!set.size) return 0
+    const before = faultCases.value.length
+    faultCases.value = faultCases.value.filter(c => !set.has(String(c.id)))
+    const removed = before - faultCases.value.length
+    if (removed) persistAll()
+    return removed
+  }
+
 
   // ---------- 健康快照 ----------
   function getSnapshots(equipmentId) {
@@ -489,6 +506,47 @@ export const useAppStore = defineStore('app', () => {
     if (!order) return null
     order.recheck_status = 'not_needed'
     persistAll()
+    return order
+  }
+
+  /**
+   * 复诊未通过 → 重新开一张维修工单
+   *
+   * 这是闭环里"复诊仍异常 → 再开工单"那一环的落点。此前三个入口
+   * （复诊管理页 / 工单页 / 口述）都只有"标记完成"和"无需复诊"两个动作，
+   * 复诊查出没修好之后无处可去，"闭环"到复诊就断了。
+   *
+   * 两个动作一次做完：
+   *   1) 把本次复诊任务结掉 —— 复诊**确实做了**，只是结论是"未通过"。
+   *      不结的话它会一直挂在"待复诊"里，闭环率也永远算不对。
+   *   2) 用同一台设备重新开维修工单（7 天复诊），新单完成后照常归档病历、
+   *      再生成下一次复诊，闭环得以继续往下走。
+   *
+   * @returns {Object|null} 新建的工单；原工单不存在或本次复诊已结束时返回 null
+   */
+  function recheckFailedAndReopen(orderId, { note = '' } = {}) {
+    const src = workOrders.value.find(o => o.id === orderId)
+    if (!src || src.recheck_status !== 'pending') return null
+    markRecheckDone(orderId)
+    const order = addWorkOrder({
+      equipment_id: src.equipment_id,
+      equipment_name: src.equipment_name,
+      title: `${src.equipment_name} 复诊未通过，重新处理：${src.title}`,
+      // 复诊没通过意味着"还没修好"，无论原单是保养还是巡检，这一单都是维修
+      type: 'repair',
+      priority: 'high',
+      source: 'recheck',
+      description: [
+        `复诊确认原工单 #${src.id}「${src.title}」的处置效果未达标，需重新派单处理。`,
+        note
+      ].filter(Boolean).join('\n')
+    })
+    addLog({
+      content: `复诊未通过：${src.equipment_name}「${src.title}」→ 已重新开出工单 #${order.id}`,
+      source: '复诊',
+      type: 'warning',
+      tagType: 'warning'
+    })
     return order
   }
 
@@ -685,8 +743,10 @@ export const useAppStore = defineStore('app', () => {
       if (eq.status === 'maintenance') eq.status = 'running'
     }
     // 备件联动：记录里填的配件自动从台账扣减并记流水（缺料会进告警中心）
+    let partsResult = null
     if (record.parts_used) {
       const r = consumePartsFromText(record.parts_used, '维保记录', Number(equipmentId))
+      partsResult = r
       if (r.consumed > 0) {
         addLog({
           content: `备件联动：维保记录自动扣减 ${r.consumed} 项配件库存（${r.matched.join('、')}）`,
@@ -716,6 +776,9 @@ export const useAppStore = defineStore('app', () => {
     // 快照要在 persistAll 之前落，否则这一条要等下次写库才存下去
     if (snapshot) addHealthSnapshot(equipmentId, { date: record.date }, { silent: true })
     if (!silent) persistAll()
+    // 把备件扣减的"回滚凭据"交回调用方：撤销这条记录时要把库存加回去、把出库流水抹掉，
+    // 否则记录撤了、账却已经扣了。调用方不用就忽略返回值。
+    return { partsResult }
   }
 
   // ---------- 知识库管理（增删改即时生效，演示爆点：录一条 → AI 立刻能答） ----------
@@ -775,8 +838,15 @@ export const useAppStore = defineStore('app', () => {
     if (patch.causes !== undefined) item.causes = normalizeLines(patch.causes)
     if (patch.steps !== undefined) item.steps = normalizeLines(patch.steps)
     if (patch.source !== undefined) item.source = String(patch.source).trim() || '现场录入'
+    // 状态流转必须显式处理：知识库页的「确认采纳」正是靠它把 ai_draft 改成 confirmed。
+    // 原先这里漏了 status，按钮点下去只写了一条"更新条目"日志、状态纹丝不动——
+    // 界面按 status 渲染角标/计数/筛选，于是"采纳"看上去生效、实际永远是草稿。
+    const statusChanged = patch.status !== undefined && patch.status !== item.status
+    if (patch.status !== undefined) item.status = patch.status
     addLog({
-      content: `知识库更新条目「${item.title}」`,
+      content: statusChanged && patch.status === 'confirmed'
+        ? `知识库采纳 AI 草稿「${item.title}」，已正式纳入`
+        : `知识库更新条目「${item.title}」`,
       source: '知识库',
       type: 'primary',
       tagType: 'primary'
@@ -797,6 +867,22 @@ export const useAppStore = defineStore('app', () => {
     }, { silent: true })
     persistAll()
     return true
+  }
+
+  /**
+   * 按 id 批量删除知识条目（撤销工单完成时回滚本次自动提炼的 AI 草案）
+   *
+   * 与单条 removeKnowledgeItem 的区别：不逐条写日志——撤销流程自己会记一条汇总日志，
+   * 逐条再记一遍只会让操作日志被"删除条目"刷屏。
+   */
+  function removeKnowledgeItemsByIds(ids) {
+    const set = new Set((ids || []).map(v => String(v)))
+    if (!set.size) return 0
+    const before = knowledgeItems.value.length
+    knowledgeItems.value = knowledgeItems.value.filter(i => !set.has(String(i.id)))
+    const removed = before - knowledgeItems.value.length
+    if (removed) persistAll()
+    return removed
   }
 
   function resetKnowledgeBase() {
@@ -882,6 +968,9 @@ export const useAppStore = defineStore('app', () => {
         location: row['所在位置'] ? String(row['所在位置']).trim() : '',
         purchase_date: normalizeDateCell(row['购置日期'])
       }
+      // 口述别名：现场台账里的一行"俗称"，切成数组进设备（解析器的表头别名表已认它）
+      const aliasText = row['口述别名'] ? String(row['口述别名']).trim() : ''
+      if (aliasText) patch.aliases = parseAliases(aliasText)
 
       let equipment = equipmentList.value.find(e => e.name === name)
       if (equipment) {
@@ -1040,6 +1129,7 @@ export const useAppStore = defineStore('app', () => {
     getTrend,
     markRecheckDone,
     markRecheckNotNeeded,
+    recheckFailedAndReopen,
     archiveWorkOrder,
     importFromExcel,
     getEquipmentByName,
@@ -1048,8 +1138,10 @@ export const useAppStore = defineStore('app', () => {
     addKnowledgeItem,
     updateKnowledgeItem,
     removeKnowledgeItem,
+    removeKnowledgeItemsByIds,
     addFaultCase,
     getFaultCases,
+    removeFaultCasesByIds,
     faultCases,
     partsInventory,
     partTransactions,
@@ -1060,6 +1152,7 @@ export const useAppStore = defineStore('app', () => {
     adjustPartStock,
     getPartByName,
     consumePartsFromText,
+    revertConsumption,
     resetKnowledgeBase,
     documents,
     documentStats,

@@ -58,6 +58,11 @@
             <el-button v-if="a.typeLabel === '备件缺料'" type="warning" size="small" plain @click="goParts">
               <el-icon><Box /></el-icon> 去补货
             </el-button>
+            <!-- 复诊逾期不给"生成工单"：正确动作是先复诊，未通过再重开单。
+                直接在此建单会绕开原复诊任务，把它一直挂在"待复诊"里。 -->
+            <el-button v-if="a.typeLabel === '复诊逾期'" type="warning" size="small" plain @click="goRecheck">
+              <el-icon><CircleCheck /></el-icon> 去复诊
+            </el-button>
             <el-button v-if="a.orderTitle" type="primary" size="small" plain @click="generateOrder(a)">
               <el-icon><DocumentAdd /></el-icon> 生成工单
             </el-button>
@@ -79,7 +84,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Warning, AlarmClock, Bell, ChatLineRound, DocumentAdd, Refresh, Box } from '@element-plus/icons-vue'
+import { Warning, AlarmClock, Bell, ChatLineRound, DocumentAdd, Refresh, Box, CircleCheck } from '@element-plus/icons-vue'
 import { useAppStore } from '../stores/appStore'
 import { evaluateHealth } from '../utils/health'
 import { equipmentPhoto } from '../utils/equipmentPhoto'
@@ -91,6 +96,10 @@ const router = useRouter()
 
 function goParts() {
   router.push('/parts-inventory')
+}
+
+function goRecheck() {
+  router.push('/recheck')
 }
 
 // 处置记录落在本地库 meta（随备份包一起迁移、随"重置演示数据"一起清空），
@@ -216,7 +225,7 @@ function generateOrder(a) {
     title: a.orderTitle,
     type: a.orderType,
     priority: a.orderPriority,
-    source: '告警',
+    source: 'alert',
     description: `${a.value}\n建议：${a.suggestion}`
   })
   doneMap.value[a.key] = 'handled'

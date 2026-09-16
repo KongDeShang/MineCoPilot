@@ -17,30 +17,31 @@
                   </span>
                 </template>
 
-                <!-- 语音录入 -->
+                <!-- 语音录入：本机不采集音频，这里是"口述 → 转写 → 建单"这条链路的演示入口。
+                     按钮文案必须说清它干的是"填入示例"——写成"开始录音"、
+                     再配一个跳动的"录音中…"，点了却什么都没录，比没有这个功能更糟。 -->
                 <div class="input-section">
                   <h4>
                     <el-icon><Microphone /></el-icon> 语音录入工单
                     <el-tag class="demo-tag" size="small" type="warning" effect="plain">演示样例</el-tag>
                   </h4>
-                  <p class="section-desc">点击按钮，说出设备问题，自动转为工单</p>
+                  <p class="section-desc">点击按钮填入一段预设的口述转写，随后可直接提问或建单</p>
                   <p class="section-note">
-                    录音→转写→建单的链路是完整的；<strong>转写文本为预置样例</strong>，
-                    尚未接入真实语音识别引擎。
+                    本机尚未接入麦克风，<strong>不会采集、也不会保存任何音频</strong>；
+                    填入的是预置转写样例。离线语音识别（本地引擎）列为后续版本的计划项。
                   </p>
                   <div class="voice-controls">
                     <el-button
-                      :type="isRecording ? 'danger' : 'primary'"
+                      type="primary"
                       size="large"
                       round
-                      @click="toggleRecording"
+                      :loading="fillingSample"
+                      @click="fillSampleTranscript"
                     >
-                      <el-icon><Microphone v-if="!isRecording" /><VideoPause v-else /></el-icon>
-                      {{ isRecording ? '停止录音' : '开始录音' }}
+                      <el-icon v-if="!fillingSample"><EditPen /></el-icon>
+                      {{ fillingSample ? '正在填入示例…' : '填入示例转写' }}
                     </el-button>
-                    <div v-if="isRecording" class="recording-indicator">
-                      <span class="dot"></span> 录音中...
-                    </div>
+                    <span v-if="voiceText && !fillingSample" class="voice-hint">已填入示例，可编辑后提问或建单</span>
                   </div>
                   <el-input
                     v-if="voiceText"
@@ -54,16 +55,16 @@
 
                 <el-divider />
 
-                <!-- 拍照 OCR -->
+                <!-- 拍照 OCR：同上，"选图 → 识别 → 回填"的演示入口，不读图片内容 -->
                 <div class="input-section">
                   <h4>
                     <el-icon><Camera /></el-icon> 拍照识别巡检单
                     <el-tag class="demo-tag" size="small" type="warning" effect="plain">演示样例</el-tag>
                   </h4>
-                  <p class="section-desc">拍摄手写巡检表，自动识别文字</p>
+                  <p class="section-desc">选择一张巡检表照片，填入一段预设的识别结果</p>
                   <p class="section-note">
-                    选图→识别→回填的链路是完整的；<strong>识别结果为预置样例</strong>，
-                    尚未接入真实 OCR 引擎。
+                    本机尚未接入 OCR 引擎，<strong>不会读取图片内容</strong>（选了哪张都一样）；
+                    填入的是预置识别样例。离线文字识别列为后续版本的计划项。
                   </p>
                   <el-upload
                     action="#"
@@ -74,7 +75,7 @@
                   >
                     <el-button type="success" size="large">
                       <el-icon><Camera /></el-icon>
-                      选择图片
+                      选择图片（填入示例结果）
                     </el-button>
                   </el-upload>
                   <div v-if="ocrText" class="ocr-result">
@@ -214,7 +215,7 @@ const ExcelImportPanel = defineAsyncComponent({
 const store = useAppStore()
 
 const activeTab = ref('chat')
-const isRecording = ref(false)
+const fillingSample = ref(false)
 const voiceText = ref('')
 const ocrText = ref('')
 const inputText = ref('')
@@ -324,7 +325,7 @@ function restoreChatHistory() {
 
 /** 防抖保存聊天记录（最多 40 条，单条超长截断，控制 localStorage 体积） */
 let chatSaveTimer = null
-let recordTimer = null
+let sampleTimer = null
 function scheduleChatSave() {
   if (chatSaveTimer) clearTimeout(chatSaveTimer)
   chatSaveTimer = setTimeout(() => {
@@ -453,17 +454,25 @@ function toggleThinking(msg) {
   msg.thinkingCollapsed = !msg.thinkingCollapsed
 }
 
-function toggleRecording() {
-  isRecording.value = !isRecording.value
-  if (!isRecording.value) return
-  ElMessage.info('正在录音…（演示环境使用模拟识别结果）')
-  recordTimer = setTimeout(() => {
-    recordTimer = null
+/**
+ * 填入一段预置的口述转写（**演示样例**，本机不采集音频）。
+ *
+ * 原来这里叫 toggleRecording：按钮写「开始录音」，点了弹"正在录音…"，
+ * 再配一个跳动的红点"录音中..."——但全程没有申请过麦克风权限、也没有拿到任何音频，
+ * 2.2 秒后凭空出现一段写死的文本。而且那个"停止录音"其实停不掉：
+ * 第二次点击只是把标志位翻回 false 就 return，定时器照样跑完并写入文本。
+ * 现在老实叫"填入示例转写"，等待期间按钮转圈（文案同步改成"正在填入示例…"）。
+ */
+function fillSampleTranscript() {
+  if (fillingSample.value) return
+  fillingSample.value = true
+  sampleTimer = setTimeout(() => {
+    sampleTimer = null
     voiceText.value = '6号钻机钻杆振动异常，需要安排检修，建议更换轴承'
-    isRecording.value = false
+    fillingSample.value = false
     inputText.value = voiceText.value
-    ElMessage.success('语音已转写（演示样例），可直接提问或建单')
-  }, 2200)
+    ElMessage.success('已填入示例转写（演示样例），可直接提问或建单')
+  }, 900)
 }
 
 /**
@@ -998,7 +1007,7 @@ onMounted(() => {
 // 离开页面时清掉挂起的定时器（否则卸载后仍会写一次 localStorage / 改一次输入框）
 onBeforeUnmount(() => {
   if (chatSaveTimer) { clearTimeout(chatSaveTimer); chatSaveTimer = null }
-  if (recordTimer) { clearTimeout(recordTimer); recordTimer = null }
+  if (sampleTimer) { clearTimeout(sampleTimer); sampleTimer = null }
 })
 
 </script>
@@ -1067,20 +1076,11 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
-.recording-indicator {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--danger-ink);
-  font-size: 14px;
-}
-
-.recording-indicator .dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--danger);
-  animation: pulse 1s infinite;
+/* 原来这里还有一套 .recording-indicator（红点 + pulse 动画），
+   配合"录音中..."一起制造"正在录音"的观感 —— 本机根本没收音频，一并删掉。 */
+.voice-hint {
+  font-size: 12.5px;
+  color: var(--text-3);
 }
 
 .ocr-result {
@@ -1138,11 +1138,6 @@ onBeforeUnmount(() => {
 }
 .chat-input :deep(.el-input-group__append .el-button:hover) {
   background: linear-gradient(120deg, var(--accent-dark), var(--accent-mid));
-}
-/* 动画关键帧：录音指示红点 */
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
 }
 
 

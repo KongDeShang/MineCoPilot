@@ -204,10 +204,12 @@ export function createPartsDomain(ctx) {
    *
    * @param {object} [opts]
    * @param {boolean} [opts.silent] 只改内存不落盘（批量调用方需自行在末尾落盘一次）
-   * @returns {{ consumed: number, matched: string[], unmatched: string[], short: string[] }}
+   * @returns {{ consumed: number, matched: string[], unmatched: string[], short: string[], applied: Array<{partId:number, partName:string, txId:number|null}> }}
+   *   `applied` 是本次每笔扣减的**回滚凭据**（配件 id + 生成的出库流水 id），
+   *   交给 `revertConsumption` 即可原样撤掉；调用方不需要它时忽略即可。
    */
   function consumePartsFromText(text, refType, refId, { silent = false } = {}) {
-    const result = { consumed: 0, matched: [], unmatched: [], short: [] }
+    const result = { consumed: 0, matched: [], unmatched: [], short: [], applied: [] }
     if (!text) return result
     const names = String(text)
       .split(/[,，、;；/]/)
@@ -219,10 +221,37 @@ export function createPartsDomain(ctx) {
       if (Number(part.stock) <= 0) { result.short.push(part.name); continue }
       // silent 透传给 adjustPartStock：批量回冲时由调用方统一落盘一次
       adjustPartStock(part.id, -1, { type: 'out', refType, refId, note: `维保/维修领用（${refType} #${refId}）`, silent })
+      // adjustPartStock 内部 unshift，刚写的那条就是队首
+      const tx = partTransactions.value[0]
+      result.applied.push({ partId: part.id, partName: part.name, txId: tx ? tx.id : null })
       result.consumed++
       result.matched.push(part.name)
     }
     return result
+  }
+
+  /**
+   * 回滚一次备件消耗（撤销维保/维修记录时用）
+   *
+   * ⚠️ 刻意**不走** `adjustPartStock(+1)`：那会再写一条"入库"流水，
+   * 撤销之后账面上反而多出一笔来路不明的入库，越撤越乱。
+   * 撤销的语义是"当作没发生过"——库存加回去，当初那条出库流水直接抹掉。
+   */
+  function revertConsumption(applied) {
+    const list = Array.isArray(applied) ? applied : []
+    if (!list.length) return 0
+    for (const item of list) {
+      const part = partsInventory.value.find(p => p.id === item.partId)
+      if (part) {
+        part.stock = Number(part.stock) + 1
+        part.updatedAt = now()
+      }
+      if (item.txId !== null && item.txId !== undefined) {
+        partTransactions.value = partTransactions.value.filter(t => t.id !== item.txId)
+      }
+    }
+    persistAll()
+    return list.length
   }
 
   /** 缺料预警：库存 ≤ 安全库存 */
@@ -240,6 +269,7 @@ export function createPartsDomain(ctx) {
     issuePart,
     addPart,
     consumePartsFromText,
+    revertConsumption,
     lowStockParts
   }
 }

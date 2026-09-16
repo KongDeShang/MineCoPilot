@@ -33,7 +33,7 @@ mkdirSync(mirrorDir, { recursive: true })
 // knowledgeBase / reportGenerator 开始 import 它之后，镜像里没有对应文件，
 // self-check 抛 ERR_MODULE_NOT_FOUND 整个中断（verify 的前置步骤，全链路失败）。
 // 以后再往 utils 加纯函数模块，记得同步加到这里。
-for (const name of ['dates', 'html', 'htmlIcons', 'appIcons', 'storage', 'database', 'excelParser', 'synonyms', 'knowledgeBase', 'health', 'equipmentCatalog', 'fleetData', 'healthReport', 'faultStats', 'nlCommand', 'llmClient', 'narrate', 'reportGenerator', 'dictionaries', 'bundledDocs', 'faultCaseDraft', 'demoTour']) {
+for (const name of ['dates', 'html', 'htmlIcons', 'appIcons', 'storage', 'database', 'excelParser', 'synonyms', 'knowledgeBase', 'health', 'equipmentCatalog', 'fleetData', 'healthReport', 'faultStats', 'alertRules', 'aliases', 'nlCommand', 'llmClient', 'narrate', 'reportGenerator', 'dictionaries', 'bundledDocs', 'faultCaseDraft', 'demoTour']) {
   const code = readFileSync(join(srcDir, `${name}.js`), 'utf8')
     .replace(/(from\s+['"]\.\/[a-zA-Z0-9_-]+)(['"])/g, '$1.mjs$2')
   writeFileSync(join(mirrorDir, `${name}.mjs`), code, 'utf8')
@@ -77,6 +77,8 @@ const catalog = await import(mirror('equipmentCatalog'))
 const fleet = await import(mirror('fleetData'))
 const healthReport = await import(mirror('healthReport'))
 const faultStats = await import(mirror('faultStats'))
+const alertRules = await import(mirror('alertRules'))
+const alias = await import(mirror('aliases'))
 const nl = await import(mirror('nlCommand'))
 const llmC = await import(mirror('llmClient'))
 const narrate = await import(mirror('narrate'))
@@ -1229,6 +1231,95 @@ function check(name, condition, detail = '') {
   check('空输入不崩溃且返回零', empty.total === 0 && empty.top.length === 0, String(empty.total))
 }
 
+// ============ L2 预警规则引擎（口径必须和真实数据的字段名对齐） ============
+{
+  /**
+   * 这一组断言盯的是"规则是不是死的"。
+   *
+   * 规则引擎曾经有 6 条规则永远不触发，全都是字段名对不上真实数据：
+   *   · 工单类型判 `type === 'fault'`（真实枚举是 repair）、`category === '故障'`（没这列）、
+   *     设备外键写 `equipmentId`（真实字段是 equipment_id）→ 高频故障两条全哑；
+   *   · 超期天数取 `equipmentWithHealth[].overdueDays`，可那个列表只带 health，
+   *     于是 `?? 0` 恒为 0 → 超期两条全哑；
+   *   · 备件低库存取 `store.partsDomain?.lowStockParts`（store 根本没有这一层）。
+   * 症状是静默的：页面照常渲染，只是这些规则一条都不亮。
+   */
+  const dataset = fleet.buildDemoDataset({ size: 60 })
+  const equipmentWithHealth = dataset.equipment.map(eq => ({ ...eq, health: health.evaluateHealth(eq) }))
+  const overdueList = dataset.equipment
+    .map(eq => {
+      const days = health.computeOverdueDays(eq)
+      return days === null ? null : { ...eq, overdueDays: days }
+    })
+    .filter(Boolean)
+  const worseningList = equipmentWithHealth.filter(eq => health.evaluateTrend(
+    dataset.healthSnapshots.filter(s => s.equipment_id === eq.id)
+  ).kind === 'worsening')
+
+  const store = { equipmentWithHealth, overdueList, workOrders: dataset.workOrders, worseningList }
+  const alerts = alertRules.scanAlerts(store)
+  const hit = (id) => alerts.filter(a => a.ruleId === id).length
+
+  // 1) 超期两条：命中数必须等于"真超期的设备数"，不是 0
+  const overdue45 = overdueList.filter(e => e.overdueDays > 45).length
+  const overdue30 = overdueList.filter(e => e.overdueDays > 30 && e.overdueDays <= 45).length
+  check('预警规则：overdue-45 命中数 = 超期>45天的设备数（不是恒 0）',
+    overdue45 > 0 && hit('overdue-45') === overdue45, `${hit('overdue-45')} vs ${overdue45}`)
+  check('预警规则：overdue-30 命中数 = 超期30~45天的设备数（不是恒 0）',
+    overdue30 > 0 && hit('overdue-30') === overdue30, `${hit('overdue-30')} vs ${overdue30}`)
+
+  // 2) 健康两条：D/C 级台数
+  const levelD = equipmentWithHealth.filter(e => e.health.level === 'D').length
+  const levelC = equipmentWithHealth.filter(e => e.health.level === 'C').length
+  check('预警规则：health-d / health-c 命中数 = D / C 级台数',
+    hit('health-d') === levelD && hit('health-c') === levelC, `${hit('health-d')}/${levelD} · ${hit('health-c')}/${levelC}`)
+
+  // 3) 高频故障：口径 = 该设备的维修类工单数（排除已取消、含字符串 id）
+  const mini = (orders) => ({
+    equipmentWithHealth: [{ id: 7, name: '测试机', category: '挖掘机', status: 'running', health: { level: 'A', score: 92 } }],
+    overdueList: [],
+    worseningList: [],
+    workOrders: orders
+  })
+  const rep = (id, extra = {}) => ({ id, equipment_id: 7, type: 'repair', status: 'completed', ...extra })
+  check('预警规则：2 次维修不触发 fault-repeat（阈值 3 次）',
+    alertRules.scanAlerts(mini([rep(1), rep(2)])).length === 0)
+  const three = alertRules.scanAlerts(mini([rep(1), rep(2), rep(3)]))
+  check('预警规则：3 次维修触发 fault-repeat，reason 里带真实次数',
+    three.length === 1 && three[0].ruleId === 'fault-repeat' && three[0].reason.includes('3'),
+    three.map(a => a.reason).join('|'))
+  const five = alertRules.scanAlerts(mini([rep(1), rep(2), rep(3), rep(4), rep(5)]))
+  check('预警规则：5 次维修同时触发 fault-repeat-severe 且排在最前（critical 优先）',
+    five.some(a => a.ruleId === 'fault-repeat-severe') && five[0].severity === 'critical',
+    five.map(a => a.ruleId).join(','))
+  check('预警规则：已取消的维修工单不计入故障次数',
+    alertRules.scanAlerts(mini([rep(1), rep(2), rep(3, { status: 'cancelled' })])).length === 0)
+  check('预警规则：维保类工单不计入故障次数',
+    alertRules.scanAlerts(mini([{ id: 1, equipment_id: 7, type: 'maintenance', status: 'completed' }])).length === 0)
+  check('预警规则：equipment_id 是字符串或数字都能对上同一台设备',
+    alertRules.scanAlerts(mini([rep(1), { ...rep(2), equipment_id: '7' }, rep(3)])).length === 1)
+
+  // 4) 已删除的空转规则不许回来
+  check('预警规则：不再产出 parts-low（备件台账没有设备挂靠关系，原规则恒不触发）',
+    !new Set(alerts.map(a => a.ruleId)).has('parts-low'))
+
+  // 5) 看板与告警中心的关键数字必须同源：看板的"严重"= 告警中心的"高危"（D 级 + 超期45天+）
+  const summary = alertRules.getAlertSummary(store)
+  const highRisk = levelD + overdue45
+  check('看板「严重预警」数 = 告警中心「高危」口径（D 级 + 超期45天+）',
+    summary.critical === highRisk, `看板 ${summary.critical} vs 高危 ${highRisk}`)
+
+  // 6) 公开 API：自定义规则可注册、规则清单可读
+  alertRules.registerRule({
+    id: '__selfcheck__', name: '自检规则', severity: 'info',
+    test: () => true, reason: () => 'r', suggestion: () => 's'
+  })
+  check('预警规则：registerRule 注册的规则会被扫描到',
+    alertRules.scanAlerts(mini([])).some(a => a.ruleId === '__selfcheck__'))
+  check('预警规则：listRules 给出规则清单且不含函数体（可安全展示）',
+    alertRules.listRules().some(r => r.id === '__selfcheck__' && r.test === undefined))
+}
+
 // ============ M 口述录入解析（自然语言 → 结构化操作） ============
 {
   // 用演示数据工厂的真实台账作为解析对象：设备名形如「徐工 XE215C 挖掘机-03」
@@ -1457,6 +1548,64 @@ function check(name, condition, detail = '') {
     const b = nl.parseCommand(store, '麻烦帮我记一下，1号挖掘机液压油压力偏低呗', { now: new Date('2026-09-12') })
     return a.ok && b.ok && a.items[0].intent === 'report_fault' && b.items[0].intent === 'report_fault'
   })())
+}
+
+// ============ M2 设备口语别名（口述录入「小松」「三号挖机」的入口） ============
+{
+  // 别名是设备指代解析的第二层。此前没有任何写入入口（表单/导入/种子都不写
+  // eq.aliases），那一层等于永远不命中 —— 这组断言既测切分/拼接，也测它真能解析出设备。
+  check('别名切分：顿号/逗号/分号/斜杠都认，且去空白去重',
+    JSON.stringify(alias.parseAliases('小松、 三号挖机,老李的车；备用机/小松')) ===
+      JSON.stringify(['小松', '三号挖机', '老李的车', '备用机']),
+    JSON.stringify(alias.parseAliases('小松、 三号挖机,老李的车；备用机/小松')))
+  check('别名切分：null/undefined/空串都得到空数组（不是 null，调用方不必再判）',
+    Array.isArray(alias.parseAliases(null)) && alias.parseAliases(null).length === 0 &&
+    alias.parseAliases(undefined).length === 0 && alias.parseAliases('').length === 0)
+  check('别名拼接：数组 → 顿号一行文本，再切回来不变（落库/回读同源）',
+    alias.formatAliases(['小松', '三号挖机']) === '小松、三号挖机' &&
+    JSON.stringify(alias.parseAliases(alias.formatAliases(['小松', '三号挖机']))) ===
+      JSON.stringify(['小松', '三号挖机']))
+  check('别名：数组入参原样去重（表单/store 已经是数组时不重复切分）',
+    JSON.stringify(alias.parseAliases(['小松', '小松', ' 三号挖机 '])) === JSON.stringify(['小松', '三号挖机']))
+
+  // 真机解析：用演示台账，给其中两台设备录上别名
+  const dataset = fleet.buildDemoDataset({ size: 60 })
+  const list = dataset.equipment.map(eq => ({ ...eq }))
+  list[0].aliases = alias.parseAliases('小松、一号机')
+  const hit = nl.resolveEquipment('小松那台今天保养了', list)
+  check('别名命中：口述别名能解析到设备（method=alias）',
+    hit.status === 'resolved' && hit.method === 'alias' && hit.equipment.id === list[0].id,
+    `${hit.status}/${hit.method}/${hit.equipment && hit.equipment.id}`)
+  check('别名命中：命中短语回填到 phrase（界面要显示"按 X 找到的"）',
+    hit.phrase === '小松', String(hit.phrase))
+
+  // 别名撞车必须"不猜"：交给用户点选，且要给出候选
+  list[1].aliases = alias.parseAliases('小松')
+  const dup = nl.resolveEquipment('小松那台今天保养了', list)
+  check('别名撞车：两台设备同名别名 → ambiguous 且给出 2 个候选（不瞎猜）',
+    dup.status === 'ambiguous' && dup.candidates.length === 2, `${dup.status}/${dup.candidates.length}`)
+
+  // 别名层不该抢全名的活：设备全名仍走 name-exact
+  const byName = nl.resolveEquipment(`${list[0].name} 保养`, list)
+  check('别名不抢全名匹配：写全名仍走 name-exact',
+    byName.status === 'resolved' && byName.method === 'name-exact', `${byName.status}/${byName.method}`)
+
+  // 落库两侧都要有别名：只写不读（或只读不写）都会让这一层重新变成死代码
+  const persistSrc = readFileSync(join(root, 'src/renderer/src/stores/persistence.js'), 'utf8')
+  check('别名落库与回读都接了 utils/aliases（少一侧这层就重新失效）',
+    persistSrc.includes('formatAliases(eq.aliases)') && persistSrc.includes('parseAliases(row.aliases)'))
+  const equipSrc = readFileSync(join(root, 'src/renderer/src/views/Equipment.vue'), 'utf8')
+  check('台账表单能录入别名（"口述别名"输入框 + 提交时切分）',
+    equipSrc.includes('口述别名') && equipSrc.includes('parseAliases(newEquipment.value.aliases)'))
+
+  // Excel 导入这一侧要走通两半：解析器认得表头，导入器真的写进设备。
+  // 只做前一半（加了表头别名却没人取用）会变成"导入时说支持、值被默默丢掉"。
+  const headerMap = excelParser.identifyHeaders(['设备名称', '俗称', '型号'])
+  const storeSrc = readFileSync(join(root, 'src/renderer/src/stores/appStore.js'), 'utf8')
+  check('Excel 导入：表头「俗称」识别为口述别名',
+    headerMap['俗称'] === '口述别名', JSON.stringify(headerMap))
+  check('Excel 导入：导入器把该列切分后写进设备',
+    storeSrc.includes("row['口述别名']") && storeSrc.includes('parseAliases(aliasText)'))
 }
 
 // ============ M 本地模型叙述层（纯函数，引擎不在 Node 环境故只测逻辑） ============

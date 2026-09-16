@@ -17,6 +17,7 @@
  */
 import * as db from '../utils/database'
 import { now, addDays } from '../utils/dates'
+import { parseAliases, formatAliases } from '../utils/aliases'
 
 export function createPersistence(ctx) {
   const {
@@ -57,6 +58,10 @@ export function createPersistence(ctx) {
       status: eq.status || 'running',
       maintenance_cycle_days: Number(eq.maintenance_cycle_days) || 90,
       last_maintenance_date: toRow(eq.last_maintenance_date),
+      /* 口述别名：台账里按顿号/逗号录入，库里存成顿号分隔的一行文本。
+         它是 nlCommand 别名匹配层唯一的取数来源 —— 不落库的话，
+         用户录完别名一重启就没了，那一层又会退回永不命中。 */
+      aliases: toRow(formatAliases(eq.aliases)),
       notes: toRow(eq.notes),
       created_at: eq.created_at || stamp,
       updated_at: stamp
@@ -318,6 +323,8 @@ export function createPersistence(ctx) {
       status: row.status || 'running',
       maintenance_cycle_days: Number(row.maintenance_cycle_days) || 90,
       last_maintenance_date: row.last_maintenance_date || null,
+      // 顿号/逗号/分号都能当分隔符：用户录入时想到哪个打哪个，不该因此匹配不上。
+      aliases: parseAliases(row.aliases),
       notes: row.notes || ''
     }))
 

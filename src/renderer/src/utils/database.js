@@ -235,6 +235,11 @@ function createSchema() {
  */
 function runMigrations() {
   const required = {
+    equipment: [
+      // 口述别名（顿号/逗号分隔的一行文本）：nlCommand 设备指代解析的第二层要用，
+      // 不落库的话用户录完一重启就没了，那一层又会退回永不命中。
+      ['aliases', 'TEXT']
+    ],
     work_orders: [
       ['recheck_date', 'TEXT'],
       ['recheck_status', "TEXT DEFAULT 'not_needed'"],

@@ -124,12 +124,7 @@ function getTierMeta(id) {
   return TIERS.find(t => t.id === id) || null
 }
 
-/**
- * 获取所有档位元数据
- * @returns {Object[]}
- */
-function getAllTiers() {
-  return TIERS.map(t => ({ ...t }))
-}
-
-module.exports = { TIERS, scanTiers, autoSelectTier, getTierMeta, getAllTiers }
+// 这里曾有一个 getAllTiers()（返回 TIERS 的浅拷贝）。它没有任何调用方——
+// 需要全量档位的 modelManager 直接 `for (const t of TIERS)`，渲染层的档位列表
+// 走 models:list → modelManager，也不经过它。留着只会让人以为档位有两条出口。
+module.exports = { TIERS, scanTiers, autoSelectTier, getTierMeta }

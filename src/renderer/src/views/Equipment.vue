@@ -16,7 +16,7 @@
                 <el-icon><Search /></el-icon>
               </template>
             </el-input>
-            <el-button type="primary" @click="showAddDialog = true">
+            <el-button type="primary" @click="openAddDialog">
               <el-icon><Plus /></el-icon> 新增设备
             </el-button>
           </div>
@@ -84,6 +84,11 @@
               </el-button>
               <el-button type="warning" size="small" link @click="openReport(eq)">
                 <el-icon><Document /></el-icon> 体检
+              </el-button>
+              <!-- 台账此前只有"新增"，录错了改不了（型号/位置/口述别名都只能删了重建）。
+                   图标用已登记白名单里的 EditPen，避免为一个按钮把包体白名单再加一项。 -->
+              <el-button size="small" link @click="openEditDialog(eq)">
+                <el-icon><EditPen /></el-icon> 编辑
               </el-button>
             </div>
           </div>
@@ -298,8 +303,8 @@
       </template>
     </el-dialog>
 
-    <!-- 新增设备对话框 -->
-    <el-dialog v-model="showAddDialog" title="新增设备" width="500">
+    <!-- 新增 / 编辑设备对话框（同一套表单，编辑时回填并改标题） -->
+    <el-dialog v-model="showAddDialog" :title="editingId ? '编辑设备' : '新增设备'" width="500">
       <el-form :model="newEquipment" label-width="80px">
         <el-form-item label="设备名称">
           <el-input v-model="newEquipment.name" placeholder="如：7号挖掘机" />
@@ -323,10 +328,15 @@
         <el-form-item label="购置日期">
           <el-date-picker v-model="newEquipment.purchase_date" type="date" value-format="YYYY-MM-DD" />
         </el-form-item>
+        <!-- 口述录入时用户不会把「徐工 XE215C 挖掘机-03」念全，多半说"小松""三号挖机"。
+             这里录的别名进的是设备指代解析的第二层匹配（nlCommand resolveEquipment）。 -->
+        <el-form-item label="口述别名">
+          <el-input v-model="newEquipment.aliases" placeholder="如：小松、三号挖机（多个用、隔开）" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showAddDialog = false">取消</el-button>
-        <el-button type="primary" @click="addEquipment">确定</el-button>
+        <el-button type="primary" @click="addEquipment">{{ editingId ? '保存' : '确定' }}</el-button>
       </template>
     </el-dialog>
 
@@ -369,6 +379,7 @@ import {
   statusLabel as statusLabel2, statusTagType as statusTag
 } from '../utils/dictionaries'
 import { now, daysSince } from '../utils/dates'
+import { parseAliases, formatAliases } from '../utils/aliases'
 import { evaluateHealth, getHealthColor, levelBounds, buildTrendPath } from '../utils/health'
 import { equipmentPhoto } from '../utils/equipmentPhoto'
 import { generateHealthReport } from '../utils/healthReport'
@@ -398,8 +409,11 @@ const newRecord = ref({
 })
 
 const newEquipment = ref({
-  name: '', model: '', category: '', location: '', purchase_date: ''
+  name: '', model: '', category: '', location: '', purchase_date: '', aliases: ''
 })
+
+/** 非空表示当前对话框处于"编辑"模式（值是设备 id），空表示"新增" */
+const editingId = ref(null)
 
 /**
  * 卡片网格的数据源直接取 store 缓存的 equipmentWithHealth，而不是原始台账。
@@ -521,17 +535,25 @@ function openReport(eq) {
 const passportSummary = computed(() => {
   const eq = selectedEquipment.value
   if (!eq) return {}
-  const eqOrders = store.workOrders.filter(o => o.equipment_id === eq.id)
-  const eqMaints = (eq.maintenance_records || []).filter(r => !r._deleted)
-  const faultOrders = eqOrders.filter(o => o.status === 'completed' && o.type === '故障')
+  // 工单的 equipment_id 在不同写入路径上可能是数字或字符串（告警建单曾整段漏写该字段），
+  // 统一按字符串比对，否则同一台设备的单子会被数成两台。
+  const eqOrders = store.workOrders.filter(o => String(o.equipment_id) === String(eq.id))
+  // 维保记录不在设备对象上——持久化时按 equipment_id 键控存在 store 的独立 ref 里，
+  // 早先这里读 eq.maintenance_records 恒为 undefined，"维保次数"永远是 0。
+  const eqMaints = store.getMaintenanceByEquipmentId(eq.id)
+  // "历史故障"取已完成的维修工单。注意口径是 'repair' 不是 '故障'：
+  // 工单 type 落库为英文枚举（repair/inspection/maintenance），早先按 '故障' 匹配
+  // 恒为空数组，于是这一格显示的数字全部来自"机龄 × 1.5"的估算——
+  // 设备身份证上不允许出现推算出来的数字，这里必须是可追溯到工单的真实计数。
+  const faultOrders = eqOrders.filter(o => o.status === 'completed' && o.type === 'repair')
   const sortedMaints = [...eqMaints].sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-  const ageYears = eq.purchase_date ? Math.max(1, Math.floor(daysSince(eq.purchase_date) / 365)) : 1
   return {
     orderTotal: eqOrders.length,
     orderActive: eqOrders.filter(o => o.status !== 'completed').length,
-    faultCount: faultOrders.length + Math.floor(ageYears * 1.5), // 已知故障 + 按年限估算
+    faultCount: faultOrders.length,
     maintCount: eqMaints.length,
-    lastMaintDate: sortedMaints[0]?.date || ''
+    // 维保记录为空时回退到设备上的权威字段（addMaintenanceRecord 会维护它）
+    lastMaintDate: sortedMaints[0]?.date || eq.last_maintenance_date || ''
   }
 })
 
@@ -618,13 +640,53 @@ function maintenanceStatus(row) {
 
 function addEquipment() {
   if (!newEquipment.value.name) { ElMessage.warning('请输入设备名称'); return }
-  store.addEquipment({
-    ...newEquipment.value,
-    status: 'running', last_maintenance_date: null, maintenance_cycle_days: 90
-  })
+  // 别名在台账里是一行文本，进 store 前切成数组（落库/回读都走 utils/aliases）
+  const patch = { ...newEquipment.value, aliases: parseAliases(newEquipment.value.aliases) }
+  if (editingId.value) {
+    // 编辑：只改表单里这几个字段，status / 维保周期 / 最近维保日期不归这张表单管
+    delete patch.status
+    delete patch.maintenance_cycle_days
+    delete patch.last_maintenance_date
+    store.updateEquipment(editingId.value, patch)
+    ElMessage.success('设备信息已更新')
+  } else {
+    store.addEquipment({
+      ...patch,
+      status: 'running', last_maintenance_date: null, maintenance_cycle_days: 90
+    })
+    ElMessage.success('设备添加成功')
+  }
+  closeEquipDialog()
+}
+
+function closeEquipDialog() {
   showAddDialog.value = false
-  newEquipment.value = { name: '', model: '', category: '', location: '', purchase_date: '' }
-  ElMessage.success('设备添加成功')
+  editingId.value = null
+  newEquipment.value = { name: '', model: '', category: '', location: '', purchase_date: '', aliases: '' }
+}
+
+/**
+ * 打开新增表单。
+ * 原先模板里是 `@click="showAddDialog = true"` 直接改标志位，没有重置动作，
+ * 改成编辑再回到新增时会残留上一次的输入。
+ */
+function openAddDialog() {
+  closeEquipDialog()
+  showAddDialog.value = true
+}
+
+/** 打开编辑表单：回填现有设备，别名数组换回一行文本给输入框 */
+function openEditDialog(eq) {
+  editingId.value = eq.id
+  newEquipment.value = {
+    name: eq.name || '',
+    model: eq.model || '',
+    category: eq.category || '',
+    location: eq.location || '',
+    purchase_date: eq.purchase_date || '',
+    aliases: formatAliases(eq.aliases)
+  }
+  showAddDialog.value = true
 }
 
 // ---------- 维保记录 ----------

@@ -248,6 +248,12 @@
             @click="completeRecheck(current)"
           >标记已复诊</el-button>
           <el-button
+            v-if="current?.recheck_status === 'pending'"
+            type="danger"
+            plain
+            @click="failRecheck(current)"
+          >复诊未通过</el-button>
+          <el-button
             v-if="current?.status === 'pending'"
             type="warning"
             plain
@@ -517,6 +523,28 @@ function completeRecheck(order) {
   store.markRecheckDone(order.id)
   ElMessage.success(`「${order.equipment_name}」复诊完成，闭环率已更新`)
   // 不用手工同步抽屉：current 是从 store 按 id 取的 computed，store 一变它就变
+}
+
+/** 复诊未通过：结掉本次复诊并按同一台设备重开一张维修工单（闭环继续往下走） */
+function failRecheck(order) {
+  ElMessageBox.confirm(
+    `复诊确认「${order.equipment_name}」仍未恢复正常？<br/>将重新开一张维修工单（7 天后再次复诊），并把本次复诊标记为已完成。`,
+    '复诊未通过',
+    {
+      type: 'warning',
+      dangerouslyUseHTMLString: true,
+      confirmButtonText: '重新开工单',
+      cancelButtonText: '取消'
+    }
+  ).then(() => {
+    const created = store.recheckFailedAndReopen(order.id)
+    if (!created) {
+      ElMessage.warning('这条复诊任务已经处理过了')
+      return
+    }
+    showDetail.value = false
+    ElMessage.success(`已重新开出工单 #${created.id}`)
+  }).catch(() => {})
 }
 
 function goToEquipment(name) {

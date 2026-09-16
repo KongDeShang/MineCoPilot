@@ -21,15 +21,17 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="190" fixed="right">
+        <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
             <el-button size="small" type="success" plain @click="markDone(row)">标记已复诊</el-button>
+            <el-button size="small" type="danger" plain @click="markFailed(row)">未通过</el-button>
             <el-button size="small" link type="info" @click="markSkip(row)">无需复诊</el-button>
           </template>
         </el-table-column>
       </el-table>
       <div class="recheck-note">
-        复诊是"设备健康智能体"闭环的关键一环：体检发现问题 → 开工单治疗 → 到期复查 → 确认康复归档。
+        复诊是"设备健康智能体"闭环的关键一环：体检发现问题 → 开工单治疗 → 到期复查 → 确认康复归档；
+        <strong>复查没通过</strong>就点「未通过」，系统会重新开一张维修工单，闭环继续往下走。
         闭环率就是"处方没有开完就结束"的比例，评委看到的是完整的医疗式管理思维。
       </div>
     </el-card>
@@ -38,7 +40,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAppStore } from '../stores/appStore'
 import StatCards from '../components/StatCards.vue'
 import { now } from '../utils/dates'
@@ -76,6 +78,32 @@ function markDone(row) {
 function markSkip(row) {
   store.markRecheckNotNeeded(row.id)
   ElMessage.info('已标记为无需复诊')
+}
+
+/**
+ * 复诊未通过：把本次复诊结掉，并按同一台设备重新开一张维修工单。
+ *
+ * 这是闭环"复诊仍异常 → 再开工单"的入口。原先只有"标记已复诊 / 无需复诊"，
+ * 复诊查出没修好之后没有去处，闭环实际到复诊就停了。
+ */
+function markFailed(row) {
+  ElMessageBox.confirm(
+    `复诊确认「${row.equipment_name}」仍未恢复正常？<br/>将重新开一张维修工单（7 天后再次复诊），并把本次复诊标记为已完成。`,
+    '复诊未通过',
+    {
+      type: 'warning',
+      dangerouslyUseHTMLString: true,
+      confirmButtonText: '重新开工单',
+      cancelButtonText: '取消'
+    }
+  ).then(() => {
+    const order = store.recheckFailedAndReopen(row.id)
+    if (!order) {
+      ElMessage.warning('这条复诊任务已经处理过了，请刷新后重试')
+      return
+    }
+    ElMessage.success(`已重新开出工单 #${order.id}，可到「工单管理」派单处理`)
+  }).catch(() => {})
 }
 </script>
 

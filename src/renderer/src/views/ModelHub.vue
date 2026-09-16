@@ -160,6 +160,12 @@
               :disabled="status.state !== 'ready'"
               @click="runTrial"
             ><el-icon style="margin-right:4px"><MagicStick /></el-icon>让本地模型改写</el-button>
+            <!-- 只在生成过程中出现：生成要逐字吐几十个字，没有停止入口只能等它跑完。
+                 取消链路（llmClient.llmCancel → llm:cancel → llmEngine.cancel）本来就通，
+                 缺的只是这个按钮。 -->
+            <el-button v-if="trialRunning" type="warning" plain @click="stopTrial">
+              <el-icon style="margin-right:4px"><CircleClose /></el-icon>停止生成
+            </el-button>
             <span v-if="status.state !== 'ready'" class="trial-hint">模型就绪后可试玩（当前：{{ statusLabel }}）</span>
           </div>
           <div v-if="trialOutput" class="trial-output">
@@ -231,12 +237,12 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import {
   Cpu, Connection, Lock, MagicStick, Share, DataAnalysis, Reading,
-  ChatDotRound, Odometer, InfoFilled, CircleCheck, WarningFilled, List, Box
+  ChatDotRound, Odometer, InfoFilled, CircleCheck, WarningFilled, List, Box, CircleClose
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAppStore } from '../stores/appStore'
-import { llmAvailable, llmStatus, llmLoad, llmGenerate, llmListModels, llmSwitchModel, buildNarratePrompt, extractNumbers, normalizeNarrated } from '../utils/llmClient'
-import { modelsDownload, modelsDelete, onModelsProgress } from '../utils/modelsClient'
+import { llmAvailable, llmStatus, llmLoad, llmGenerate, llmCancel, llmListModels, llmSwitchModel, buildNarratePrompt, extractNumbers, normalizeNarrated } from '../utils/llmClient'
+import { modelsList, modelsDownload, modelsDelete, onModelsProgress } from '../utils/modelsClient'
 
 const store = useAppStore()
 
@@ -256,9 +262,28 @@ function capLabel(c) { return CAP_LABELS[c] || c }
 const currentTier = computed(() => tiers.value.find(t => t.id === currentTierId.value) || null)
 
 async function listTiers() {
-  const r = await llmListModels()
+  // 两个来源各管一半，缺一不可：
+  //   llmListModels（llm:listModels）→ 档位定义 + 本地安装状态，但**不含** available/urls/sha256；
+  //   modelsList   （models:list）   → 云端清单，带 available/urls/sha256。
+  // 早先只取前者，模板里「下载」按钮的 v-if="t.available" 恒为假，未安装档位一律显示
+  // "云端待扩展" —— modelManager 里那套多源下载器在模型中心页永远够不着，
+  // 只有首启向导能触发。这里按档位 id 合并，把下载能力接回该页。
+  const [r, dist] = await Promise.all([llmListModels(), modelsList()])
   if (r && r.ok) {
-    tiers.value = r.tiers || []
+    const distById = new Map((((dist && dist.ok && dist.models) || [])).map(m => [m.id, m]))
+    tiers.value = (r.tiers || []).map((t) => {
+      const d = distById.get(t.id)
+      if (!d) return t
+      return {
+        ...t,
+        available: !!d.available,
+        urls: d.urls || [],
+        sha256: d.sha256 || null,
+        version: d.version || null,
+        license: d.license || '',
+        sizeBytes: d.sizeBytes || t.sizeBytes
+      }
+    })
     currentTierId.value = r.current || null
   } else {
     tiers.value = []
@@ -374,6 +399,11 @@ function fillSample() {
   trialCheck.value = null
 }
 
+async function stopTrial() {
+  const ok = await llmCancel()
+  ElMessage[ok ? 'info' : 'warning'](ok ? '已停止生成' : '当前没有正在进行的生成')
+}
+
 async function runTrial() {
   const text = trialText.value.trim()
   if (!text) { ElMessage.warning('请先输入一段结论'); return }
@@ -386,6 +416,16 @@ async function runTrial() {
     const r = await llmGenerate(prompt, {
       onChunk: (t) => { trialOutput.value += t }
     })
+    /**
+     * 用户主动停止：引擎把中断当正常收尾（状态回 ready），返回 { ok:false, aborted:true }。
+     * 这不是故障，不能走下面的"生成失败"分支报红 —— 而且已经流出来的片段要留着，
+     * 用户按停止就是想"够了"。数字校验对半截句子没有意义，故跳过。
+     */
+    if (r.aborted) {
+      trialOutput.value = trialOutput.value.trim()
+      if (!trialOutput.value) ElMessage.info('已停止生成')
+      return
+    }
     if (!r.ok || !r.text || !r.text.trim()) {
       trialOutput.value = ''
       ElMessage.error('生成失败：' + (r.error || '模型无输出'))

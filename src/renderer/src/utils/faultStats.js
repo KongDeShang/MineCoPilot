@@ -8,13 +8,17 @@
  *   · 自动沉淀，随数据增长更新
  *
  * 归类规则：
- *   1. 维保记录落库时自带 system，直接采信，不再二次推断
- *      （为什么：见 buildFaultStats 里的注释）
- *   2. 工单没有 system 字段，按描述文本推断：
- *      a. 文本归一化（去标点、小写）
- *      b. 关键词按"长度优先、同长取位置靠前"匹配 —— 先匹配长词再匹配短词，
- *         避免「散热器」被拆成「散热」、「变速箱油温」被误判成液压系统
- *   3. 一条记录只归入一个系统，最多计 1 次
+ *   工单和维保记录都**没有**"所属系统"这个字段 —— 维保记录表没有 system 列，
+ *   落库时也不会带上（演示种子写的是 null）。所以只有一条口径：
+ *   a. 文本归一化（去标点、小写）
+ *   b. 关键词按"长度优先、同长取位置靠前"匹配 —— 先匹配长词再匹配短词，
+ *      避免「散热器」被拆成「散热」、「变速箱油温」被误判成液压系统
+ *   c. 一条记录只归入一个系统，最多计 1 次
+ *
+ *   曾经这里还有一条"维保记录自带 system 就以它为准"的分支，但那个字段
+ *   从头到尾没人写过：种子数据显式写 system: null，database.js 的
+ *   maintenance_records 没有这一列、迁移清单里也没有，addMaintenanceRecord
+ *   同样不写。分支恒等于"用不着"，留着只会让人以为系统是落库时定好的。
  */
 
 export const FAULT_SYSTEMS = [
@@ -103,30 +107,16 @@ export function buildFaultStats({ workOrders = [], maintenanceRecords = {} } = {
         source: '维保记录',
         id: record.id || '',
         equipmentName: '',
-        date: record.date || '',
-        // 落库时已经写下了所属系统，它是这份数据自带的事实，统计层直接采信
-        system: typeof record.system === 'string' && record.system ? record.system : null
+        date: record.date || ''
       })
     }
   }
 
   /**
-   * 归类口径：记录自带 system 的以它为准，没有的才按描述文本推断。
-   *
-   * 原来这里对全部样本一律重新按关键词分类，而维保记录本身就有 system 字段 ——
-   * 等于同一份数据两处各算一遍，结果对不上：
-   *   · 「传感器信号异常」落库 system = 电气系统，描述里有"水温"，
-   *     关键词表按"先长词后短词"会把它判成动力系统；
-   *   · 「照明灯具失效」落库 system = 其他，因为含"灯"被改判成电气系统。
-   * 于是看板上的系统分布和设备病历里写的系统长期打架。
-   *
-   * 维保记录用自己的 system；工单表没有该字段，仍按文本推断（关键词表足够）。
+   * 归类口径：全部样本（工单 + 维保记录）统一按描述文本推断。
+   * 关键词表由 verifyFaultSamples() 用 10 条含碰撞的样本盯着，准确率必须 100%。
    */
-  const classified = entries.map(entry => (
-    entry.system
-      ? { ...entry, keyword: null }
-      : { ...entry, ...classifyFaultText(entry.text) }
-  ))
+  const classified = entries.map(entry => ({ ...entry, ...classifyFaultText(entry.text) }))
 
   const map = {}
   for (const item of classified) {

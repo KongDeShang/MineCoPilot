@@ -272,6 +272,16 @@ function generateMaintenanceFor(random, eq) {
      * 现在按条目取件（不换件的如实留空），费用 = 工时费 + 件名单价合计，
      * 件名与金额同源，点开明细能对上。
      */
+    /**
+     * 这里刻意**不**往记录里塞 system。
+     *
+     * 维保记录表没有"所属系统"这一列（database.js 的 maintenance_records 建表语句
+     * 与迁移清单里都没有），落库时又只挑固定几列写，所以记录上挂的 system 一旦
+     * 重启就没了 —— 曾经种子写过它（这里写真值、其余类型写 null），
+     * 于是"首次启动按记录自带的系统统计、重启后改成按描述关键词猜"，
+     * 同一份数据两条口径。实测两套口径算出来完全一致（故障库的条目文案本身就是
+     * 按系统 authored 的），所以统一走 faultStats 的文本分类一条路，记录上不再留字段。
+     */
     const partNames = FAULT_PARTS[item.title] || []
     records.push({
       date: daysAgoDate(offset),
@@ -279,8 +289,7 @@ function generateMaintenanceFor(random, eq) {
       description: item.desc,
       technician: pick(random, TECHNICIANS),
       parts_used: partNames.join('、'),
-      cost: (LABOR_FEE[system] || 0) + partsCost(partNames).cost,
-      system
+      cost: (LABOR_FEE[system] || 0) + partsCost(partNames).cost
     })
   }
 
@@ -299,8 +308,7 @@ function generateMaintenanceFor(random, eq) {
       technician: pick(random, TECHNICIANS),
       parts_used: item.partNames.join('、'),
       display_parts: item.parts,
-      cost: partsCost(item.partNames).cost,
-      system: null
+      cost: partsCost(item.partNames).cost
     })
   }
 
@@ -319,8 +327,7 @@ function generateMaintenanceFor(random, eq) {
       technician: pick(extra, TECHNICIANS),
       parts_used: item.partNames.join('、'),
       display_parts: item.parts,
-      cost: partsCost(item.partNames).cost,
-      system: null
+      cost: partsCost(item.partNames).cost
     })
   }
 
@@ -333,8 +340,7 @@ function generateMaintenanceFor(random, eq) {
       description: item.desc,
       technician: pick(random, TECHNICIANS),
       parts_used: '',
-      cost: 0,
-      system: null
+      cost: 0
     })
   }
 

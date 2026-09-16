@@ -95,12 +95,16 @@ export function orderTypeTagType(type) {
   return (WORK_ORDER_TYPE[type] || {}).tagType || 'info'
 }
 
-/** 工单来源：怎么进系统的（手工/口述/拍照/Excel 导入） */
+/** 工单来源：怎么进系统的（手工/口述/拍照/Excel 导入/告警规则/复诊未通过） */
 export const WORK_ORDER_SOURCE = {
   manual: '手动',
   voice: '语音',
   ocr: '拍照',
-  excel: 'Excel'
+  excel: 'Excel',
+  // 下面两个来源原先不在字典里，页面上会直接显示英文/原串枚举值，
+  // 来源筛选的下拉项也跟着对不上
+  alert: '告警',
+  recheck: '复诊'
 }
 
 export function orderSourceLabel(source) {
