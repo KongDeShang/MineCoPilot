@@ -33,9 +33,15 @@
         </div>
       </div>
 
-      <!-- 设备卡片网格（照片 + 健康分 + 状态，一眼看全） -->
-      <div v-if="filteredEquipment.length" class="equip-grid">
-        <div v-for="(eq, i) in filteredEquipment" :key="eq.id" class="equip-card" @click="viewDetail(eq)">
+      <!-- 设备卡片网格（照片 + 健康分 + 状态，一眼看全；>50 台自动启用虚拟滚动） -->
+      <div
+        v-if="filteredEquipment.length"
+        ref="gridContainerRef"
+        class="equip-grid"
+        :class="{ 'virtual-scroll': useVirtual }"
+        :style="useVirtual ? vgrid.wrapperStyle.value : undefined"
+      >
+        <div v-for="(eq, i) in displayItems" :key="eq.id" class="equip-card" @click="viewDetail(eq)">
           <div class="equip-photo">
             <img :src="equipmentPhoto(eq.category)" :alt="eq.name" loading="lazy" />
             <span class="equip-level" :class="'lv-' + eq.health.level.toLowerCase()">
@@ -340,6 +346,7 @@ import { evaluateHealth, getHealthColor, levelBounds, buildTrendPath } from '../
 import { equipmentPhoto } from '../utils/equipmentPhoto'
 import { generateHealthReport } from '../utils/healthReport'
 import { useEnter } from '../utils/motion'
+import { useVirtualGrid } from '../utils/virtualGrid'
 
 const store = useAppStore()
 const route = useRoute()
@@ -430,6 +437,36 @@ const filteredEquipment = computed(() => {
   }
   // 维保徽标在这里算一次：原模板对同一张卡调了两次 maintenanceStatus(eq)
   return rows.map(eq => ({ ...eq, maint: maintenanceStatus(eq) }))
+})
+
+// ── 虚拟列表（设备量 >50 时启用，只渲染可见卡片） ──
+const VIRTUAL_THRESHOLD = 50
+const useVirtual = computed(() => filteredEquipment.value.length > VIRTUAL_THRESHOLD)
+const gridContainerRef = ref(null)
+
+const vgrid = useVirtualGrid({
+  items: filteredEquipment,
+  cardHeight: 280,
+  cardMinWidth: 280,
+  gap: 16,
+  overscan: 2
+})
+
+// 当容器挂载且启用虚拟滚动时，手动绑定
+watch([gridContainerRef, useVirtual], ([el, active]) => {
+  if (active && el) {
+    vgrid.containerProps.value.ref(el)
+  }
+}, { immediate: true })
+
+// 虚拟滚动的可见卡片：小数据量时直接用全部数据
+const displayItems = computed(() => {
+  return useVirtual.value ? vgrid.visibleItems.value : filteredEquipment.value
+})
+
+// 搜索关键词变化时重置滚动位置
+watch(searchText, () => {
+  if (useVirtual.value) vgrid.reset()
 })
 
 
@@ -768,6 +805,13 @@ function submitRecord() {
   flex-wrap: wrap;
   gap: 16px;
   margin-top: 16px;
+}
+
+/* 虚拟滚动模式：固定高度 + 滚动 */
+.equip-grid.virtual-scroll {
+  max-height: calc(100vh - 280px);
+  overflow-y: auto;
+  align-content: flex-start;
 }
 .equip-card {
   flex: 1 1 300px;

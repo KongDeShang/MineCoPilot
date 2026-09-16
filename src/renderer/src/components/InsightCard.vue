@@ -14,7 +14,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { tweenNumber, prefersReducedMotion } from '../utils/motion'
 
 const props = defineProps({

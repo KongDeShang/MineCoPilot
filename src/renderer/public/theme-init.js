@@ -28,6 +28,13 @@
     var root = document.documentElement
     root.setAttribute('data-theme', mode)
     if (mode === 'dark') root.classList.add('dark')
+
+    // 色彩主题：读镜像并首帧应用（避免 main.js 异步 bootstrap 前闪一帧默认蓝）
+    var color = null
+    try { color = localStorage.getItem('ks:color') } catch (e) { /* ignore */ }
+    if (color && color !== 'blue') {
+      root.setAttribute('data-color', color)
+    }
   } catch (e) {
     // 任何异常都不许挡住应用启动；最坏情况是闪一帧白，bootstrap 会再校正
   }
