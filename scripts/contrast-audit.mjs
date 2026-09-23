@@ -38,7 +38,9 @@ const isDark = THEME === 'dark'
 const DARK_INJECT = `document.documentElement.setAttribute('data-theme','dark');document.documentElement.classList.add('dark');'ok'`
 
 const ROUTES = [
-  '/', '/dashboard', '/equipment', '/medical-records', '/alert-center',
+  // '/' 原先是落地页，该页已删除（2026-09-24）：现在 '/' 只是 redirect 到 /dashboard，
+  // 留在表里等于把看板审两遍，也掩盖不了少审一页这件事，所以去掉。
+  '/dashboard', '/equipment', '/medical-records', '/alert-center',
   '/maintenance-calendar', '/workorder', '/recheck', '/ai-assistant',
   '/model-hub', '/knowledge-base', '/documents', '/fault-cases',
   '/parts-inventory', '/logs', '/settings'
@@ -288,9 +290,14 @@ function probe() {
 
     /**
      * 文字被自己的背景"涂"出来（`background-clip: text` + 透明的 text-fill-color）：
-     * 这时 cs.color 根本不参与绘制，拿它算出来的比值毫无意义。落地页的「矿山智工」
-     * 大标题就走这条路（--grad-hero 裁进文字），会被误报成 #e8eefb 压在 #15b9c8 的
-     * 2.06:1 —— 而 #e8eefb 压根没画上去。
+     * 这时 cs.color 根本不参与绘制，拿它算出来的比值毫无意义。
+     *
+     * 这段是为落地页那行「矿山智工」大标题写的（--grad-hero 裁进文字），会被误报成
+     * #e8eefb 压在 #15b9c8 的 2.06:1 —— 而 #e8eefb 压根没画上去。**该页已于
+     * 2026-09-24 删除，当前全站没有任何元素走 background-clip: text**，所以这条分支
+     * 现在是**故意留着的未触发路径**：它只有几十行、不触发时零成本，而一旦以后再做
+     * 带渐变标题的页面（用户已明确打算再补 UI 设计），缺了它就会得到一个假报警，
+     * 而假报警会让人开始不信这套审计 —— 那比少一条检查更糟。
      *
      * 这种元素真正该判的是**渐变自己**：把每个色标当作前景、把元素**外面**那层
      * 背景当作底色，取最差的一个。所以底色要从父元素开始往上找 —— 元素自己那层

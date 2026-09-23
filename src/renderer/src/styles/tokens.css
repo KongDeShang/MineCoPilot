@@ -99,15 +99,10 @@
   --danger-on-dark: #ec7d7b;   /*  4.6:1 */
   --emerald-on-dark: #4db68d;  /*  5.6:1 */
   --amber-on-dark: #e8b64f;    /*  7.5:1 */
-  --signal-bright: #7de8f2;    /* 12.7:1 品牌标记（侧栏 logo / 落地页 logo） */
+  --signal-bright: #7de8f2;    /* 12.7:1 品牌标记（侧栏 logo） */
 
-  /* 深底页面底色：品牌深空蓝三段，与侧栏渐变同源，色相拉齐
-     （原先落地页是自己一套石板蓝 #0c1426→#1a2744→#0d1b2e，全站第四套配色） */
-  --grad-landing: linear-gradient(135deg, #061530 0%, #0b2a5c 50%, #071b3d 100%);
-
-  /* 深底主标题渐变：终点 #3d8fd4 在深底只有 4.05:1，但 44px/800 属大字号，
-     AA 对大字号的要求是 3:1，够用；中间的信号青段实测 5.6:1。 */
-  --grad-hero: linear-gradient(90deg, #7de8f2 0%, #0bb4c4 55%, #3d8fd4 100%);
+  /* 这里原有 --grad-landing（深底页面底色）与 --grad-hero（深底主标题渐变）两个令牌，
+     唯一使用者是落地页；该页已删除（2026-09-24），令牌随之删除。要恢复就从 git 历史取。 */
 
   /* ===== 表面与边界（蓝图质感） ===== */
   --bg: #eef2f8;
@@ -334,9 +329,8 @@ body {
   outline-offset: 2px;
 }
 
-/* 深色底（侧边栏 / 落地页）上换成信号青，否则深蓝描边压在深蓝底上等于没有 */
-.app-aside :where(a, button, [tabindex]):focus-visible,
-.landing-wrapper :where(a, button, [tabindex]):focus-visible {
+/* 深色底（目前只剩侧边栏）上换成信号青，否则深蓝描边压在深蓝底上等于没有 */
+.app-aside :where(a, button, [tabindex]):focus-visible {
   outline-color: var(--signal);
 }
 

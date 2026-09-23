@@ -209,7 +209,7 @@ npm run verify       # 以上全部 + 生产构建
 - **视觉无自动化回归**：改了样式只能靠人过截图，没有基线比对（见上"验收"一节的说明）
 - **首次启动没有骨架屏**：首启要播种 60 台设备 + 导入 3 本手册，这段时间界面是空白的
 - **窄于 1200px 时表格回退到横向滚动**：未做响应式隐藏列（工单表已把「复诊」列前移，保证被挤出视野的是时间/来源而非闭环状态）
-- **深色主题已全量覆盖**（`tokens.css` 的 `html[data-theme="dark"]` 令牌块 + 设置页三选 + 深色下 16 路由对比度门禁），不再是"只有落地页与侧栏"
+- **深色主题已全量覆盖**（`tokens.css` 的 `html[data-theme="dark"]` 令牌块 + 设置页三选 + 深色下 15 路由对比度门禁），不再是"只有侧栏"
 
 ## 目录结构
 
@@ -220,7 +220,7 @@ src/
   renderer/
     public/manuals/  随包示例手册（3 份 PDF 原件 + 逐页文字层 JSON，共 4.72 MiB）
     src/
-      views/       15 个业务页面 + 落地页（共 16 个 .vue）
+      views/       15 个业务页面（共 15 个 .vue）
       components/  复用组件（全局搜索、聊天消息、导入面板、ECharts 趋势图、数字滚动…）
       stores/      Pinia（appStore 主状态 + nlActions 口述动作/撤销）
       styles/      设计令牌与 Element Plus 主题（tokens.css / driverTheme.css）

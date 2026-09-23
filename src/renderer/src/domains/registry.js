@@ -76,7 +76,15 @@ export function getMenus() {
 
 // ── 路由 ──────────────────────────────────────────────────────────────────────
 const LEGACY_ROUTES = [
-  { path: '/', name: 'Landing', component: () => import('../views/Landing.vue') },
+  /**
+   * `/` 原先指向落地页，该页已删除（2026-09-24）。这里**不再单列 `/`**：
+   * 主进程无 hash 加载 `dist/index.html`，初始路由就是 `/`，而 `/` 会被表末的
+   * FALLBACK_ROUTE（`/:pathMatch(.*)*` → /dashboard）接住，直接落到看板。
+   * （已实测：加载 `#/不存在的路径` 渲染出来的是看板，不是白屏。）
+   *
+   * 原来那个全屏介绍页的源码在 git 历史里（删除它的那个提交）。以后做了新的
+   * UI 设计要再加回来，届时才需要在这里补一条 `/` 指向新页面。
+   */
   { path: '/dashboard', name: 'Dashboard', component: () => import('../views/Dashboard.vue') },
   { path: '/equipment', name: 'Equipment', component: () => import('../views/Equipment.vue') },
   { path: '/alert-center', name: 'AlertCenter', component: () => import('../views/AlertCenter.vue') },

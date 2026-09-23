@@ -280,6 +280,30 @@ async function main() {
     await session.send('Page.reload', { ignoreCache: true })
     await sleep(5500)
 
+    // ---------- 0b. 首屏：裸地址（无 hash）必须落到工作台，不能是空白 ----------
+    // 主进程就是无 hash 加载 dist/index.html，所以评委双击图标后走的正是这条路；
+    // 而本文件其余断言全都是显式跳 `#/xxx` 的，**没有一条**走过裸地址。
+    //
+    // `/` 原先是落地页，该页已删除，现在由路由表末的 FALLBACK_ROUTE
+    // （`/:pathMatch(.*)*` → /dashboard）接住。所以这里断言的是"首屏是看板"这个
+    // **端到端结果**，而不是某一条具体路由：兜底指向哪儿、或者以后又加回一个 `/`
+    // 的着陆页，都会在这里体现出来。
+    // （我一度以为"少了 `/` 条目就会白屏"，实测是错的 —— 兜底会静默接住。）
+    await session.goto(`${BASE}/`, 3500)
+    const firstScreen = await session.eval(`(() => ({
+      hash: location.hash,
+      textLen: document.body.innerText.trim().length,
+      hasStrip: !!document.querySelector('.status-strip'),
+      blank: /No match found/i.test(document.body.innerText)
+    }))()`)
+    check('裸地址首屏被重定向到工作台（/ 在落地页删除后仍有归宿）',
+      firstScreen.hash === '#/dashboard', firstScreen.hash || '(无 hash)')
+    check('裸地址首屏不是空白页 / 无匹配页',
+      firstScreen.textLen > 200 && firstScreen.hasStrip && !firstScreen.blank,
+      `可见文本 ${firstScreen.textLen} 字 · 状态条 ${firstScreen.hasStrip} · 无匹配提示 ${firstScreen.blank}`)
+
+    await session.goto(`${BASE}/#/dashboard`, 3000)
+
     // ---------- 1. 首启：数据库可用 + 60 台演示数据 ----------
     const boot = await safeEval(session, '首启看板', `(() => {
       const text = (sel) => {

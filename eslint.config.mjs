@@ -92,7 +92,7 @@ export default [
     languageOptions: { sourceType: 'module' }
   },
 
-  // 路由级视图刻意用单词名（Dashboard/Equipment/Landing…）：
+  // 路由级视图刻意用单词名（Dashboard/Equipment/ModelHub…）：
   // 它们是页面而不是可复用组件，名字与菜单/路由路径一一对应，改成双词反而更难对照。
   {
     files: ['src/renderer/src/views/**/*.vue'],

@@ -1,11 +1,6 @@
 <template>
-  <!-- Landing 页面：全屏无边框 -->
-  <div v-if="isLanding" class="landing-wrapper">
-    <router-view />
-  </div>
-
-  <!-- 主应用：侧边栏 + 内容 -->
-  <el-container v-else class="app-container">
+  <!-- 主应用：侧边栏 + 内容（原先这里还有一个全屏落地页分支，已随落地页一并删除） -->
+  <el-container class="app-container">
     <!-- 侧边栏 -->
     <el-aside width="230px" class="app-aside blueprint-grid">
       <!-- Logo -->
@@ -336,7 +331,6 @@ function doUndo() {
   ElMessage.warning(`已撤销 ${outcome.reverted} 项变更，数据恢复到写入前`)
 }
 
-const isLanding = computed(() => route.path === '/')
 const currentPageTitle = computed(() => {
   const item = allNavItems.find(i => i.path === route.path)
   return item ? item.label : '首页'
@@ -445,11 +439,6 @@ html, body, #app {
      令牌里排在前面的 HarmonyOS Sans SC / PingFang SC 在各自的系统上比雅黑清晰，
      此前这条覆盖把 --font-sans 整个作废了（实测 computed 只剩 Microsoft YaHei）。 */
   font-family: var(--font-sans);
-}
-
-.landing-wrapper {
-  height: 100vh;
-  overflow-y: auto;
 }
 
 .app-container {
