@@ -304,6 +304,64 @@ async function main() {
       boot.stripValues.some(v => /台需立即处置/.test(v)) && boot.stripValues.some(v => /台维保超期/.test(v)),
       boot.stripValues.join(' | '))
 
+    // ---------- 1b. 洞察卡的大数字必须停在真值上 ----------
+    // 这里刻意不看"数字长什么样"，而是拿它跟**同一张卡自己带的算式**对账：
+    // 可用率卡的 detail 是 "N / M 台运行中"，大数字就必须等于 N/M；
+    // 维保执行率卡的 detail 是 "N / M 台维保未超期"，大数字就必须等于 N/M；
+    // 故障集中度卡的 detail 是 "TOP3 占 A/B 次"，大数字就必须等于 A/B。
+    //
+    // 为什么必须自己算一遍：这三张卡的大数字走 tweenNumber 从 0 滚到真值，
+    // 断言只读 textContent 的话，"停在中途的某个数字"和"停在真值"读起来都像
+    // 一个合法的百分比 —— 曾经 tweenNumber 的时长被写成 800（单位是**秒**，
+    // 见 utils/motion.js），动画要滚 13 分钟才到头，截图里三张卡停在 "3.0%"
+    // 而真值是 88.3%，整条 verify 依旧全绿。
+    const insight = await session.eval(`(() => ({
+      values: Array.from(document.querySelectorAll('.insight-value')).map(e => e.textContent.trim()),
+      details: Array.from(document.querySelectorAll('.insight-detail')).map(e => e.textContent.trim())
+    }))()`)
+    check('洞察卡渲染出百分比大数字',
+      insight.values.length > 0 && insight.values.every(v => /^\d+(\.\d+)?%$/.test(v)),
+      insight.values.join(' / '))
+
+    const selfConsistent = []
+    for (let i = 0; i < insight.values.length; i++) {
+      const detail = insight.details[i] || ''
+      // "53 / 60 台运行中" → 88.3%
+      const run = detail.match(/(\d+)\s*\/\s*(\d+)\s*台运行中/)
+      if (run) selfConsistent.push({
+        label: '可用率', expect: (Number(run[1]) / Number(run[2]) * 100).toFixed(1) + '%',
+        actual: insight.values[i], detail
+      })
+      // "TOP3 占 109/143 次" → 76.2%
+      const conc = detail.match(/占\s*(\d+)\s*\/\s*(\d+)\s*次/)
+      if (conc) selfConsistent.push({
+        label: '故障集中度', expect: (Number(conc[1]) / Number(conc[2]) * 100).toFixed(1) + '%',
+        actual: insight.values[i], detail
+      })
+      // "43 / 60 台维保未超期" → 71.7%
+      const mnt = detail.match(/(\d+)\s*\/\s*(\d+)\s*台维保未超期/)
+      if (mnt) selfConsistent.push({
+        label: '维保执行率', expect: (Number(mnt[1]) / Number(mnt[2]) * 100).toFixed(1) + '%',
+        actual: insight.values[i], detail
+      })
+    }
+    // 要求**每张卡**都被验算到（=== 而不是 >=）：将来新加一张洞察卡，
+    // 若它的大数字没有可对账的 detail 算式，这里就会失败，逼着人补上口径。
+    check('洞察卡的大数字与它自己给出的算式一致（动画已停在真值，不是爬到一半）',
+      selfConsistent.length === insight.values.length && selfConsistent.every(x => x.actual === x.expect),
+      selfConsistent.map(x => `${x.label} 期望 ${x.expect} 实际 ${x.actual}（${x.detail}）`).join(' ｜ '))
+
+    // 上面的对账只看数字，名字那半句漏掉了：故障集中度卡的 detail 形如
+    // "TOP3 占 109/143 次 · 液压系统、动力系统、电气系统"。曾用 `f.name || f.equipmentName
+    // || f.equipmentId` 去取名字，而这几个字段在 buildFaultStats 的 top 条目上都不存在，
+    // 三处都取到 undefined，join('、') 拼出 "、、" —— 一个非空字符串，所以连 `|| '—'`
+    // 兜底都不触发，卡面上就挂着两个孤零零的顿号。
+    // 断言口径刻意不写死字段名，只要求"分隔符两侧必须有内容"：占位符空了就报错。
+    const dangling = insight.details.filter(d => /^[、·]|[、·]\s*[、·]|[、·]\s*$/.test(d))
+    check('洞察卡细节行没有空占位留下的孤立分隔符',
+      insight.details.length > 0 && dangling.length === 0,
+      dangling.length ? `孤立分隔符：${dangling.join(' ｜ ')}` : insight.details.join(' ｜ '))
+
     // ---------- 2. 持久化：刷新后数据不丢 ----------
     const persisted = await session.eval(`(async () => {
       const len = await new Promise((resolve, reject) => {

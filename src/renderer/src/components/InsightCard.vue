@@ -29,20 +29,19 @@ const props = defineProps({
 
 const displayValue = ref(props.value)
 
-// 入场数字滚动动画
-const entered = ref(false)
 onMounted(() => {
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => { entered.value = true })
-  })
-
-  // 数字滚动：从 0 到 raw 值，百分比格式
+  // 数字滚动：0 → 真值，百分比格式。
+  //
+  // 时长单位是**秒**（见 utils/motion.js 的 `@param durationSec`）。这里原先写的是
+  // `800`，被当成 800 秒 —— 动画永远滚不完，卡片上的大数字在整场演示里一直从 0 慢慢
+  // 往上爬：截图时停在 "3.0%"，而真值是 88.3%。改成 0.8s，与全站其它数字滚动同节拍。
   if (!prefersReducedMotion() && props.raw > 0 && props.value.includes('%')) {
-    const target = props.raw
-    const numRef = ref(0)
-    tweenNumber(0, target, 800, (v) => {
-      numRef.value = v
+    tweenNumber(0, props.raw, 0.8, (v) => {
       displayValue.value = `${v.toFixed(1)}%`
+    }).then(() => {
+      // tweenNumber 逐帧取整（避免渲染出 17.2847），所以末帧是 88.0 而非 88.3。
+      // 收尾时对回精确字符串，保证停下的值与 insights.js 算出来的完全一致。
+      displayValue.value = props.value
     })
   }
 })
