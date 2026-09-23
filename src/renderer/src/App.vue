@@ -11,7 +11,7 @@
       <!-- Logo -->
       <div class="logo">
         <div class="logo-mark">
-          <el-icon :size="22"><Monitor /></el-icon>
+          <BrandMark :size="24" />
         </div>
         <div class="logo-text-wrap">
           <div class="logo-text">矿山智工</div>
@@ -180,6 +180,7 @@
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import BrandMark from './components/BrandMark.vue'
 import GlobalSearch from './components/GlobalSearch.vue'
 import ModelWizard from './components/ModelWizard.vue'
 import DemoControlBar from './components/DemoControlBar.vue'

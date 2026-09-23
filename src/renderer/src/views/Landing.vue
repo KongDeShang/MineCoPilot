@@ -12,7 +12,7 @@
       <div class="hero-section">
         <div class="hero-copy">
           <div class="logo-big">
-            <el-icon :size="64" color="var(--signal-bright)"><Monitor /></el-icon>
+            <BrandMark :size="64" />
           </div>
           <h1 class="main-title">矿山智工</h1>
           <p class="sub-title">工程机械运维 AI 工作台</p>
@@ -131,6 +131,7 @@
 
 <script setup>
 import { useRouter } from 'vue-router'
+import BrandMark from '../components/BrandMark.vue'
 import { equipmentPhoto } from '../utils/equipmentPhoto'
 
 const router = useRouter()
@@ -287,6 +288,8 @@ function enterApp() {
 
 .logo-big {
   margin-bottom: 16px;
+  /* 标识用 currentColor 取色（与 exe 图标、侧栏、favicon 同一份造型） */
+  color: var(--signal-bright);
   animation: pulse-glow 3s ease-in-out infinite;
 }
 
