@@ -33,7 +33,7 @@ mkdirSync(mirrorDir, { recursive: true })
 // knowledgeBase / reportGenerator 开始 import 它之后，镜像里没有对应文件，
 // self-check 抛 ERR_MODULE_NOT_FOUND 整个中断（verify 的前置步骤，全链路失败）。
 // 以后再往 utils 加纯函数模块，记得同步加到这里。
-for (const name of ['dates', 'html', 'htmlIcons', 'appIcons', 'storage', 'database', 'excelParser', 'synonyms', 'knowledgeBase', 'health', 'equipmentCatalog', 'fleetData', 'healthReport', 'faultStats', 'alertRules', 'aliases', 'nlCommand', 'llmClient', 'narrate', 'reportGenerator', 'dictionaries', 'bundledDocs', 'faultCaseDraft', 'demoTour']) {
+for (const name of ['dates', 'html', 'htmlIcons', 'appIcons', 'storage', 'database', 'excelParser', 'synonyms', 'knowledgeBase', 'health', 'equipmentCatalog', 'fleetData', 'healthReport', 'faultStats', 'alertRules', 'aliases', 'seedGate', 'nlCommand', 'llmClient', 'narrate', 'reportGenerator', 'dictionaries', 'bundledDocs', 'faultCaseDraft', 'demoTour']) {
   const code = readFileSync(join(srcDir, `${name}.js`), 'utf8')
     .replace(/(from\s+['"]\.\/[a-zA-Z0-9_-]+)(['"])/g, '$1.mjs$2')
   writeFileSync(join(mirrorDir, `${name}.mjs`), code, 'utf8')
@@ -268,6 +268,140 @@ function check(name, condition, detail = '') {
   const backfilled = database.all('work_orders')[0]
   check('老库启动时回填已归档标记（迁移补数据）',
     backfilled?.archived_at === '2026-09-02 18:00:00', JSON.stringify(backfilled || {}))
+}
+
+// ============ B3 落盘失败必须抛错（不得被当成"保存成功"） ============
+{
+  /**
+   * 回归：这三处曾经把失败静静吞掉，串成一条"数据静默丢失"链：
+   *   storage.saveDatabaseBytes 丢掉 db:write 的 { ok:false } 与 lsSet 的 false
+   *   → database.persist() 照样 dirty=false 并 return true
+   *   → persistence.saveNow() 更新 lastSavedAt（界面显示"已保存 HH:MM"）
+   *   → 关窗时的 flush 又因为 dirty 已被清掉而走 `!dirty && !force` 提前返回
+   * 于是磁盘满 / 文件被占用 / 超配额时，这段改动既不重试也不报错，随关窗消失。
+   * 断言口径：写失败必须**抛错**（由 persistence.saveNow 的 catch 转成 dbError），
+   * 且 database.persist 在抛错前不得清 dirty（否则下次不会重试）。
+   */
+  const storage = await import(mirror('storage'))
+  const realWindow = globalThis.window
+  const realLocalStorage = globalThis.localStorage
+
+  try {
+    // (1) Electron：主进程返回 { ok:false }（磁盘满 / 文件被占用）
+    globalThis.window = { electronAPI: { db: { write: async () => ({ ok: false, error: '磁盘已满' }) } } }
+    let electronErr = null
+    try { await storage.saveDatabaseBytes(new Uint8Array([1, 2, 3])) } catch (e) { electronErr = e }
+    check('Electron 落盘失败必须抛错（否则界面显示已保存、关窗还不重试）',
+      !!electronErr && /磁盘已满/.test(electronErr.message), electronErr ? electronErr.message : '没有抛错')
+
+    // (2) Electron：主进程抛错（IPC 会把异常传回来）也要抛
+    globalThis.window = { electronAPI: { db: { write: async () => { throw new Error('EACCES') } } } }
+    let ipcErr = null
+    try { await storage.saveDatabaseBytes(new Uint8Array([1])) } catch (e) { ipcErr = e }
+    check('Electron 落盘抛异常时也要抛错', !!ipcErr && /EACCES/.test(ipcErr.message),
+      ipcErr ? ipcErr.message : '没有抛错')
+
+    // (3) Electron：正常返回 { ok:true } 不得抛错
+    globalThis.window = { electronAPI: { db: { write: async () => ({ ok: true }) } } }
+    let okThrew = null
+    try { await storage.saveDatabaseBytes(new Uint8Array([1])) } catch (e) { okThrew = e }
+    check('Electron 落盘成功不抛错', okThrew === null, okThrew ? okThrew.message : '')
+
+    // (4) 浏览器：IndexedDB 不可用且 localStorage 写不进去（配额满）也必须抛错
+    globalThis.window = {}
+    globalThis.localStorage = { getItem: () => null, setItem: () => { throw new Error('QuotaExceededError') } }
+    let quotaErr = null
+    try { await storage.saveDatabaseBytes(new Uint8Array([1])) } catch (e) { quotaErr = e }
+    check('浏览器两种后端都失败时也必须抛错（原来 lsSet 的 false 被丢掉）',
+      !!quotaErr && /配额|localStorage/.test(quotaErr.message), quotaErr ? quotaErr.message : '没有抛错')
+
+    // (5) 契约的另一半：persist() 抛错时不得清 dirty，否则下次不再重试
+    globalThis.window = { electronAPI: { db: { write: async () => ({ ok: false, error: '磁盘已满' }) } } }
+    database.replaceAll({ equipment: [{ id: 77, name: '脏标记探针', model: 'X', category: '挖掘机' }] })
+    check('写入后进入脏状态（重试断言的前提）', database.isDirty() === true)
+    let persistErr = null
+    try { await database.persist() } catch (e) { persistErr = e }
+    check('落盘失败时 persist() 必须把异常抛出去（不能在抛错前清 dirty）',
+      !!persistErr && database.isDirty() === true,
+      `抛错=${!!persistErr} dirty=${database.isDirty()}`)
+  } finally {
+    globalThis.window = realWindow
+    globalThis.localStorage = realLocalStorage
+    // 清掉探针行并把库恢复到干净状态，避免影响后续断言
+    database.replaceAll({ equipment: [] })
+    await database.persist(true)
+  }
+}
+
+// ============ B4 首启播种判据（错一次就是整库被演示数据覆盖） ============
+{
+  /**
+   * 回归：判据曾写作 `if (!hasData) 播种`，只看 equipment 行数。于是
+   *   · 删空设备 → 下次启动重新长出 60 台演示设备；
+   *   · 导入不含台账的备份 → 工单/维保/日志/知识库/备件（applySeedData 覆盖九个集合）
+   *     一并被换成演示数据。
+   * 判据必须是"一条数据都没有 **且** 从没装过（没有 seed_version）"。
+   */
+  const { decideBootSeed } = await import(mirror('seedGate'))
+
+  const cases = [
+    // [seedVersion, hasEquipment, hasAnyData, 期望, 说明]
+    [null, false, false, 'seed', '全新安装：无数据 + 没装过 → 播种'],
+    [null, true, true, 'hydrate', '老版本装过（无 seed_version 标记）但已有台账 → 绝不能播种'],
+    [null, false, true, 'empty-ledger', '无标记、台账空但其它表有数据 → 用户状态，不播种'],
+    ['3', true, true, 'hydrate', '正常恢复'],
+    ['3', false, true, 'empty-ledger', '装过、台账被删空、其它数据还在 → 只装载'],
+    ['3', false, false, 'empty-ledger', '装过但整库为空 → 也不播种（否则无法以空台账交付）']
+  ]
+  for (const [seedVersion, hasEquipment, hasAnyData, expect, desc] of cases) {
+    const got = decideBootSeed({ seedVersion, hasEquipment, hasAnyData })
+    check(`播种判据：${desc}`,
+      got === expect,
+      `seedVersion=${seedVersion} 台账=${hasEquipment} 有数据=${hasAnyData} → ${got}（期望 ${expect}）`)
+  }
+
+  // 台账有行即视为"有数据"：调用方漏传 hasAnyData 也不能误判成全新安装
+  check('播种判据：台账有行但 hasAnyData 漏传时仍不得播种',
+    decideBootSeed({ seedVersion: null, hasEquipment: true, hasAnyData: false }) === 'hydrate')
+}
+
+// ============ B5 库损坏必须抛错，不得静默新建库 ============
+{
+  /**
+   * 回归：读取失败与"内容损坏"原来都只 console.warn、然后新建一个空库。
+   * 空库紧接着被 appStore 当成"没有设备"→ 播种演示数据 → 整库写回同一个文件，
+   * 用户真实数据就此被 60 台假设备覆盖，全程只在控制台留一行 warn。
+   * 断言口径：有字节但解析不了 → 抛 code='db-corrupt'；文件不存在 → 正常新建。
+   */
+  const lsKey = 'kuangshan-zhigong:database'
+  const goodBytes = database.exportBytes()
+  const goodBase64 = Buffer.from(goodBytes).toString('base64')
+
+  try {
+    // (1) 文件不存在 = 全新安装：必须能正常建库，不能抛错
+    await database.destroyDatabase()
+    fakeStorage.delete(lsKey)
+    let bootErr = null
+    try { await database.initDatabase() } catch (e) { bootErr = e }
+    check('无库文件时可正常新建库（首次启动路径不受影响）',
+      bootErr === null && database.isReady(), bootErr ? bootErr.message : '')
+
+    // (2) 有字节但解析不了 = 损坏：必须抛 db-corrupt，且不得把库当成"空库"
+    await database.destroyDatabase()
+    fakeStorage.set(lsKey, Buffer.from('这不是一个 sqlite 数据库，只是一段文本').toString('base64'))
+    let corruptErr = null
+    try { await database.initDatabase() } catch (e) { corruptErr = e }
+    check('库内容损坏时 initDatabase 必须抛 db-corrupt（而不是静默新建空库→被播种覆盖）',
+      !!corruptErr && corruptErr.code === 'db-corrupt',
+      corruptErr ? `${corruptErr.code}: ${corruptErr.message}` : '没有抛错')
+    check('损坏后不得留下一个"已就绪的空库"（否则调用方会继续播种）',
+      database.isReady() === false)
+  } finally {
+    // 把原有字节写回并重新打开，保证后续断言拿到的是同一个库
+    fakeStorage.set(lsKey, goodBase64)
+    await database.destroyDatabase()
+    await database.initDatabase()
+  }
 }
 
 // ============ B2 建表列必须全部接进写库映射 ============
@@ -1129,8 +1263,13 @@ function check(name, condition, detail = '') {
   check('报告 HTML 非空且含关键区块',
     report.html.includes('设备体检报告') && report.html.includes('健康度四因子') &&
     report.html.includes('数字溯源') && report.html.includes('停机损失估算'))
-  check('报告 HTML 含打印容器与签名区',
-    report.html.includes('print-doc') && report.html.includes('签字'))
+  // 报告根类必须是 .health-report：打印助手（utils/printDoc.js）按
+  // `.print-doc-standalone .health-report` 定位报告本体，屏幕预览也靠它取样式。
+  // 曾经报告根节点还带着 .print-doc，而 healthReport.css 里 `.print-doc{display:none}`
+  // 是为了"只给打印用"写的 —— 于是预览在屏幕上全白，而这条断言当时查的是
+  // `includes('print-doc')`，恰好把这个 bug 锁死在"通过"状态里。
+  check('报告 HTML 带报告根类与签名区（打印助手按 .health-report 定位）',
+    report.html.includes('class="health-report"') && report.html.includes('签字'))
   check('报告 HTML 不残留未替换占位符', !report.html.includes('undefined') && !report.html.includes('NaN'))
   // 报告样式已抽到全局单一样式源（src/styles/healthReport.css，main.js 引入）
   // 这里校验：报告 HTML 用到的类名必须都能在该样式表里找到，避免样式漂移
@@ -1303,11 +1442,27 @@ function check(name, condition, detail = '') {
   check('预警规则：不再产出 parts-low（备件台账没有设备挂靠关系，原规则恒不触发）',
     !new Set(alerts.map(a => a.ruleId)).has('parts-low'))
 
-  // 5) 看板与告警中心的关键数字必须同源：看板的"严重"= 告警中心的"高危"（D 级 + 超期45天+）
+  // 5) 看板与告警中心必须同源。
+  //    告警中心现在直接消费 toAlertRows()（映射自同一个 scanAlerts 结果），
+  //    critical ↔ level 'danger' 一一对应，因此"看板严重预警"与"告警中心高危"
+  //    不可能再各算各的。
+  //    ⚠️ 这条断言以前写的是 `summary.critical === levelD + overdue45` —— 等于把告警中心
+  //    内联那套逻辑在测试里**又抄了一遍**，测的是"两段手写逻辑此刻是否一致"：
+  //    它们分叉时断言会红，但"存在两套实现"这件事本身没人拦，而 cafcd1c 之前
+  //    这两套就是各算各的（只是碰巧相等）。现在测的是真实映射函数。
   const summary = alertRules.getAlertSummary(store)
-  const highRisk = levelD + overdue45
-  check('看板「严重预警」数 = 告警中心「高危」口径（D 级 + 超期45天+）',
-    summary.critical === highRisk, `看板 ${summary.critical} vs 高危 ${highRisk}`)
+  const rows = alertRules.toAlertRows(store)
+  const dangerRows = rows.filter(r => r.level === 'danger').length
+  check('看板「严重预警」= 告警中心「高危」（同一份规则结果，两页不可能分叉）',
+    summary.critical > 0 && summary.critical === dangerRows,
+    `看板 ${summary.critical} vs 告警中心 ${dangerRows}`)
+  check('告警中心：critical 与 danger 一一对应（映射写错会让两页数字静默不等）',
+    dangerRows === alerts.filter(a => a.severity === 'critical').length,
+    `${dangerRows} vs ${alerts.filter(a => a.severity === 'critical').length}`)
+  check('告警中心：规则命中的每一条都映射成一行（含内联实现曾漏掉的高频故障/闲置）',
+    rows.length === alerts.length &&
+    alerts.every(a => rows.some(r => r.key === `${a.ruleId}:${a.equipmentId}`)),
+    `规则 ${alerts.length} 条 → 行 ${rows.length} 条`)
 
   // 6) 公开 API：自定义规则可注册、规则清单可读
   alertRules.registerRule({
@@ -1606,6 +1761,26 @@ function check(name, condition, detail = '') {
     headerMap['俗称'] === '口述别名', JSON.stringify(headerMap))
   check('Excel 导入：导入器把该列切分后写进设备',
     storeSrc.includes("row['口述别名']") && storeSrc.includes('parseAliases(aliasText)'))
+
+  /**
+   * ⚠️ 最后这一条是**结构校验**，不是行为测试 —— stores/appStore.js 依赖 Pinia/Vue，
+   * 不在本脚本的镜像清单里（见文件头的说明），跑不起来；真正的行为级测试需要先把
+   * store 装配成 Node 下可用的形态，属于待办。
+   *
+   * 它抓的是一个真实发生过的缺陷：addEquipment 按字段白名单构造记录，而 `aliases`
+   * 曾漏在白名单之外 —— 设备表单与 Excel 导入都把别名切好传了进来，函数收下了、
+   * 却没有落进记录。后果是"新建的设备永远没有别名"，别名匹配层只对**编辑过**的设备生效
+   * （编辑走 Object.assign 全量合并）。而上面那几条源码字符串断言当时全是绿的：
+   * 落库接了、回读接了、表单有输入框、导入器有切分——漏的正是中间这一环。
+   */
+  const addEqBody = storeSrc.match(/function addEquipment\([\s\S]*?\n {2}\}/)
+  const recordLiteral = addEqBody && addEqBody[0].match(/const record = \{[\s\S]*?\n {4}\}/)
+  const recordKeys = recordLiteral
+    ? [...recordLiteral[0].matchAll(/^ {6}([a-zA-Z_][a-zA-Z0-9_]*):/gm)].map(m => m[1])
+    : []
+  check('addEquipment 的字段白名单里必须有 aliases（漏掉就是"新建的设备没有别名"）',
+    recordKeys.length > 0 && recordKeys.includes('aliases'),
+    `白名单字段：${recordKeys.join(',') || '未能从源码解析出 record 字面量'}`)
 }
 
 // ============ M 本地模型叙述层（纯函数，引擎不在 Node 环境故只测逻辑） ============

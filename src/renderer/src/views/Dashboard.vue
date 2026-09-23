@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="dashboard">
     <!-- 首屏信息条（痛点一句话呈现，不做大色块） -->
     <div class="status-strip">
@@ -57,7 +57,9 @@
         <span class="alert-summary-sep">|</span>
         <span class="alert-summary-tip">{{ alertSummary.topSuggestions[0] || '' }}</span>
       </div>
-      <el-button size="small" type="warning" plain @click="router.push('/alerts')">
+      <!-- 原先跳的是 /alerts，但路由表里只有 /alert-center，也没有兜底路由，
+           点一下内容区就整块变白，用户只能自己猜。 -->
+      <el-button size="small" type="warning" plain @click="router.push('/alert-center')">
         查看全部
       </el-button>
     </div>

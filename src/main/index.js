@@ -1,10 +1,17 @@
 const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
-const { registerLlmIpc, runSelfVerify } = require('./llmEngine')
+const { registerLlmIpc, runSelfVerify, disposeSession } = require('./llmEngine')
 const { registerModelsIpc } = require('./modelManager')
 
 let mainWindow
+
+/**
+ * 允许交给系统浏览器打开的协议白名单。
+ * 只用于 `setWindowOpenHandler`（见 createWindow）：除此之外一律 deny，
+ * 免得渲染端任意脚本通过 window.open 拉起系统浏览器打开任意地址。
+ */
+const EXTERNAL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
 
 // ── CSP 策略常量 ──────────────────────────────────────────────────────────────
 // 生产（file://）使用严格策略；开发（http://localhost:5173）放行 Vite HMR 所需的 ws/inline。
@@ -83,18 +90,20 @@ function registerIpc() {
   }
 
   // 读取数据库字节
+  //
+  // ⚠️ 三态语义，渲染层据此区分「全新安装」「有数据」「读失败」：
+  //   null          → 文件不存在（真正的首次启动，可以播种演示数据）
+  //   ArrayBuffer   → 读取成功
+  //   抛错          → 文件存在但读不出来（被占用/权限/磁盘故障）
+  // 原来出错也返回 null，于是"读失败"与"没有文件"无法区分，
+  // 渲染层会把它当成首次启动、把演示数据写到用户真实的库文件上（见 stores/appStore.js initStore）。
   ipcMain.handle('db:read', async (event) => {
     assertTrusted(event)
     const file = dbPath()
-    try {
-      if (!fs.existsSync(file)) return null
-      const buffer = await fs.promises.readFile(file)
-      // 转成 ArrayBuffer 才能跨 IPC 结构化克隆传回渲染进程
-      return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
-    } catch (error) {
-      console.error('[IPC] 读取数据库失败：', error)
-      return null
-    }
+    if (!fs.existsSync(file)) return null
+    const buffer = await fs.promises.readFile(file)
+    // 转成 ArrayBuffer 才能跨 IPC 结构化克隆传回渲染进程
+    return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
   })
 
   // 写入数据库字节（先写临时文件再改名，避免写入中途崩溃损坏数据）
@@ -403,9 +412,39 @@ function createWindow() {
   // 首屏渲染完成再显示，避免白屏闪烁
   mainWindow.once('ready-to-show', () => mainWindow.show())
 
-  // 外部链接交给系统浏览器，不在应用内打开
+  /**
+   * 外部链接交给系统浏览器，不在应用内打开。
+   *
+   * ⚠️ 两个必须守住点：
+   *   1) 空白子窗口要放行。应用自带的"打印 / 导出 PDF"用的是
+   *      `window.open('', '_blank')`，一律 deny 会让它在 Electron 下**永远打不开**
+   *      （win 恒为 null，界面却提示"浏览器拦截了打印窗口"——其实是自家主进程拒的）。
+   *   2) 不能无条件 openExternal。原实现把渲染端传来的任意 url 直接交给系统浏览器
+   *      （连空串都会调一次），等于给页面脚本开了一条无约束的外发通道。
+   *      现在按协议白名单收敛。
+   */
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
+    if (!url || url === 'about:blank') {
+      return {
+        action: 'allow',
+        // 子窗口沿用主窗口的安全配置，不因放行打印窗口而降低隔离等级
+        overrideBrowserWindowOptions: {
+          webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
+        }
+      }
+    }
+
+    let parsed
+    try {
+      parsed = new URL(url)
+    } catch {
+      return { action: 'deny' }
+    }
+    if (!EXTERNAL_PROTOCOLS.has(parsed.protocol)) return { action: 'deny' }
+
+    shell.openExternal(url).catch((error) => {
+      console.warn('[窗口] 打开外部链接失败：', error && error.message ? error.message : error)
+    })
     return { action: 'deny' }
   })
 
@@ -438,4 +477,27 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
+})
+
+/**
+ * 退出前释放本地模型会话。
+ *
+ * ModelSession 注释里一直承诺"切档/退出前调用"，但此前没有任何退出钩子，
+ * 旧模型只能等进程结束由系统回收。这里补上，并且：
+ *   · 只拦一次（cleanedUp），避免"清理里又触发 quit"的递归；
+ *   · 加超时兜底 —— 清理失败或卡住绝不能把用户关不掉的窗口留在屏幕上，
+ *     超时后照样退出（内存最终由系统回收，最坏只是少了主动释放）。
+ */
+let cleanedUp = false
+app.on('before-quit', (event) => {
+  if (cleanedUp) return
+  event.preventDefault()
+  cleanedUp = true
+  const timeout = new Promise((resolve) => setTimeout(resolve, 2500))
+  Promise.race([
+    disposeSession().catch((error) => {
+      console.warn('[模型] 退出时释放会话异常：', error && error.message ? error.message : error)
+    }),
+    timeout
+  ]).finally(() => app.quit())
 })

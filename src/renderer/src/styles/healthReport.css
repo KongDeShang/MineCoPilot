@@ -92,7 +92,9 @@
 .hr-loss { text-align: center; padding: 14px 0 6px; }
 .hr-loss-value { font-size: 32px; font-weight: 800; color: var(--danger-ink); }
 .hr-loss-formula { font-size: 12px; color: var(--text-2); margin-top: 6px; font-family: Consolas, Monaco, monospace; }
-.hr-urgent { font-size: 10px; color: var(--accent-contrast); background: var(--danger); border-radius: 6px; padding: 1px 6px; margin-left: 6px; }
+/* 「立即」标记：白字底必须是深红（--danger-ink 白字 6.08:1）。
+ * 原来用 --danger（#e0413e）只有 4.2:1，10px 小字不到 AA。 */
+.hr-urgent { font-size: 10px; color: var(--accent-contrast); background: var(--danger-ink); border-radius: 6px; padding: 1px 6px; margin-left: 6px; }
 .hr-mono { font-family: Consolas, Monaco, monospace; font-size: 11px; color: var(--text-2); }
 .hr-trace-table td { font-size: 11px; }
 
@@ -100,10 +102,17 @@
 .hr-sign { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-2); }
 .hr-foot-note { margin-top: 12px; font-size: 11px; color: var(--text-mute); text-align: center; }
 
-/* 打印容器：默认隐藏，仅在打印或显式激活（.print-doc-active）时渲染，
-   避免报告的纸面样式影响屏幕上的其他页面 */
-.print-doc { display: none; }
-.print-doc-active .print-doc { display: block; }
+/* 报告根节点只带 .health-report，**不再**带 .print-doc。
+ *
+ * 原来的写法是 `<div class="print-doc health-report">` 配一条 `.print-doc{display:none}`，
+ * 本意是"报告只给打印用、别影响屏幕"。但这份 HTML 同时就是屏幕上的预览
+ * （Equipment 的报告抽屉 :273、设备病历页 :91 都直接 v-html 渲染它），而全仓
+ * 早已没有任何地方给报告加 .print-doc-active —— 结果是**两处体检报告预览在屏幕上
+ * 全白**：DOM 里元素存在、文本正确、e2e 断言全过（断言读 textContent 不看可见性），
+ * 只有人眼看得到是一片空白。
+ *
+ * 现在打印容器由 utils/printDoc.js 自建（.print-doc-standalone + 自带样式表），
+ * 报告 HTML 只管屏幕呈现，两边职责分开。 */
 
 /* ===== 深色主题：报告保持"纸张"观感 =====
    报告语义是一张可打印的 A4 纸，且其内联颜色（RISK_LEVELS 字面 hex、
@@ -128,10 +137,12 @@ html[data-theme="dark"] .health-report {
 }
 
 @media print {
-  /* 只保留报告本体，隐藏应用外壳与工具栏 */
+  /* 隐藏应用外壳：打印时只让 utils/printDoc.js 注入的白纸容器可见。
+     容器自己用 `html.print-doc-standalone-active .print-doc-standalone *{visibility:visible!important}`
+     把它和内部所有节点重新显出来（!important 压过这里的 body * 规则），所以这里**不要再**
+     写 ".print-doc 可见" —— 那个类已经没有任何元素在用了（报告根节点现在只带 .health-report），
+     留着只会让人以为打印还是靠它。 */
   body * { visibility: hidden; }
-  .print-doc, .print-doc * { visibility: visible; }
-  .print-doc { display: block !important; position: absolute; left: 0; top: 0; width: 100%; }
 
   .report-toolbar { display: none !important; }
 

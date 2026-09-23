@@ -205,6 +205,96 @@ export function scanAlerts(store, options = {}) {
 }
 
 /**
+ * 规则 → 「告警中心」展示模型的映射表。
+ *
+ * 告警中心要在行里显示规则名、处置动作（去补货 / 去复诊 / 生成工单）与排序权重，
+ * 这些是**展示**信息，不属于规则本身，所以单独放在这里，而不是塞进 RULES。
+ */
+const PRESENTATION = {
+  'overdue-45': {
+    label: '维保超期', level: 'danger', weight: 900,
+    order: { type: 'maintenance', priority: 'urgent' },
+    title: (n) => `${n} 维保严重超期，立即安排停机检修`
+  },
+  'overdue-30': {
+    label: '维保超期', level: 'warning', weight: 500,
+    order: { type: 'maintenance', priority: 'high' },
+    title: (n) => `${n} 维保超期，安排保养`
+  },
+  'health-d': {
+    label: 'D 级设备', level: 'danger', weight: 1000,
+    order: { type: 'repair', priority: 'urgent' },
+    title: (n) => `${n} 健康分低（D 级），需立即排查处置`
+  },
+  'health-c': {
+    label: '健康预警', level: 'warning', weight: 350,
+    order: { type: 'maintenance', priority: 'normal' },
+    title: (n) => `${n} 健康 C 级，安排排查`
+  },
+  'health-degrading': {
+    label: '健康恶化', level: 'warning', weight: 300,
+    order: { type: 'maintenance', priority: 'high' },
+    title: (n) => `${n} 健康分持续下降，安排体检评估`
+  },
+  'fault-repeat': {
+    label: '高频故障', level: 'warning', weight: 600,
+    order: { type: 'repair', priority: 'high' },
+    title: (n) => `${n} 累计维修 ≥3 次，安排根因分析（RCA）`
+  },
+  'fault-repeat-severe': {
+    label: '极高频故障', level: 'danger', weight: 950,
+    order: { type: 'repair', priority: 'urgent' },
+    title: (n) => `${n} 累计维修 ≥5 次，评估停用更换`
+  },
+  // 闲置设备不该"生成工单"（正确动作是评估调度），所以 order 为 null。
+  'idle-long': { label: '闲置设备', level: 'warning', weight: 100, order: null, title: () => '' }
+}
+
+/**
+ * 把 scanAlerts() 的结果映射成告警中心的行模型。
+ *
+ * ⚠️ 这个函数的唯一目的是让「看板」与「告警中心」用的是**同一份规则结果**。
+ * 此前告警中心内联了另一套自己的扫描（D 级 / 超期 / 恶化 / 复诊 / 备件），
+ * 看板的「严重预警」走本模块，两个数字由两套算法各算各的 —— cafcd1c 修好
+ * buildContext 的字段之后它们碰巧相等，但任何一边单独改动都会立刻分叉，
+ * 而这恰恰是"每个数字都能追溯到来源"最容易被现场追问击穿的地方。
+ *
+ * 契约（自检里有断言守着）：critical ↔ level 'danger' 必须一一对应，
+ * 这样两页的"严重/高危"才是同一个数。info 级在视觉上归入 warning 样式 ——
+ * 告警中心只有 danger/warning 两套配色，不为此新增第三套。
+ *
+ * @param {object} store
+ * @param {Array} [alerts] 可选，复用已算好的 scanAlerts 结果
+ */
+export function toAlertRows(store, alerts = scanAlerts(store)) {
+  const byId = new Map((store.equipmentList || []).map(e => [String(e.id), e]))
+  return alerts.map(a => {
+    const p = PRESENTATION[a.ruleId] || {}
+    const eq = byId.get(String(a.equipmentId)) || { name: a.equipmentName, model: '', category: '' }
+    /**
+     * reason 里带了设备名，而行头已经单独显示设备名 —— 去掉前缀避免同一行重复两遍。
+     * 注意用 startsWith 判断再切，别用 replace（设备名若含正则特殊字符会误伤）。
+     */
+    let value = String(a.reason || '')
+    if (eq.name && value.startsWith(eq.name)) value = value.slice(eq.name.length).trim()
+
+    return {
+      // key 就是"处置记录"的持久化标识：(规则 × 设备) 唯一
+      key: `${a.ruleId}:${a.equipmentId}`,
+      level: a.severity === 'critical' ? 'danger' : (p.level || 'warning'),
+      typeLabel: p.label || a.ruleName,
+      equipment: eq,
+      value,
+      suggestion: a.suggestion,
+      orderTitle: p.title ? p.title(eq.name, a) : '',
+      orderType: p.order ? p.order.type : undefined,
+      orderPriority: p.order ? p.order.priority : undefined,
+      sortWeight: (a.severity === 'critical' ? 1000 : 0) + (p.weight || 0)
+    }
+  })
+}
+
+/**
  * 统计预警概要
  *
  * @param {object} store

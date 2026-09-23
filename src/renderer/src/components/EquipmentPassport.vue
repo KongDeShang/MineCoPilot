@@ -16,8 +16,11 @@
     <div class="passport-body">
       <!-- 左栏：基本信息 -->
       <div class="passport-left">
+        <!-- 机位照片与其他设备界面统一走 equipmentPhoto(category)：
+             原先这里是 Monitor 图标，同一台设备在看板/台账有实拍图，
+             打印出的身份证上却是个通用图标，卡片拿在手里对不上设备。 -->
         <div class="passport-avatar">
-          <el-icon :size="48"><Monitor /></el-icon>
+          <img :src="equipmentPhoto(equipment.category)" :alt="equipment.name" loading="lazy" />
         </div>
         <table class="info-table">
           <tr><td class="label">设备名称</td><td>{{ equipment.name }}</td></tr>
@@ -101,9 +104,12 @@
         <span class="footer-note">※ 本卡由矿山智工系统自动生成，数据截止 {{ generatedAt }}</span>
       </div>
       <div class="footer-right">
-        <div class="qr-placeholder">
-          <el-icon :size="36"><Iphone /></el-icon>
-          <span>扫码查看</span>
+        <!-- 原来是"手机图标 + 扫码查看"，但本应用不生成二维码（无 qrcode 依赖），
+             这张卡还要打印张贴到设备上，写"扫码查看"就是一句做不到的承诺。
+             改成直接印出设备编号，物理卡片上本来就该有可核对的身份信息。 -->
+        <div class="id-block">
+          <span>设备编号</span>
+          <span class="id-block-value">{{ equipment.id }}</span>
         </div>
       </div>
     </div>
@@ -112,9 +118,10 @@
 
 <script setup>
 import { computed } from 'vue'
-import { Monitor, Calendar, Iphone } from '@element-plus/icons-vue'
+import { Calendar } from '@element-plus/icons-vue'
 import { getHealthColor } from '../utils/health'
 import { equipmentStatusLabel } from '../utils/dictionaries'
+import { equipmentPhoto } from '../utils/equipmentPhoto'
 
 const props = defineProps({
   equipment:  { type: Object, required: true },
@@ -225,6 +232,13 @@ const generatedAt = computed(() => {
   justify-content: center;
   color: #909399;
   margin-bottom: 12px;
+  overflow: hidden;
+}
+.passport-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 .info-table {
   width: 100%;
@@ -385,7 +399,8 @@ const generatedAt = computed(() => {
   font-size: 10px;
   color: #bbb;
 }
-.qr-placeholder {
+/* 身份块（取代原二维码占位：印不出可扫的码，就印可核对的设备编号） */
+.id-block {
   width: 52px;
   height: 52px;
   border: 1.5px dashed #ddd;
@@ -394,9 +409,15 @@ const generatedAt = computed(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: #ccc;
+  color: #bbb;
   font-size: 9px;
   gap: 2px;
+}
+.id-block-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1a1a2e;
+  font-family: 'Consolas', monospace;
 }
 
 /* 打印适配 */

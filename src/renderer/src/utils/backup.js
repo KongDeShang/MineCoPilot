@@ -19,6 +19,27 @@ import { formatDate } from './dates'
 const BACKUP_KIND = 'kuangshan-zhigong-backup'
 const CHAT_KEY = 'ai_chat_messages'
 
+/**
+ * 备份里的聊天记录是否真的有内容。
+ *
+ * ⚠️ 这里必须同时认两种形状，否则导入备份会**删掉**用户的对话历史：
+ * AI 助手写入 `ai_chat_messages` 的是一个对象
+ * `{ savedAt, equipmentCount, messages, conversation }`（见 views/AIAssistant.vue 的
+ * scheduleChatSave），而导入侧原来只判 `Array.isArray(...)` —— 对对象恒为 false，
+ * 于是走 else 分支 removeItem，把备份里明明存在的聊天记录抹掉。
+ * 数组是更早版本的形状，保留兼容。
+ */
+function hasChatContent(chat) {
+  if (Array.isArray(chat)) return chat.length > 0
+  if (!chat || typeof chat !== 'object') return false
+  const messages = Array.isArray(chat.messages) ? chat.messages : null
+  if (messages) return messages.length > 0
+  const conversation = Array.isArray(chat.conversation) ? chat.conversation : null
+  if (conversation) return conversation.length > 0
+  // 认不出的对象形状：只要不是空对象就当作有内容，宁可还原也不要误删
+  return Object.keys(chat).length > 0
+}
+
 /** 纳入备份的 localStorage 白名单（用户设置类键；数据库兜底键天然排除） */
 const SETTINGS_KEYS = [
   'ks:theme',          // 深浅主题
@@ -172,10 +193,21 @@ export async function buildBackup() {
   const settings = collectSettings()
 
   // 文档文件：Electron 走主进程读 userData/documents/；浏览器读 IndexedDB
-  let docFiles = []
+  let docFiles
   if (isElectron()) {
     const r = await window.electronAPI.docs.readAll()
-    if (r && r.ok) docFiles = r.files || []
+    /**
+     * ⚠️ readAll 失败时必须中止导出，不能当成"没有文档"继续。
+     *
+     * 主进程在单文件 >50MB 或总量 >200MB 时会返回 { ok:false, error }（见 src/main/index.js）。
+     * 此前这里 `if (r && r.ok)` 不成立时 docFiles 保持空数组，备份照样导出并提示"导出成功"，
+     * 于是换机后出现最坏的一种不一致：数据库里有手册元数据、documents/ 目录里没有文件，
+     * 手册资料库全部打不开，而用户在导出当天看到的是成功提示。
+     */
+    if (!r || !r.ok) {
+      throw new Error(`读取手册文件失败，已中止导出以免备份缺少手册：${(r && r.error) || '主进程未返回成功'}`)
+    }
+    docFiles = r.files || []
   } else {
     docFiles = await collectDocsBrowser()
   }
@@ -303,7 +335,7 @@ export async function importBackup(fileContent) {
 
   // 恢复 AI 聊天记录
   try {
-    if (Array.isArray(parsed.chatHistory) && parsed.chatHistory.length) {
+    if (hasChatContent(parsed.chatHistory)) {
       localStorage.setItem(CHAT_KEY, JSON.stringify(parsed.chatHistory))
     } else {
       localStorage.removeItem(CHAT_KEY)

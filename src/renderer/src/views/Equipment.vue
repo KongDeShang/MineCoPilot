@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="equipment">
     <!-- 设备列表视图 -->
     <el-card v-if="!selectedEquipment">
@@ -383,6 +383,7 @@ import { parseAliases, formatAliases } from '../utils/aliases'
 import { evaluateHealth, getHealthColor, levelBounds, buildTrendPath } from '../utils/health'
 import { equipmentPhoto } from '../utils/equipmentPhoto'
 import { generateHealthReport } from '../utils/healthReport'
+import { printHtmlReport, cleanupPrintDoc } from '../utils/printDoc'
 import { useEnter } from '../utils/motion'
 import { useVirtualGrid } from '../utils/virtualGrid'
 import EquipmentPassport from '../components/EquipmentPassport.vue'
@@ -563,6 +564,10 @@ function openPassport() {
 }
 
 function printPassport() {
+  // 设备身份证走的是另一套机制：它打印的是屏幕上这个 .el-overlay 对话框本体，
+  // 靠 print-passport-active 把 body 其余部分藏起来。打印前先清一次报告打印容器，
+  // 免得上一次报告打印的残留（afterprint 未触发时会留到兜底超时才清）两套规则互相隐藏。
+  cleanupPrintDoc()
   document.documentElement.classList.add('print-passport-active')
   setTimeout(() => {
     window.print()
@@ -570,15 +575,23 @@ function printPassport() {
   }, 100)
 }
 
-/** 打印报告：给根节点加打印类，只渲染 .print-doc */
+/**
+ * 打印报告：交给统一打印助手（utils/printDoc.js），与设备病历页共用一份实现。
+ * 原来这里是自己加 print-doc-active 类 + 直接 window.print()：
+ * 报告预览挂在带 overflow: hidden 的抽屉里，多页 A4 会被裁剪，
+ * 而且样式全靠全局 healthReport.css —— 助手改成自建「白纸容器 + 自带样式」，
+ * 屏幕预览层怎么摆都不影响出纸。
+ */
 function printReport() {
-  document.documentElement.classList.add('print-doc-active')
-  const cleanup = () => {
-    document.documentElement.classList.remove('print-doc-active')
-    window.removeEventListener('afterprint', cleanup)
+  if (!report.value) {
+    ElMessage.warning('请先生成体检报告')
+    return
   }
-  window.addEventListener('afterprint', cleanup)
-  window.print()
+  const ok = printHtmlReport({
+    title: `${report.value.equipment.name} 体检报告`,
+    html: report.value.html
+  })
+  if (!ok) ElMessage.warning('暂无可打印的报告内容，请重新生成')
 }
 
 /** 报告 → 处方工单（闭环：体检结论直接变成可执行任务） */

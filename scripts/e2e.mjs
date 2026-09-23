@@ -36,6 +36,16 @@ const check = (name, ok, detail = '') => {
   checks.push({ name, ok: !!ok, detail: String(detail).slice(0, 240) })
 }
 
+/**
+ * CDP 单条请求的传输层时限（毫秒）。
+ *
+ * 只约束"浏览器是否回话"，不参与任何断言的判定。实测有过一次
+ * `Runtime.evaluate 超时` 让整条 verify 在此失败、原样重跑即全过 ——
+ * 机器繁忙（冷启动播种 + 导入手册 + 同时开着浏览器）时 30s 偏紧。
+ * 见 Session.send() 里的说明：只放宽时限，不做自动重试。
+ */
+const CDP_TIMEOUT_MS = 90000
+
 function findBrowser() {
   for (const candidate of CHROME_CANDIDATES) {
     if (candidate && existsSync(candidate)) return candidate
@@ -89,12 +99,25 @@ class Session {
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject })
       this.ws.send(JSON.stringify({ id, method, params }))
+      /**
+       * 传输层超时（CDP 没在时限内回话），**不是**断言失败。
+       *
+       * 为什么从 30s 放宽到 90s：实测遇到过一次 `Runtime.evaluate 超时` 让整条
+       * `npm run verify` 在这一步失败，紧接着原样重跑就 102/102 全过 —— 机器忙
+       * （同时开着浏览器、开发服务器、冷启动播种 60 台设备 + 导入 3 本手册）时，
+       * 30s 对 `awaitPromise: true` 的求值偏紧。
+       *
+       * 一个会偶发失败的验收门禁比没有门禁更糟：它教人"重跑一次就好了"，
+       * 于是真的失败也会被当成抖动忽略。所以这里只放宽**传输层**时限，
+       * 不动任何断言的判定标准；而且**不做自动重试** —— 大量 `eval` 里带着
+       * 点击、确认框操作等副作用，重试等于把副作用执行两遍。
+       */
       setTimeout(() => {
         if (this.pending.has(id)) {
           this.pending.delete(id)
-          reject(new Error(`${method} 超时`))
+          reject(new Error(`[传输超时 ${CDP_TIMEOUT_MS / 1000}s] ${method} 未响应（不是断言失败，多半是浏览器/机器繁忙）`))
         }
-      }, 30000)
+      }, CDP_TIMEOUT_MS)
     })
   }
 

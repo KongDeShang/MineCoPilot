@@ -1,5 +1,10 @@
 /**
- * 矿山智工 - 口述指代消解覆盖率自检
+ * 矿山智工 - 口述指代消解**能力覆盖矩阵**（scripts/coverage.mjs）
+ *
+ * ⚠️ 先明确口径：这**不是代码覆盖率**。本仓库没有 c8 / istanbul / vitest 之类的
+ *    插桩工具，这个脚本也不插桩。它生成一批真实口吻的句子，喂给解析器，统计
+ *    "哪些说法能被唯一确定、哪些需要回问用户" —— 度量的是**能力广度**，
+ *    不是"哪些代码被执行过"。`npm run coverage` 这个名字容易让人误读，故在此写明。
  *
  * 用途：回答一个具体问题——**在实际口吻里，哪些说法能被唯一确定，哪些会需要回问用户？**
  *
@@ -136,6 +141,7 @@ for (const kind of ['仅型号', '仅类别']) {
  */
 const UNIQUE_FLOOR = 22 // 本次实测 22（扩充机型前为 17）
 const totalUnique = detail.filter(d => d.status === 'resolved').length
+const uniqueMargin = totalUnique - UNIQUE_FLOOR
 if (totalUnique < UNIQUE_FLOOR) {
   failures.push(`唯一命中总台数 ${totalUnique} 低于基线 ${UNIQUE_FLOOR}（识别能力退化）`)
 }
@@ -146,6 +152,17 @@ if (catKind && catKind.resolved > 0) {
   failures.push(`「仅类别」出现了 ${catKind.resolved} 句唯一命中（多台同类必须回问，不允许猜）`)
 }
 
+/**
+ * ⚠️ 口径先写在最前面：这是**能力覆盖矩阵**，不是代码覆盖率。
+ *
+ * 本仓库没有任何行/分支覆盖率工具（package.json 里没有 c8 / istanbul / vitest），
+ * 这个脚本也不插桩 —— 它生成一批真实口吻的句子、喂给解析器、统计"哪些能被唯一确定"。
+ * 之所以要专门声明：脚本名与 `npm run coverage` 放一起，很容易被读成"代码覆盖率"，
+ * 而"覆盖率 39%"这种数字一旦被误读成代码覆盖率，就是对项目状态的错误陈述。
+ */
+console.log('口径：本脚本统计的是「口述指代消解的能力覆盖矩阵」（哪些说法能被唯一确定），')
+console.log('      不是代码覆盖率 —— 本仓库没有插桩/行覆盖率工具。')
+
 console.log('\n=== 覆盖率底线检查 ===')
 if (failures.length) {
   for (const f of failures) console.log(`FAIL  ${f}`)
@@ -154,8 +171,16 @@ if (failures.length) {
 } else {
   console.log(`PASS  类别+序号 ${seqKind.resolved}/${seqKind.total}、全名 ${nameKind.resolved}/${nameKind.total} 保持 100%`)
   console.log(`PASS  仅型号/仅类别未出现"未找到"（回问是预期行为，不是缺陷）`)
-  console.log(`PASS  唯一命中 ${totalUnique} 台 ≥ 基线 ${UNIQUE_FLOOR}（不随车队扩编稀释）`)
+  console.log(`PASS  唯一命中 ${totalUnique} 台 ≥ 基线 ${UNIQUE_FLOOR}（余量 ${uniqueMargin} 台）`)
   console.log(`PASS  「仅类别」全部回问（${catKind ? catKind.ambiguous : 0}/${catKind ? catKind.total : 0}，不猜）`)
+  /**
+   * 余量为 0 要显式说出来。
+   * 这条基线是照着当时的实测值钉的（"本次实测 22"），恰好压线意味着任何一句退化都会红 ——
+   * 而"刚好够用"与"有明显富余"在 PASS 一行里长得一模一样。不是失败，但必须可见。
+   */
+  if (uniqueMargin === 0) {
+    console.log('⚠️   余量为 0：该基线是照当前实测值钉死的，任何一句退化都会失败 —— 属于"刚好压线"，不是"有富余"')
+  }
   console.log(`\n覆盖率自检通过（总命中率 ${overallRate}% 仅供参考：句数随车队覆盖变化）`)
 }
 

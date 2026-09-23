@@ -10,7 +10,7 @@
  *
  * 报告 HTML 自带样式，可直接 v-html 渲染、window.print() 打印（A4 版式）
  */
-import { evaluateHealth, estimateLoss, evaluateTrend, RISK_LEVELS, levelOf, levelMeta, buildTrendPath, dailyOutputLossOf } from './health'
+import { evaluateHealth, estimateLoss, evaluateTrend, RISK_LEVELS, levelOf, buildTrendPath, dailyOutputLossOf } from './health'
 import { addDays, daysUntilDue, now } from './dates'
 import { escapeHtml } from './html'
 
@@ -276,8 +276,21 @@ export function generateHealthReport(eq, store) {
 // HTML 渲染（自带样式，用于抽屉展示与打印）
 // ============================================================
 
+/**
+ * 等级 → 报告用色
+ *
+ * 报告区永远是白底（`.health-report{background:#fff}`，深色主题下也把令牌拉回浅色），
+ * 所以报告里的**文字**必须用 RISK_LEVELS 的 `ink`（白底 5.36~6.34:1），
+ * 不能用 `color`：`color` 是给深色底图表/描边用的，白底上 C 级只有 2.28:1、
+ * A 级 3.35:1，都不到 WCAG AA。描边这类非文字用途仍可用 `color`。
+ */
 function levelBadgeColor(level) {
   return (RISK_LEVELS[level] || RISK_LEVELS.A).color
+}
+
+function levelInkColor(level) {
+  const meta = RISK_LEVELS[level] || RISK_LEVELS.A
+  return meta.ink || meta.color
 }
 
 function renderFactorRow(factor) {
@@ -286,7 +299,7 @@ function renderFactorRow(factor) {
     <div class="hr-factor">
       <div class="hr-factor-head">
         <span class="hr-factor-name">${escapeHtml(factor.name)}</span>
-        <span class="hr-factor-score" style="color:${levelMeta(levelOf(factor.score)).color}">
+        <span class="hr-factor-score" style="color:${levelInkColor(levelOf(factor.score))}">
           ${factor.score} 分
         </span>
       </div>
@@ -344,13 +357,13 @@ function renderReportHtml(report) {
   const statusLabels = { running: '运行中', idle: '闲置', maintenance: '维保中', fault: '故障' }
 
   return `
-<div class="print-doc health-report">
+<div class="health-report">
   <header class="hr-head">
     <div>
       <h1>设备体检报告</h1>
       <div class="hr-sub">矿山智工 · 设备健康智能体（本地离线生成）</div>
     </div>
-    <div class="hr-badge" style="border-color:${badgeColor};color:${badgeColor}">
+    <div class="hr-badge" style="border-color:${badgeColor};color:${levelInkColor(s.level)}">
       <span class="hr-badge-score">${s.score}</span>
       <span class="hr-badge-level">${escapeHtml(s.level)} ${escapeHtml(s.levelLabel)}</span>
     </div>

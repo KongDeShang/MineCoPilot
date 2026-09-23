@@ -67,7 +67,7 @@
         <div class="offline-badge">
           <span class="dot-green"></span> 离线运行中 · 数据在本机
         </div>
-        <div class="storage-line" :title="storageDetail">
+        <div class="storage-line" :class="{ 'storage-error': !!store.dbError }" :title="storageDetail">
           <el-icon><Coin /></el-icon>
           {{ storageLabel }}
         </div>
@@ -177,7 +177,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import GlobalSearch from './components/GlobalSearch.vue'
@@ -257,6 +257,26 @@ function onWizardInstalled() {
   ElMessage.success('模型已就绪，可断网使用')
 }
 
+/**
+ * 落盘失败要主动弹一次，不能只等用户去悬停状态栏。
+ *
+ * 只在"从没有错误 → 出现错误"这一刻弹（用 immediate:false 的 watch，天然是变化触发）；
+ * 写清楚"这次改动没保存"与"怎么恢复"，因为这是唯一会让用户丢数据的提示。
+ * 恢复成功（dbError 被清空）时也给一句，避免用户一直以为还在失败状态。
+ */
+watch(() => store.dbError, (now, before) => {
+  if (now && !before) {
+    ElMessage({
+      type: 'error',
+      duration: 0, // 不自动消失：数据没落盘这件事不该被几秒后忘掉
+      showClose: true,
+      message: `保存失败：${now}`
+    })
+  } else if (!now && before) {
+    ElMessage.success('本地保存已恢复正常（刚才失败的改动已重试写入）')
+  }
+})
+
 onBeforeUnmount(() => {
   if (llmTimer) clearInterval(llmTimer)
 })
@@ -323,6 +343,15 @@ const currentPageTitle = computed(() => {
 
 // 存储状态：让"数据存在本地"这件事在界面上可见
 const storageLabel = computed(() => {
+  /**
+   * ⚠️ 落盘失败必须**占据**这一行，而不是只躺在 tooltip 里。
+   *
+   * 原来这里先看 `saving`、再看 `lastSavedAt`，`dbError` 只出现在 :title 的
+   * storageDetail 里（要悬停才看得见）。于是磁盘满 / 文件被占用时，状态栏显示的
+   * 是**上一次成功**的"已保存 HH:MM" —— 界面在说"存好了"，而这次改动一个字节都没落盘。
+   * 这正好把 P0 那条修复（失败即抛错 → dbError）变成了看不见的修复。
+   */
+  if (store.dbError) return '保存失败'
   if (!store.dbReady) return '内存模式'
   if (store.saving) return '保存中…'
   return store.lastSavedAt ? `已保存 ${store.lastSavedAt.slice(11)}` : '本地已就绪'
@@ -804,5 +833,14 @@ html, body, #app {
   .app-main {
     padding: 12px;
   }
+}
+
+/* 落盘失败时的状态栏高亮。
+   选择器比基础的 .storage-line 多一个类，因此不必关心它在样式表里的先后位置。
+   颜色优先取深色语义色 --on-dark-danger，取不到时回落到字面值 —— 侧栏是深色底，
+   不能用为白底调的 --danger。 */
+.storage-line.storage-error {
+  color: var(--on-dark-danger, #ff9a9a);
+  font-weight: 600;
 }
 </style>

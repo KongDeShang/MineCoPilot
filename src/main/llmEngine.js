@@ -46,7 +46,13 @@ function readPref() {
   try { return JSON.parse(fs.readFileSync(prefPath(), 'utf8')) } catch { return {} }
 }
 function writePref() {
-  try { fs.writeFileSync(prefPath(), JSON.stringify({ tierId: currentTierId }, null, 2), 'utf8') } catch { /* 写失败不阻塞 */ }
+  try {
+    fs.writeFileSync(prefPath(), JSON.stringify({ tierId: currentTierId }, null, 2), 'utf8')
+  } catch (error) {
+    // 写失败不阻塞切档，但必须留痕：偏好是"下次启动加载哪个档"的依据，
+    // 静默失败会让用户遇到"明明切过档，重启又回去了"且查不到原因。
+    console.warn('[模型] 档位偏好写入失败（下次启动可能回退到自动选档）：', error && error.message ? error.message : error)
+  }
 }
 
 /**
@@ -219,8 +225,15 @@ function listModels() {
 }
 
 /**
- * 切换档位：校验 → 释放旧会话（若换档）→ 加载新档；失败回退原档不成立（原档已释放，
- * 但状态机回到 failed 且带原因，渲染层可一键切回）。
+ * 切换档位：**先确认目标档真的装好了** → 释放旧会话 → 加载新档 → 失败则回滚原档。
+ *
+ * 原实现是"先改档位 + 先落偏好 + 先释放旧会话，然后才尝试加载"（注释还写着
+ * "原档已释放，但渲染层可一键切回"）。两个问题：
+ *   1) 目标档没装（例如云端未提供的增强档）时，旧模型已经被释放，用户什么都没得到；
+ *   2) 所谓"一键切回"走的是同一条切换接口，而那个接口当时是坏的（preload 传的是
+ *      裸字符串、这里读 payload.id），根本切不回来 —— 只能重启应用。
+ * 现在改成：缺文件就不动任何状态；加载失败则把原档重新加载回来，尽力保证
+ * 用户始终有一个可用的本地模型。
  */
 async function switchModel(id) {
   const tier = getTierMeta(id)
@@ -230,16 +243,55 @@ async function switchModel(id) {
     return { ok: true, info: modelInfo, state, current: currentTierId, switched: false }
   }
 
-  currentTierId = id
-  writePref()
-  if (session.loaded && session.tierId !== id) {
-    await session.dispose()
+  // 前置校验：目标档的模型文件必须真的在。此步没有任何副作用，
+  // 失败时直接返回、保持当前档位原样（这是"别让用户丢掉可用模型"的第一道保障）。
+  const target = scanTiers(modelRoots()).find(t => t.id === id)
+  if (!target || !target.installed) {
+    return {
+      ok: false,
+      error: `档位「${tier.name}」尚未安装（缺少模型文件 ${tier.file}），已保持当前档位不变`,
+      info: modelInfo,
+      state,
+      current: currentTierId,
+      switched: false
+    }
   }
+
+  const prevTierId = currentTierId
+
+  if (session.loaded && session.tierId !== id) {
+    const released = await session.dispose()
+    if (released && !released.ok) {
+      // 释放失败不再静默：旧模型可能仍占着内存，日志里要能查到
+      console.warn('[模型] 释放旧档会话时部分对象失败：', released.errors.join('；'))
+    }
+  }
+  currentTierId = id
   state = 'idle'
   loadError = ''
   modelInfo = null
+
   const r = await ensureLoaded()
-  return { ok: r.ok, error: r.error || '', info: modelInfo, state, current: currentTierId, switched: true }
+
+  if (!r.ok) {
+    const failure = r.error || ''
+    // 回滚：把档位指针改回原档，并尽力重新加载它。
+    // 不这么做的话，用户会因为一次失败的切换而彻底失去本地模型能力。
+    if (prevTierId && prevTierId !== id) {
+      currentTierId = prevTierId
+      state = 'idle'
+      loadError = ''
+      modelInfo = null
+      await ensureLoaded() // 尽力而为；若也失败则 state=failed 且 loadError 带原因
+    }
+    writePref()
+    return { ok: false, error: failure, info: modelInfo, state, current: currentTierId, switched: false }
+  }
+
+  // 只有真正加载成功才落偏好：偏好是"下次启动加载哪个档"的依据，
+  // 写在一个跑不起来的档位上会让下次启动直接失败。
+  writePref()
+  return { ok: true, error: '', info: modelInfo, state, current: currentTierId, switched: true }
 }
 
 /**
@@ -286,7 +338,18 @@ function registerLlmIpc({ ipcMain }) {
 
   ipcMain.handle('llm:switchModel', async (event, payload) => {
     assertTrusted(event)
-    const id = String(payload && payload.id || '')
+    /**
+     * 兼容两种入参形状：`{ id }` 与裸字符串 `'standard'`。
+     *
+     * 原来是 `String(payload && payload.id || '')`，只认对象；而 preload 传的是
+     * 裸字符串（`ipcRenderer.invoke('llm:switchModel', id)`），于是 `.id` 恒为
+     * undefined → 每次都返回"缺少档位 id"，**整个档位切换功能从未成功过**
+     * （本机 userData 里也从来没有 model-pref.json）。preload 已按 `{ id }` 修正，
+     * 这里同时兼容裸值，避免两侧契约再次漂移时又变成静默失效。
+     */
+    const id = typeof payload === 'string' || typeof payload === 'number'
+      ? String(payload)
+      : String((payload && payload.id) || '')
     if (!id) return { ok: false, error: '缺少档位 id' }
     return switchModel(id)
   })
@@ -389,4 +452,23 @@ function dedupeLoop(text) {
   return t
 }
 
-module.exports = { registerLlmIpc, getStatus, ensureLoaded, runSelfVerify, listModels, switchModel }
+/**
+ * 退出前释放模型会话。
+ *
+ * ModelSession 的注释一直写着"切档/退出前调用"，但主进程此前只挂了
+ * window-all-closed → app.quit()，**退出路径从来没有人调用过它**，
+ * 旧模型的 context/mmap 只能等进程结束由系统回收。这里补上，
+ * 并把失败汇总成日志（不再静默）。
+ */
+async function disposeSession() {
+  if (!session.loaded) return { ok: true, errors: [] }
+  const r = await session.dispose()
+  state = 'idle'
+  modelInfo = null
+  if (r && !r.ok) {
+    console.warn('[模型] 退出时释放会话部分失败：', r.errors.join('；'))
+  }
+  return r || { ok: true, errors: [] }
+}
+
+module.exports = { registerLlmIpc, getStatus, ensureLoaded, runSelfVerify, listModels, switchModel, disposeSession }

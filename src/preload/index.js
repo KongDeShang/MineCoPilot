@@ -53,7 +53,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     generate: (prompt) => ipcRenderer.invoke('llm:generate', { prompt }),
     cancel: () => ipcRenderer.invoke('llm:cancel'),
     listModels: () => ipcRenderer.invoke('llm:listModels'),
-    switchModel: (id) => ipcRenderer.invoke('llm:switchModel', id),
+    // ⚠️ 必须包成对象：主进程按 payload.id 取值。
+    // 原来这里传的是裸字符串 id，主进程读 payload.id 恒为 undefined，
+    // 于是「切换到该档」按钮 100% 返回"缺少档位 id"（档位切换功能从未生效）。
+    // 主进程现已兼容裸值，但这里仍按对象发送，保持与 models.download 一致的契约。
+    switchModel: (id) => ipcRenderer.invoke('llm:switchModel', { id }),
     onProgress: (cb) => {
       const listener = (_event, payload) => cb(payload)
       ipcRenderer.on('llm:progress', listener)

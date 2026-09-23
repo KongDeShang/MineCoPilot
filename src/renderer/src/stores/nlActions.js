@@ -11,12 +11,13 @@
  */
 
 export function createNlActions(ctx) {
+  // 注意：这里不再需要 recentLogs —— 日志窗口统一由 appStore.addLog 按 LOG_WINDOW 管理，
+  // 本模块曾自行 slice(0, 50) 把已落库的历史永久删掉一段（详见 logVoiceAction 内的说明）。
   const {
     equipmentList,
     maintenanceRecords,
     healthSnapshots,
     workOrders,
-    recentLogs,
     persistAll,
     addLog,
     now
@@ -160,7 +161,11 @@ export function createNlActions(ctx) {
       type: 'success',
       tagType: 'success'
     }, { silent: true })
-    recentLogs.value = recentLogs.value.slice(0, 50)
+    // ⚠️ 这里曾经有一行 `recentLogs.value = recentLogs.value.slice(0, 50)`。
+    // 它是日志窗口的**第三个**定义（另两处是 appStore.addLog 与 persistence.logsToRows 的
+    // LOG_WINDOW=500），后果不是"少显示几条"而是**永久删除**：紧接着的 persistAll()
+    // 会 DELETE 整张 operation_logs 再按内存重写，第 51 条以前的真实历史就此消失。
+    // 日志窗口统一由 addLog 按 LOG_WINDOW 管理，这里不再自行截断。
     let entry = null
     if (Array.isArray(undos) && undos.length) {
       entry = pushUndo({ rawText, summary, changes, undos, at: now() })

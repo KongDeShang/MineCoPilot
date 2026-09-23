@@ -70,7 +70,15 @@ async function createSqlJsConfig() {
   }
 }
 
-/** 表结构定义：版本号用于将来的迁移 */
+/**
+ * 表结构版本号。
+ *
+ * ⚠️ 它**不驱动迁移**：真正的迁移是下面 `runMigrations()` 里那份"必需列清单"
+ * 逐列 `ALTER TABLE ADD COLUMN`，幂等、每次启动都跑一遍，不需要版本分派。
+ * 这个值只是"这个库是哪个结构版本建的"的标记，供排查与将来做真正的版本分派用。
+ * 因此它只写不读（自检里断言它确实被写进去了，见 scripts/store-check.mjs）。
+ * 曾经它写在一个注释为"用于将来的迁移"的位置上，读代码的人会以为迁移靠它 —— 不是。
+ */
 const SCHEMA_VERSION = 1
 
 const TABLES = {
@@ -130,16 +138,14 @@ const TABLES = {
       level TEXT,
       factors_json TEXT
     )`,
-  excel_imports: `
-    CREATE TABLE IF NOT EXISTS excel_imports (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      filename TEXT NOT NULL,
-      sheet_name TEXT,
-      row_count INTEGER,
-      column_count INTEGER,
-      imported_at TEXT,
-      raw_data TEXT
-    )`,
+/**
+ * ⚠️ 这里原来还有一张 `excel_imports` 表（filename / sheet_name / row_count / raw_data…）。
+ * 从建表那天起就**没有任何 insert / select** —— 表建好了、列也全，却从来没写过一个字节。
+ * 已于 2026-09-17 删除：与其留一张"看起来导入是有留痕的"空表，不如让代码如实反映
+ * 现状 —— **Excel 导入的原始行不落库**，因此导入本身不可追溯、不可回滚。
+ * （旧库里那张空表会留着，无副作用；真要"导入可追溯"，就由那个功能把表、写入与
+ *  界面查询一起加回来，而不是先建表。）
+ */
   knowledge_base: `
     CREATE TABLE IF NOT EXISTS knowledge_base (
       id TEXT PRIMARY KEY,
@@ -282,11 +288,26 @@ export async function initDatabase() {
 
   if (!SQL) SQL = await getSqlJsInitializer()(await createSqlJsConfig())
 
-  let restored = null
+  /**
+   * 三态语义（与 src/main/index.js 的 db:read 约定一致）：
+   *   restored === null        → 没有库文件：真正的首次启动，建新库
+   *   restored 有内容但解析失败 → 库损坏：**必须抛错**，绝不能就地新建
+   *   restored 解析成功        → 正常恢复
+   *
+   * ⚠️ 这里原来把两种失败都吞成"新建一个空库"（各只 console.warn 一行）。
+   * 后果是：文件被占用/权限不足/半截写入/内容损坏时，磁盘上用户真实的库
+   * 一个字节都没被动过，内存里却变成了空库；紧接着 appStore.initStore()
+   * 看到"没有设备"就播种演示数据并整库写回 —— 用户的历史被 60 台假设备覆盖，
+   * 全程只在控制台留下一行 warn。现在改为抛错，由 appStore 转成
+   * "只读内存模式 + 明确告知"，磁盘文件保持原样不动。
+   */
+  let restored
   try {
     restored = await loadDatabaseBytes()
   } catch (error) {
-    console.warn('[数据库] 读取本地数据失败，将新建库：', error)
+    const e = new Error(`本地数据库读取失败：${error && error.message ? error.message : error}`, { cause: error })
+    e.code = 'db-read-failed'
+    throw e
   }
 
   if (restored && restored.length > 0) {
@@ -294,9 +315,19 @@ export async function initDatabase() {
       db = new SQL.Database(restored)
       createSchema() // 幂等：老库补齐新增的表
     } catch (error) {
-      console.warn('[数据库] 历史数据损坏，已新建库：', error)
-      db = new SQL.Database()
-      createSchema()
+      /**
+       * ⚠️ 必须先把 db 置回 null 再抛。
+       *
+       * sql.js 的 `new SQL.Database(垃圾字节)` 不一定当场抛错 —— 它可能先返回一个
+       * 实例、到第一次查询（createSchema）才炸。此时 db 已经被赋值，isReady() 会返回
+       * true，调用方（appStore.initStore）就会把它当成"已就绪的空库"，接着看到
+       * "没有设备"并播种演示数据、整库写回 —— 正是这条修复要堵的那条路。
+       * 自检里"损坏后不得留下一个已就绪的空库"这条断言抓的就是这个半初始化状态。
+       */
+      db = null
+      const e = new Error(`本地数据库文件已损坏，无法打开：${error && error.message ? error.message : error}`, { cause: error })
+      e.code = 'db-corrupt'
+      throw e
     }
   } else {
     db = new SQL.Database()
@@ -357,11 +388,8 @@ export function count(table) {
   return row ? Number(row.n) : 0
 }
 
-/** 批量取某个字段的最大值（用于生成不撞号的 id） */
-export function maxNumber(table, column) {
-  const row = queryOne(`SELECT MAX(${column}) AS m FROM ${table}`)
-  return row && row.m !== null ? Number(row.m) : 0
-}
+// 这里原来有一个 `maxNumber(table, column)`（SELECT MAX(col)），没有任何调用方 ——
+// 设备/工单等编号都由 store 里的 nextXxxId 依据内存列表计算，不走 SQL。2026-09-17 删除。
 
 function normalizeValue(value) {
   if (value === undefined || value === null) return null
@@ -460,6 +488,17 @@ export async function persist(force = false) {
   if (!db) return false
   if (!dirty && !force) return false
   const bytes = exportBytes()
+  /**
+   * ⚠️ 这里**不要**加 try/catch 吞掉异常。
+   *
+   * saveDatabaseBytes() 现在失败即抛（磁盘满 / 文件被占用 / 超配额）。
+   * 异常在 `dirty = false` 之前抛出，于是 dirty 保持 true —— 下一次
+   * saveNow()、下一次去抖保存、以及关窗时的 flush 都会**继续重试**，
+   * 直到真正写成功为止。异常继续上抛给 persistence.saveNow()，由它写入
+   * dbError，界面才看得见"保存失败"。
+   * 反过来说：任何在这里吞掉异常、或者先把 dirty 清掉的改动，都会让
+   * 失败的写入既不重试也不报错，静默丢数据。
+   */
   await saveDatabaseBytes(bytes)
   dirty = false
   return true

@@ -89,20 +89,39 @@ class ModelSession {
   }
 
   /**
-   * 释放当前会话（切档/退出前调用）。防御式：dispose 不存在或失败都不阻塞主流程。
+   * 释放当前会话（切档/退出前调用）。
+   *
+   * 顺序与错误处理是刻意的：
+   *   · **先 dispose 再置空引用**。原实现先把三个引用清成 null 再逐个 dispose，
+   *     于是 dispose 抛错时我们既不知道是哪个对象失败、也没有任何地方能看到它 ——
+   *     会话泄漏（旧模型内存不释放）完全不可观测，而本文件开头"切档时先释放旧会话，
+   *     内存不被两份模型占用"的保证也就无从验证。
+   *   · 单个对象释放失败不阻塞其余对象，但**汇总成 errors 返回**，由调用方决定是否记日志。
+   *     不再用空 catch 把失败吞掉。
    */
   async dispose() {
-    const targets = [this.completion, this.context, this.model]
+    const targets = [
+      ['completion', this.completion],
+      ['context', this.context],
+      ['model', this.model]
+    ]
     this.completion = null
     this.context = null
     this.model = null
     this.tier = null
     this.tierId = null
-    for (const t of targets) {
+
+    const errors = []
+    for (const [name, t] of targets) {
       if (t && typeof t.dispose === 'function') {
-        try { await t.dispose() } catch { /* 释放失败不影响主流程 */ }
+        try {
+          await t.dispose()
+        } catch (error) {
+          errors.push(`${name}: ${error && error.message ? error.message : error}`)
+        }
       }
     }
+    return { ok: errors.length === 0, errors }
   }
 }
 

@@ -15,6 +15,15 @@ const IDB_STORE = 'kv'
 const IDB_KEY = 'database'
 const LS_KEY = 'kuangshan-zhigong:database'
 
+/**
+ * 最近一次**实际写入成功**的后端。
+ *
+ * 为什么需要它：storageInfo.backend() 原来只看 `typeof indexedDB !== 'undefined'`，
+ * 于是 IndexedDB 配额满、写入已静默降级到 localStorage 之后，状态栏仍然显示
+ * "IndexedDB" —— 用户看到的存储位置与真实位置不一致。现在按真实写入结果上报。
+ */
+let lastBackend = null
+
 /** 当前运行在 Electron 壳内？ */
 export function isElectron() {
   return typeof window !== 'undefined' && !!(window.electronAPI && window.electronAPI.db)
@@ -130,28 +139,53 @@ export async function loadDatabaseBytes() {
 
 /**
  * 写入数据库字节
+ *
+ * ⚠️ 失败必须抛错，不能静默返回。
+ * 此前这里把 `db:write` 的返回值整个丢掉、localStorage 的 `lsSet` 返回值也丢掉，
+ * 于是磁盘满/文件被占用/超配额时：database.persist() 照样清 dirty 并返回 true，
+ * 状态栏显示"已保存 HH:MM"，而关窗时 database.persist() 又因为 dirty 已被清掉
+ * 直接提前返回 —— 这段改动既不重试、也不报错，随关窗一起消失。
+ * 抛错后由 stores/persistence.js 的 saveNow() catch 住并写入 dbError，用户能看见。
  */
 export async function saveDatabaseBytes(bytes) {
   if (isElectron()) {
     // 复制一份独立的 ArrayBuffer，避免把渲染进程的视图直接交给 IPC
-    await window.electronAPI.db.write(bytes.slice().buffer)
+    let result
+    try {
+      result = await window.electronAPI.db.write(bytes.slice().buffer)
+    } catch (error) {
+      // 主进程 handler 抛错时，IPC 会把异常原样传回来
+      throw new Error(`写入数据库文件失败：${error && error.message ? error.message : error}`, { cause: error })
+    }
+    // 主进程约定失败时返回 { ok: false, error }（见 src/main/index.js db:write）
+    if (!result || result.ok !== true) {
+      throw new Error(`写入数据库文件失败：${(result && result.error) || '主进程未返回成功'}`)
+    }
+    lastBackend = 'electron-file'
     return
   }
 
   const base64 = bytesToBase64(bytes)
   try {
     await idbSet(base64)
+    lastBackend = 'indexeddb'
     return
   } catch {
-    /* 落到 localStorage */
+    /* IndexedDB 不可用/配额满，落到 localStorage */
   }
-  lsSet(base64)
+  if (!lsSet(base64)) {
+    throw new Error('本地存储写入失败：IndexedDB 不可用且 localStorage 也写不进去（可能已超出配额）')
+  }
+  lastBackend = 'localstorage'
 }
 
 /** 清空持久化数据（重置演示数据时使用） */
 export async function clearDatabaseBytes() {
   if (isElectron()) {
-    await window.electronAPI.db.clear()
+    const result = await window.electronAPI.db.clear()
+    if (result && result.ok === false) {
+      throw new Error(`清空数据库文件失败：${result.error || '主进程未返回成功'}`)
+    }
     return
   }
   try {
@@ -165,6 +199,8 @@ export async function clearDatabaseBytes() {
 export const storageInfo = {
   fileName: DB_FILE_NAME,
   backend() {
+    // 以真实写入结果为准；还没写过才回退到能力探测
+    if (lastBackend) return lastBackend
     if (isElectron()) return 'electron-file'
     if (typeof indexedDB !== 'undefined') return 'indexeddb'
     return 'localstorage'

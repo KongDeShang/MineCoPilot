@@ -19,10 +19,11 @@ import { evaluateHealth, evaluateTrend, computeOverdueDays as healthComputeOverd
   resetHealthConfig } from '../utils/health'
 import { buildFaultStats } from '../utils/faultStats'
 import { parseAliases } from '../utils/aliases'
+import { decideBootSeed } from '../utils/seedGate'
 import { buildDefaultKnowledge, extractKnowledgeFromOrders } from '../utils/knowledgeBase'
 import { draftFaultCase, buildFaultCasesFromOrders } from '../utils/faultCaseDraft'
 import { createNlActions } from './nlActions'
-import { createPersistence } from './persistence'
+import { createPersistence, LOG_WINDOW } from './persistence'
 import { createPartsDomain } from './partsDomain'
 import { createDocumentDomain } from './documentDomain'
 import { createSettingsDomain } from './settingsDomain'
@@ -127,6 +128,15 @@ export const useAppStore = defineStore('app', () => {
 
   const dbReady = ref(false)
   const dbError = ref('')
+  /**
+   * 库是正常打开的，但设备台账为空。
+   *
+   * 为什么必须与"全新安装"分开记：台账为空**是用户状态**（删空了设备、
+   * 或导入了不含台账的备份），不是"从没装过"。此前两者都用 `equipment` 行数
+   * 判断，于是这种情况会在下次启动时被当成首启、播种 60 台演示设备，
+   * 并把工单/维保/日志/知识库/备件一并替换成演示数据。
+   */
+  const ledgerEmpty = ref(false)
   const storageBackend = ref('')
   const lastSavedAt = ref('')
   const saving = ref(false)
@@ -142,8 +152,14 @@ export const useAppStore = defineStore('app', () => {
     persistAll: (...args) => persistAll(...args)
   })
   // 备件领域对外的接口原样接回 store（页面/端到端脚本刚才怎么用，现在还怎么用）
+  //
+  // 只取 store 自己真的会用到的：`restockPart`/`issuePart`/`addPart` 由备件页调用，
+  // `consumePartsFromText` 供 addMaintenanceRecord 联动扣减，`revertConsumption` 供撤销回滚，
+  // `lowStockParts` 是告警中心与备件页读的派生列表。
+  // `getPartByName` / `adjustPartStock` 只在 partsDomain 内部使用（扣减与回滚都走它自己那份），
+  // 对外暴露过但没有调用方，已从公开面移除（2026-09-17）。
   const {
-    getPartByName, adjustPartStock, restockPart, issuePart,
+    restockPart, issuePart,
     addPart, consumePartsFromText, revertConsumption, lowStockParts
   } = parts
 
@@ -159,11 +175,18 @@ export const useAppStore = defineStore('app', () => {
   // ---------- 演示操作日志 ----------
   // 必须定义在 createPersistence 之前：它是 const（不提升），
   // 在下面那行把它交给持久化层时就已经被求值了。
+  //
+  // ⚠️ 首启日志是"证据链"的第一屏，来源必须真实存在。
+  // 曾经有两条写着"通过**语音**创建工单""**拍照识别**巡检单"，而语音识别与 OCR
+  // 在本项目里都未实现（AIAssistant 里那两处只填预置样例，自己标着"演示样例"，
+  // README 的已知边界也如实写了）。日志页被当作"可审计 AI 的证据链"给评委看，
+  // 头一屏就摆着两条不可能发生的事，等于自己拆自己的台。
+  // 现在只保留真实存在的来源：Excel 导入 / 口述录入 / 工单 / 体检。
   const SEED_LOGS = () => [
     { time: daysAgoDateTime(1), content: '从「生产部_设备清单.xlsx」导入 60 台设备至台账', source: 'Excel', type: 'primary', tagType: 'primary' },
-    { time: daysAgoDateTime(1), content: '通过语音创建工单：液压系统压力异常', source: '语音', type: 'success', tagType: 'success' },
-    { time: daysAgoDateTime(2), content: '拍照识别巡检单，自动生成 3 张巡检工单', source: 'OCR', type: 'warning', tagType: 'warning' },
-    { time: daysAgoDateTime(3), content: '完成 12 台设备健康体检，生成 3 份风险报告', source: 'AI', type: 'info', tagType: 'info' },
+    { time: daysAgoDateTime(1), content: '通过口述录入创建工单：液压系统压力异常', source: '口述', type: 'success', tagType: 'success' },
+    { time: daysAgoDateTime(2), content: '根据维保超期预警创建 3 张保养工单', source: '工单', type: 'warning', tagType: 'warning' },
+    { time: daysAgoDateTime(3), content: '完成 12 台设备健康体检，生成 3 份风险报告', source: '体检', type: 'info', tagType: 'info' },
     { time: daysAgoDateTime(4), content: '从「维修部_维保记录.xlsx」导入 40 条维保记录', source: 'Excel', type: 'primary', tagType: 'primary' }
   ]
 
@@ -185,15 +208,22 @@ export const useAppStore = defineStore('app', () => {
 
   // ---------- 演示参数设置 / meta / 告警处置 ----------
   const settings = ref(null)
+  /**
+   * 告警处置记录（响应式，唯一真相源；meta 表只负责持久化）。
+   * 必须在这里建 ref 并注入 settingsDomain —— 见 settingsDomain.getAlertDispositions 的说明：
+   * 之前它是"每次读 meta"，而告警中心又存了一份本地快照，导致侧边栏重置演示数据后
+   * 已挂载的告警中心仍按旧 key 过滤。
+   */
+  const alertDispositions = ref({})
 
   // 领域逻辑在 stores/settingsDomain.js。三者的共同点是"存在库的 meta 表里、
   // 不属于任何业务实体"。这里建在持久化层之后——scheduleSave 已经就绪；
   // addLog 是函数声明（提升），当成闭包传进去即可。
   const {
     defaultSettings, loadSettings, updateSettings, resetSettings,
-    getAlertDispositions, setAlertDispositions, clearAlertDispositions
+    loadAlertDispositions, getAlertDispositions, setAlertDispositions, clearAlertDispositions
   } = createSettingsDomain({
-    settings, dbReady, scheduleSave,
+    settings, alertDispositions, dbReady, scheduleSave,
     addLog: (...args) => addLog(...args)
   })
 
@@ -219,6 +249,23 @@ export const useAppStore = defineStore('app', () => {
   }
 
   /**
+   * 库里是否已经有**任何**用户数据。
+   *
+   * 不能只看 equipment 表：台账可以被删空，而工单/维保/日志还在。
+   * 此时"台账为空"绝不能当成全新安装（否则演示数据会把其余表整库覆盖）。
+   */
+  function hasAnyUserData() {
+    for (const table of ['equipment', 'work_orders', 'maintenance_records', 'health_snapshots', 'operation_logs', 'knowledge_items', 'fault_cases', 'parts_inventory']) {
+      try {
+        if (db.count(table) > 0) return true
+      } catch {
+        // 表不存在（老库尚未补齐）按"没有数据"处理，不阻断启动
+      }
+    }
+    return false
+  }
+
+  /**
    * 启动时调用：打开本地数据库 → 有数据就恢复，没有就写入演示数据
    */
   async function initStore() {
@@ -227,16 +274,37 @@ export const useAppStore = defineStore('app', () => {
       storageBackend.value = db.storageInfo.backend()
       dbReady.value = true
       dbError.value = ''
+      ledgerEmpty.value = false
 
       const seedVersion = db.getMeta('seed_version')
       const hasData = db.count('equipment') > 0
+      const decision = decideBootSeed({
+        seedVersion,
+        hasEquipment: hasData,
+        hasAnyData: hasAnyUserData()
+      })
 
-      if (!hasData) {
+      /**
+       * 判据本体在 utils/seedGate.js（纯函数，自检逐一钉死了四种状态组合）。
+       *
+       * 这里只负责按判据分支：
+       *   seed         真正的全新安装 → 播种演示数据
+       *   empty-ledger 装过但台账为空 → 只装载、不播种、也不补演示数据
+       *   hydrate      正常恢复
+       *
+       * 原先这里是 `if (!hasData) 播种`：只看设备行数，于是"删空台账"或"导入不含
+       * 台账的备份"都会被当成首启，被 60 台演示设备 + 整库演示数据覆盖。
+       */
+      if (decision === 'seed') {
         applySeedData()
         persistAll()
         await saveNow()
         db.setMeta('seed_version', SEED_VERSION)
         await saveNow()
+      } else if (decision === 'empty-ledger') {
+        // 用户状态：空表就该是空的，不补演示数据
+        hydrateFromDb({ seedFallbacks: false })
+        ledgerEmpty.value = true
       } else {
         hydrateFromDb()
         if (seedVersion !== SEED_VERSION) {
@@ -250,12 +318,25 @@ export const useAppStore = defineStore('app', () => {
       // 所以这里对新装和升级是同一段代码，不需要分别处理
       await ensureBundledDocuments()
       loadSettings()
+      loadAlertDispositions()
       return true
     } catch (error) {
-      // 数据库不可用时降级为纯内存演示，功能仍然可用
+      /**
+       * 数据库不可用时降级为纯内存演示，功能仍然可用。
+       *
+       * ⚠️ 关键安全点：这条路径下 dbReady = false，persistAll()/saveNow() 都会
+       * 直接早退，所以**一个字节都不会写回磁盘** —— 磁盘上用户真实的库文件
+       * 保持原样。这正是"读失败/库损坏"时不允许新建库覆盖的原因：
+       * 内存里放演示数据给用户看可以接受，覆盖磁盘上的真实数据不可以。
+       */
       dbReady.value = false
-      dbError.value = error.message
-      console.warn('[数据库] 初始化失败，降级为内存模式：', error)
+      const code = error && error.code
+      dbError.value = code === 'db-corrupt'
+        ? `${error.message}。已进入只读内存模式，原文件未被改动，请先用备份恢复或联系维护人员。`
+        : code === 'db-read-failed'
+          ? `${error.message}。已进入只读内存模式，原文件未被改动。`
+          : error.message
+      console.warn('[数据库] 初始化失败，降级为内存模式（不会写回磁盘）：', error)
       applySeedData()
       await ensureBundledDocuments()
       return false
@@ -268,18 +349,40 @@ export const useAppStore = defineStore('app', () => {
    * ⚠️ 为什么必须有这一步：导入备份替换的是整库字节，而 Pinia 里的数组
    * 仍然是"导入前"的那一份。此时哪怕只是记一条操作日志触发 persistAll()，
    * 也会把旧数据整表写回，等于把用户刚导入的备份又覆盖掉——界面上却提示"导入成功"。
+   *
+   * @returns {Promise<{ok:boolean, reason:string}>} reason:
+   *   'ok'           正常恢复
+   *   'empty-ledger' 备份里没有设备台账（但有其它数据）：已如实恢复，不补演示数据
+   *   'empty-backup' 备份整库为空：拒绝并如实告知，**不**替换成演示数据
+   *   'db-not-ready' 数据库不可用
+   *
+   * 此前这里在台账为空时直接 applySeedData()，把用户刚导入的工单/日志/知识库/备件
+   * 换成演示数据，而 Settings.vue 仍然弹"备份恢复成功，均已替换为备份内容" —— 谎报。
    */
   async function reloadFromDb() {
-    if (!dbReady.value) return false
-    const hydrated = hydrateFromDb()
-    if (!hydrated) {
-      // 备份里没有设备台账（空库）→ 按新装处理，避免旧数据残留在内存里被再次写回
-      applySeedData()
+    if (!dbReady.value) return { ok: false, reason: 'db-not-ready' }
+
+    // 导入路径不补演示数据：备份里空的表就该是空的
+    const hydrated = hydrateFromDb({ seedFallbacks: false })
+    ledgerEmpty.value = !hydrated
+
+    if (!hydrated && !hasAnyUserData()) {
+      // 整库为空 —— 这份备份没有任何可用内容。如实拒绝，不假装成功。
+      return { ok: false, reason: 'empty-backup' }
     }
+
     db.setMeta('seed_version', SEED_VERSION)
     persistAll()
     await saveNow()
-    return true
+
+    /**
+     * 撤销栈必须一并清掉：整库已被备份替换，栈里的闭包与快照指向的是**导入前**的对象。
+     * 留着不清，导入后点「撤销这次写入」就会拿旧 id 去改导入进来的数据（id 会撞上），
+     * 或者把导入前的状态写回到导入后的记录上 —— 沉默改错数据，且没有任何提示。
+     * 与 resetToSeedData 同一个理由。
+     */
+    nlActions.clearUndoStack()
+    return { ok: true, reason: hydrated ? 'ok' : 'empty-ledger' }
   }
 
   /** 恢复演示数据：清空本地库并重新生成（日期重新对齐到今天） */
@@ -297,6 +400,17 @@ export const useAppStore = defineStore('app', () => {
     resetHealthConfig()
     clearAlertDispositions()
     settings.value = defaultSettings()
+    /**
+     * ⚠️ 必须把撤销栈一起清掉。
+     *
+     * 整库刚被重建，设备/工单 id 全部重新排过，而撤销栈里存的是一组闭包
+     * （`() => store.removeWorkOrder(order.id)`）和写入前的字段快照 —— 它们指向的是
+     * **重置前**的对象。留着不清的后果是沉默改错数据：重置后点「撤销这次写入」，
+     * 那个闭包会拿旧 id 去删/改**重置后新播种**的那条记录（id 会撞上），
+     * 或者把重置前的状态写回设备上。
+     * 导入备份（reloadFromDb）同理，那里也调用了本函数之外的同名清理，见下。
+     */
+    nlActions.clearUndoStack()
     // 整库刚被重建，示例手册的标记也一起没了 → 这里会重新导入，
     // 也就是"恢复演示数据"确实把手册库也恢复成出厂状态
     await ensureBundledDocuments()
@@ -404,10 +518,6 @@ export const useAppStore = defineStore('app', () => {
     faultCases.value.unshift(record)
     persistAll()
     return record
-  }
-
-  function getFaultCases() {
-    return faultCases.value
   }
 
   /**
@@ -551,6 +661,18 @@ export const useAppStore = defineStore('app', () => {
   }
 
   // ---------- 方法 ----------
+  /**
+   * 新建设备。
+   *
+   * ⚠️ record 是一份**白名单**：这里的字段列表就是"哪些字段能存进台账"的唯一定义。
+   * 漏一个字段的后果是静默的——调用方传了、函数收下了、落库时却没有它。
+   * 曾经就漏过 `aliases`：设备表单（Equipment.vue）和 Excel 导入（importFromExcel）
+   * 两条新建路径都把别名切好了传进来，这里没复制，于是"口述别名"只在**编辑**已有设备时
+   * 才生效（编辑走的是 Object.assign 全量合并，见 stores/nlActions.js updateEquipment），
+   * 新建出来的设备永远没有别名 —— 正好让别名匹配层对全车队失效。
+   * 新增字段时，除了这里，还要同步 stores/persistence.js 的 equipmentToRows 与
+   * utils/database.js 的建表/迁移列。
+   */
   function addEquipment(eq, { silent = false } = {}) {
     const record = {
       id: nextEquipmentId.value,
@@ -562,6 +684,8 @@ export const useAppStore = defineStore('app', () => {
       status: eq.status || 'running',
       maintenance_cycle_days: Number(eq.maintenance_cycle_days) || 90,
       last_maintenance_date: eq.last_maintenance_date || null,
+      // 口述别名：数组（'小松、三号挖机' → ['小松','三号挖机']），落库时由 persistence 拼回一行文本
+      aliases: Array.isArray(eq.aliases) ? eq.aliases.filter(Boolean) : [],
       notes: eq.notes || ''
     }
     equipmentList.value.push(record)
@@ -1042,23 +1166,12 @@ export const useAppStore = defineStore('app', () => {
 
   function addLog(entry, { silent = false } = {}) {
     recentLogs.value.unshift({ time: now(), ...entry })
-    // 内存里只留最近 500 条。原先写 50：一次 Excel 导入会刷出几百条备件联动
-    // 日志，当天早些时候的操作就被挤出窗口 —— 演示时想翻回上一步的操作反而
-    // 找不到，而这页正是"可审计 AI"的证据链。
-    // 注意 persistence.logsToRows 里有**另一个**落库窗口，必须 ≥ 这个数，
-    // 否则内存留 500、写回 50，刷新后又只剩 50（改了等于没改）。两处一起动。
-    recentLogs.value = recentLogs.value.slice(0, 500)
+    // 内存里只留最近 LOG_WINDOW 条。原先各写各的数（内存 500 / 落库 500 / 口述 50）：
+    // 一次 Excel 导入会刷出几百条备件联动日志，当天早些时候的操作就被挤出窗口 ——
+    // 演示时想翻回上一步的操作反而找不到，而这页正是"可审计 AI"的证据链。
+    // 现在窗口只有 LOG_WINDOW 一个定义（stores/persistence.js），三处共用，不会再漂移。
+    recentLogs.value = recentLogs.value.slice(0, LOG_WINDOW)
     if (!silent) persistAll()
-  }
-
-  /** 演示数据分布审计（开发期与验收用） */
-  function audit() {
-    return auditDataset({
-      equipment: equipmentList.value,
-      maintenanceRecords: maintenanceRecords.value,
-      workOrders: workOrders.value,
-      healthSnapshots: healthSnapshots.value
-    })
   }
 
   /**
@@ -1092,6 +1205,7 @@ export const useAppStore = defineStore('app', () => {
     // 状态
     dbReady,
     dbError,
+    ledgerEmpty,
     storageBackend,
     lastSavedAt,
     saving,
@@ -1107,13 +1221,13 @@ export const useAppStore = defineStore('app', () => {
     faultTopStats,
     recheckList,
     recheckStats,
-    nextWorkOrderId,
-    nextEquipmentId,
     // 生命周期
     initStore,
     reloadFromDb,
     resetToSeedData,
     saveNow,
+    // 告警处置记录：界面直接绑这个响应式对象（不要再自己存一份快照，那会变成两个真相源）
+    alertDispositions,
     getAlertDispositions,
     setAlertDispositions,
     clearAlertDispositions,
@@ -1140,7 +1254,6 @@ export const useAppStore = defineStore('app', () => {
     removeKnowledgeItem,
     removeKnowledgeItemsByIds,
     addFaultCase,
-    getFaultCases,
     removeFaultCasesByIds,
     faultCases,
     partsInventory,
@@ -1149,9 +1262,6 @@ export const useAppStore = defineStore('app', () => {
     addPart,
     restockPart,
     issuePart,
-    adjustPartStock,
-    getPartByName,
-    consumePartsFromText,
     revertConsumption,
     resetKnowledgeBase,
     documents,
@@ -1163,20 +1273,23 @@ export const useAppStore = defineStore('app', () => {
     updateSettings,
     resetSettings,
     addLog,
-    audit,
     // 口述录入扩展动作
     removeWorkOrder: nlActions.removeWorkOrder,
     updateEquipment: nlActions.updateEquipment,
     replaceMaintenanceRecords: nlActions.replaceMaintenanceRecords,
     replaceHealthSnapshots: nlActions.replaceHealthSnapshots,
     logVoiceAction: nlActions.logVoiceAction,
-    // 口述录入的撤销（全局能力，与聊天消息解耦）
-    pushUndo: nlActions.pushUndo,
+    /**
+     * 撤销相关的公开面**只保留界面真的用到的三个**：
+     *   · peekUndo    —— 侧边栏常驻「撤销上次写入」入口据此显示/隐藏（App.vue）
+     *   · performUndo —— 执行撤销（侧边栏 + 聊天里的「撤销这次写入」）
+     *   · getUndoStack—— 端到端脚本读取栈内容做断言（scripts/e2e-nl.mjs）
+     * pushUndo / canUndo / clearUndoStack 都只在 store 内部使用（logVoiceAction、
+     * resetToSeedData、reloadFromDb），对外暴露只会让人以为它们是给界面调的。
+     */
     getUndoStack: nlActions.getUndoStack,
-    canUndo: nlActions.canUndo,
     peekUndo: nlActions.peekUndo,
-    performUndo: nlActions.performUndo,
-    clearUndoStack: nlActions.clearUndoStack
+    performUndo: nlActions.performUndo
   }
 })
 

@@ -19,6 +19,16 @@ import * as db from '../utils/database'
 import { now, addDays } from '../utils/dates'
 import { parseAliases, formatAliases } from '../utils/aliases'
 
+/**
+ * 操作日志的保留条数（内存窗口与落库窗口**必须是同一个数**）。
+ *
+ * 为什么强调"同一个"：曾经内存留 500、落库写 50，于是刷新后又只剩 50 条 ——
+ * 改了一处等于没改。更糟的是 stores/nlActions.js 里还藏着第三个窗口（50），
+ * 任何一次口述录入都会把已落库的历史永久删掉一段。
+ * 现在只在这里定义一次，appStore 与 nlActions 都引用它。
+ */
+export const LOG_WINDOW = 500
+
 export function createPersistence(ctx) {
   const {
     // 数据 ref（与 appStore 共用同一批）
@@ -214,10 +224,9 @@ export function createPersistence(ctx) {
    * 恢复时按 id 倒排即可还原时间顺序，不依赖字符串时间排序。
    */
   function logsToRows() {
-    // 落库窗口，必须 ≥ 内存窗口（appStore.addLog 的 500），否则内存里留着
-    // 500 条、写回去只剩 50 条，刷新后照样只剩 50 —— 改了等于没改。
-    // 两个数字要一起动，所以在这里写明它们的耦合关系。
-    const list = recentLogs.value.slice(0, 500)
+    // 落库窗口与内存窗口共用 LOG_WINDOW：两个数字必须一起动，
+    // 否则会出现"内存留 500、写回 50，刷新后只剩 50 —— 改了等于没改"。
+    const list = recentLogs.value.slice(0, LOG_WINDOW)
     return list.map((log, index) => ({
       id: list.length - index,
       time: log.time || now(),
@@ -295,11 +304,25 @@ export function createPersistence(ctx) {
 
   /**
    * 把库里所有表读回内存。
-   * @returns {boolean} 库里没有设备台账时返回 false（调用方据此决定是否播种）
+   *
+   * @param {object} [options]
+   * @param {boolean} [options.seedFallbacks=true] 空表是否用演示数据补位。
+   *   首启/老库升级走 true（"经验传承开箱即有内容"、"备件页首启不为空"）；
+   *   **导入备份必须走 false** —— 备份是用户的东西，空表就该是空的，
+   *   不能让 seedLogs()/buildDefaultKnowledge()/partsSeed() 往里面掺演示内容。
+   * @returns {boolean} 设备台账是否有内容（false = 台账为空，是用户状态而非全新安装）
    */
-  function hydrateFromDb() {
+  function hydrateFromDb({ seedFallbacks = true } = {}) {
     const equipmentRows = db.all('equipment').sort((a, b) => Number(a.id) - Number(b.id))
-    if (!equipmentRows.length) return false
+    /**
+     * ⚠️ 这里原来在台账为空时直接 `return false`，下面的表全部不装载。
+     *
+     * 后果：导入一份"不含设备台账"的备份后，内存里仍是导入前的旧数据，
+     * 而磁盘上已经是导入后的库 —— 之后任何一次 persistAll() 都会把旧数据
+     * 整库写回，把用户刚导入的备份覆盖掉。现在改为继续装载，由调用方
+     * 按返回值决定"台账为空"如何呈现（见 appStore.reloadFromDb）。
+     */
+    const ledgerHasContent = equipmentRows.length > 0
 
     // 操作日志：先恢复，后面任何 persistAll() 都不会把种子文案写回覆盖真实历史
     const logRows = db.all('operation_logs').sort((a, b) => Number(b.id) - Number(a.id))
@@ -311,7 +334,7 @@ export function createPersistence(ctx) {
           type: row.type || 'info',
           tagType: row.tag_type || row.type || 'info'
         }))
-      : seedLogs()
+      : (seedFallbacks ? seedLogs() : [])
 
     equipmentList.value = equipmentRows.map(row => ({
       id: Number(row.id),
@@ -398,7 +421,7 @@ export function createPersistence(ctx) {
           frequency: Number(row.frequency) || 0,
           avg_repair_hours: row.avg_repair_hours != null ? Number(row.avg_repair_hours) : null
         }))
-      : buildDefaultKnowledge()
+      : (seedFallbacks ? buildDefaultKnowledge() : [])
 
     // 手册资料库
     documents.value = db.all('documents').map(row => ({
@@ -433,7 +456,7 @@ export function createPersistence(ctx) {
         createdAt: row.created_at || ''
       }))
 
-    // 备件台账（首启无数据时写入演示备件）
+    // 备件台账（首启无数据时写入演示备件；导入备份时不补位，免得往用户的库里掺演示数据）
     const partRows = db.all('parts_inventory')
     partsInventory.value = partRows.length
       ? partRows.map(row => ({
@@ -446,8 +469,8 @@ export function createPersistence(ctx) {
           unit: row.unit || '件',
           updatedAt: row.updated_at || ''
         }))
-      : partsSeed()
-    if (!partRows.length) persistAll()
+      : (seedFallbacks ? partsSeed() : [])
+    if (!partRows.length && seedFallbacks) persistAll()
 
     partTransactions.value = db.all('parts_transactions')
       .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
@@ -462,7 +485,7 @@ export function createPersistence(ctx) {
         createdAt: row.created_at || ''
       }))
 
-    return true
+    return ledgerHasContent
   }
 
   // ============================================================

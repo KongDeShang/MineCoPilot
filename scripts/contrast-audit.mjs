@@ -475,7 +475,19 @@ async function main() {
   const skipTotal = perRoute.reduce((s, r) => s + (r.skippedGradient || 0), 0)
   console.log('')
   if (clipTotal) console.log(`  （另有 ${clipTotal} 处是渐变裁字，已按渐变各色标对底判定）`)
-  if (skipTotal) console.log(`  ⚠️  有 ${skipTotal} 处文字没能算出底色（背景链里有无法解析的渐变），未参与判定`)
+  if (skipTotal) {
+    /**
+     * 跳过项计入失败，而不是只打一行警告。
+     *
+     * 原来的注释已经点名了风险（"门禁只报违规、不报跳过，是拿绿色当橡皮图章"），
+     * 但代码只 `console.log` 一行警告、退出码照样是 0 —— 也就是说：哪天样式改动
+     * 把大批文字推进"算不出底色"这条分支，审计会**变绿**，而真正被判定过的文字
+     * 其实是 0 处。这与 #27（报告预览被 display:none 藏起来却全绿）是同一类：
+     * 判不了 ≠ 达标。当前实跑 skipTotal = 0，所以这条收紧不影响现有基线。
+     */
+    console.log(`  ❌ 有 ${skipTotal} 处文字没能算出底色（背景链里有无法解析的渐变），未参与判定 —— 按失败处理`)
+    process.exitCode = 1
+  }
   console.log('')
   if (!list.length) {
     console.log('✅ 全部达标：未发现低于 WCAG AA 的文字配色')

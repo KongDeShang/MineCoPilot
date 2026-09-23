@@ -24,7 +24,7 @@ import { DAILY_OUTPUT_LOSS, configureHealth, resetHealthConfig } from '../utils/
 const ALERT_DONE_META_KEY = 'alert_done'
 
 export function createSettingsDomain(ctx) {
-  const { settings, dbReady, scheduleSave, addLog } = ctx
+  const { settings, alertDispositions, dbReady, scheduleSave, addLog } = ctx
 
   /**
    * 写 meta：数据库不可用（纯内存演示）时静默跳过，不打断用户操作
@@ -90,23 +90,41 @@ export function createSettingsDomain(ctx) {
     addLog({ content: '恢复默认演示参数', source: '设置', type: 'info', tagType: 'info' })
   }
 
-  function getAlertDispositions() {
+  /**
+   * 读取告警处置记录（响应式）。
+   *
+   * ⚠️ 这里必须返回**注入进来的那个 ref**，不能每次都去读 meta。
+   * 原来 `getAlertDispositions()` 是"每次 db.getMeta 再 JSON.parse"，而告警中心把它
+   * 存成了本地快照 `ref(store.getAlertDispositions())` —— 于是形成两个真相源：
+   * 侧边栏的「重置演示数据」调 clearAlertDispositions() 把 meta 清成 {}，
+   * 而**已挂载的告警中心页**手里那份快照还是重置前的 key 集合，界面继续按旧 key
+   * 过滤（已处置的告警不显示、已处置率也按旧数算），只有重新挂载页面才自愈。
+   * 现在状态只有一份（这个 ref），meta 只负责持久化，任何一侧改动都会同步到界面。
+   */
+  function loadAlertDispositions() {
+    if (!alertDispositions) return
     try {
       const raw = db.getMeta(ALERT_DONE_META_KEY)
       const parsed = raw ? JSON.parse(raw) : null
-      return parsed && typeof parsed === 'object' ? parsed : {}
+      alertDispositions.value = parsed && typeof parsed === 'object' ? parsed : {}
     } catch (error) {
       console.warn('[告警] 处置记录读取失败，按未处理处理：', error)
-      return {}
+      alertDispositions.value = {}
     }
   }
 
+  function getAlertDispositions() {
+    return alertDispositions ? alertDispositions.value : {}
+  }
+
   function setAlertDispositions(map) {
+    if (alertDispositions) alertDispositions.value = { ...(map || {}) }
     setMetaSafe(ALERT_DONE_META_KEY, JSON.stringify(map || {}))
     scheduleSave()
   }
 
   function clearAlertDispositions() {
+    if (alertDispositions) alertDispositions.value = {}
     setMetaSafe(ALERT_DONE_META_KEY, '{}')
     scheduleSave()
   }
@@ -117,6 +135,7 @@ export function createSettingsDomain(ctx) {
     updateSettings,
     resetSettings,
     setMetaSafe,
+    loadAlertDispositions,
     getAlertDispositions,
     setAlertDispositions,
     clearAlertDispositions

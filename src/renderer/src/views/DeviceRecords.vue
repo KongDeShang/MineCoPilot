@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="records-page">
     <!-- 顶部：设备选择 + 概览 -->
     <el-card shadow="never" class="records-head">
@@ -138,6 +138,7 @@ import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useAppStore } from '../stores/appStore'
 import { generateHealthReport } from '../utils/healthReport'
+import { printHtmlReport } from '../utils/printDoc'
 import { levelOf, levelMeta, buildTrendPath } from '../utils/health'
 import { equipmentPhoto } from '../utils/equipmentPhoto'
 import { useEnter } from '../utils/motion'
@@ -207,16 +208,27 @@ function refreshReport() {
   ElMessage.success(`已生成 ${selected.value.name} 的体检报告`)
 }
 
+/**
+ * 打印 / 导出 PDF：统一交给 utils/printDoc.js（与设备台账页共用一份实现）。
+ *
+ * 原实现 window.open('', '_blank') 在桌面端永远返回 null——main/index.js 的
+ * setWindowOpenHandler 一律 deny——于是这个按钮在 Electron 里只会弹一句
+ * "浏览器拦截了打印窗口，请允许弹窗"，把内部缺陷写成了用户的弹窗设置问题；
+ * 即便在浏览器里弹出窗口，写进去的也是没有样式的裸 HTML（报告全靠
+ * styles/healthReport.css 与 tokens.css 的令牌，新窗口里两者都不存在）。
+ * 现在由打印助手注入自带样式的报告副本并调用 window.print()，
+ * 这里只在"确实没有可打印内容"时给一句如实的提示。
+ */
 function printReport() {
-  const win = window.open('', '_blank')
-  if (!win) {
-    ElMessage.warning('浏览器拦截了打印窗口，请允许弹窗')
+  if (!selected.value) {
+    ElMessage.warning('请先选择设备')
     return
   }
-  win.document.write(`<html><head><title>${selected.value.name} 体检报告</title></head><body>${reportHtml.value}</body></html>`)
-  win.document.close()
-  win.focus()
-  setTimeout(() => win.print(), 300)
+  const ok = printHtmlReport({
+    title: `${selected.value.name} 体检报告`,
+    html: reportHtml.value
+  })
+  if (!ok) ElMessage.warning('暂无可打印的报告内容，请先点「重新生成」')
 }
 
 /** 等级 → Element Plus tag 类型（唯一一处映射，避免各页面各写一套） */

@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="workorder">
     <el-card>
       <template #header>
@@ -27,7 +27,10 @@
           <div class="empty-state">
             <el-icon :size="48" color="var(--text-mute)"><EditPen /></el-icon>
             <p class="empty-title">暂无工单数据</p>
-            <p class="empty-desc">点击"新建工单"创建第一张工单，或通过语音/拍照快速创建</p>
+            <!-- 原文案写"语音/拍照快速创建"，但本页没有任何语音或拍照入口
+                 （AI 助手里的那两处也只填入预置样例）。只保留真实存在的两条路：
+                 本页新建，或去 AI 助手用口述录入建单。 -->
+            <p class="empty-desc">点击"新建工单"创建第一张工单，也可以到 AI 助手里用口述录入自动建单</p>
           </div>
         </template>
         <!-- 列宽按 1440（侧栏 230 + 表格可用约 1149px）配平：

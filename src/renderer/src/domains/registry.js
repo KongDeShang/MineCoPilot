@@ -1,9 +1,12 @@
 /**
  * 域注册中心
  *
- * 所有业务域在此注册，提供菜单 / 路由 / 命令的统一数据源。
+ * 所有业务域在此注册，提供**菜单与路由**的统一数据源。
  * 当前只有 settings 域完成迁移，其余 14 个页面保持硬编码过渡，
  * 后续逐个迁入。
+ *
+ * 命令与能力声明两处 accessor 已删除（无任何调用方，见文件末尾说明）——
+ * 所以这里能提供的就只有菜单和路由，别把它当成"域化架构已完成"的证据。
  */
 
 // ── 已注册域 ──────────────────────────────────────────────────────────────────
@@ -11,10 +14,6 @@ const domains = []
 
 export function registerDomain(def) {
   domains.push(def)
-}
-
-export function getDomain(id) {
-  return domains.find(d => d.id === id) || null
 }
 
 // ── 菜单（侧边栏） ───────────────────────────────────────────────────────────
@@ -95,6 +94,18 @@ const LEGACY_ROUTES = [
 ]
 
 /**
+ * 兜底路由
+ *
+ * 在此之前没有任何兜底条目：跳到不存在的路径（例如误写的 /alerts）时
+ * vue-router 匹配不到任何路由，<router-view> 渲染成空白，界面没有任何反馈。
+ * 这里统一重定向回看板，任何路径都不会再出现白屏。
+ *
+ * 必须追加在路由表最末：vue-router 按声明顺序匹配，放在前面会把
+ * /settings、/dashboard 这些真实路由一起吞掉。
+ */
+const FALLBACK_ROUTE = { path: '/:pathMatch(.*)*', redirect: '/dashboard' }
+
+/**
  * 返回完整路由表。
  *
  * 已注册域的路由由域声明提供；未迁移的页面取硬编码过渡数据。
@@ -105,18 +116,25 @@ export function getRoutes() {
   // 域路由覆盖同 path 的硬编码条目（settings 的 /settings 会替换硬编码）
   const domainPaths = new Set(domainRoutes.map(r => r.path))
   const legacy = LEGACY_ROUTES.filter(r => !domainPaths.has(r.path))
-  return [...legacy, ...domainRoutes]
+  // 兜底路由不放进 LEGACY_ROUTES：那会被按 path 过滤、也会排在域路由之前。
+  // 独立常量 + 追加在最末，既不会被 domainPaths 过滤掉，也不会重复。
+  return [...legacy, ...domainRoutes, FALLBACK_ROUTE]
 }
 
-// ── 命令（命令面板用，Task 12 实现后生效） ────────────────────────────────────
-export function getCommands() {
-  return domains.flatMap(d => (d.commands || []).map(c => ({ ...c, domain: d.id })))
-}
-
-// ── 能力声明 ──────────────────────────────────────────────────────────────────
-export function getCapabilities() {
-  return domains.reduce((acc, d) => {
-    acc[d.id] = d.capabilities || []
-    return acc
-  }, {})
-}
+/**
+ * 这里原来还有三个导出：`getDomain(id)`、`getCommands()`、`getCapabilities()`。
+ * 三个都**没有任何调用方**（域声明里的 commands / capabilities 字段也无人读取），
+ * 已于 2026-09-17 删除：
+ *
+ *   · `getCapabilities()` + `domains/settings/capabilities.js` —— 它代表的是
+ *     "模型档位不够就隐藏入口"的能力灰度，而那套机制从未实现（全仓 `capabilities`
+ *     只被渲染成文字角标）。留着它，读代码的人会以为能力分级已经落地。
+ *   · `getCommands()` + `domains/settings/commands.js` —— 命令面板（任务 12）未开工，
+ *     其中一条命令的 action 还是 null。它是为未来任务预留的接口，但"预留"一旦没人读，
+ *     就只剩下"这段架构已经做完"的错觉。
+ *   · `getDomain(id)` —— 连未来调用方都没有。
+ *
+ * 这些都是几行的东西：真要落地命令面板或能力灰度时，**由那个任务**连带把
+ * accessor 和消费方一起加回来（`docs/tasks/12-CtrlK命令面板.md` 已注明）。
+ * 判据很简单：声明的接口如果没有消费方，就不算完成，只算占位。
+ */

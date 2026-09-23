@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="settings-page">
     <!-- ===== 外观 · 主题 ===== -->
     <el-card shadow="never" style="margin-bottom: 16px">
@@ -411,6 +411,11 @@ async function doExport() {
     } else {
       ElMessage.error((r && r.error) || '导出失败')
     }
+  } catch (error) {
+    // 原来这里只有 try/finally 没有 catch：备份导出中途抛错（如手册文件读取失败）
+    // 会变成未处理的 rejection —— 界面既不提示成功也不提示失败，用户以为没点。
+    ElMessage.error((error && error.message) || '导出失败')
+    store.addLog({ content: `导出备份失败：${(error && error.message) || error}`, source: '设置', type: 'danger', tagType: 'danger' })
   } finally {
     exporting.value = false
   }
@@ -433,9 +438,36 @@ async function doImport() {
       // ⚠️ 必须先把内存状态换成导入后的库，再记日志：
       // addLog 默认会触发 persistAll()，若此时内存里还是导入前的数据，
       // 一次"导入成功"的日志写入就会把整库覆盖回旧数据。
-      await store.reloadFromDb()
+      const reloaded = await store.reloadFromDb()
+
+      /**
+       * 备份导入的结果必须如实呈现。
+       *
+       * 此前这里无条件弹"备份恢复成功…均已替换为备份内容"，包括两种其实没恢复好的情况：
+       *   1) 备份里没有设备台账（但有工单/日志等）—— 曾被换成演示数据，界面却说成功；
+       *   2) 备份整库为空 —— 曾被整套演示数据替换，界面同样说成功。
+       * 现在按 reloadFromDb 的三态如实分支，绝不谎报。
+       */
+      if (!reloaded || !reloaded.ok) {
+        if (reloaded && reloaded.reason === 'empty-backup') {
+          ElMessageBox.alert(
+            '这份备份里没有任何数据（设备台账、工单、维保记录、日志、知识库、备件全为空），已按"不恢复"处理，没有改动你的数据。' +
+              (r.autoBackupPath ? `\n\n导入前的自动备份仍在：\n${r.autoBackupPath}` : ''),
+            '备份为空，未恢复',
+            { confirmButtonText: '知道了', type: 'warning' }
+          )
+          return
+        }
+        ElMessage.error('备份内容已读入，但界面刷新失败，请重启应用后确认数据。')
+        return
+      }
+
+      const ledgerNote = reloaded.reason === 'empty-ledger'
+        ? '\n\n注意：这份备份里没有设备台账（其余数据已照常恢复），因此台账页会是空的——这是备份本身的状况，不是恢复失败。'
+        : ''
       ElMessageBox.alert(
         '备份恢复成功，界面已同步刷新。设备台账、维保记录、工单、健康快照、知识库、文档资料、设置与聊天记录均已替换为备份内容。' +
+          ledgerNote +
           (r.autoBackupPath ? `\n\n导入前已自动备份当前数据到：\n${r.autoBackupPath}\n（导入后如有问题可凭此文件回滚）` : ''),
         '导入完成',
         { confirmButtonText: '知道了' }
@@ -451,6 +483,9 @@ async function doImport() {
     } else {
       ElMessage.error((r && r.error) || '导入失败')
     }
+  } catch (error) {
+    // 同 doExport：没有 catch 时抛错会静默消失在未处理 rejection 里
+    ElMessage.error((error && error.message) || '导入失败')
   } finally {
     importing.value = false
   }

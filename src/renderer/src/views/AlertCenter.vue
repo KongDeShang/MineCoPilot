@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="alert-center">
     <!-- 顶部仪表 -->
     <div class="alert-dash">
@@ -8,7 +8,7 @@
       </div>
       <div class="dash-item dash-high">
         <div class="dash-value"><AnimatedNumber :value="highCount" /></div>
-        <div class="dash-label">高危（D级 / 超期45天+）</div>
+        <div class="dash-label">高危（D 级 / 超期 45 天+ / 极高频故障）</div>
       </div>
       <div class="dash-item dash-rate">
         <div class="dash-value"><AnimatedNumber :value="handledRate" />%</div>
@@ -73,7 +73,10 @@
       </div>
 
       <div class="alert-note">
-        告警全部由本地规则引擎实时计算（不联网、不落库）：D 级设备 / 维保超期 / 健康恶化 / 复诊逾期。
+        告警全部由本地规则引擎实时计算（不联网、不落库），当前启用 {{ ruleCount }} 条规则：
+        D 级 / 健康 C 级 / 健康恶化 / 维保超期 30·45 天 / 高频与极高频故障 / 闲置设备，
+        另加按工单判定的复诊逾期与按备件判定的缺料。
+        看板上的「严重预警」与本页「高危」取的是同一份规则结果，数字必然一致。
         处置记录仅存本机，用于计算处置率；重置后可重新演示。
       </div>
     </el-card>
@@ -81,12 +84,12 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Warning, AlarmClock, Bell, ChatLineRound, DocumentAdd, Refresh, Box, CircleCheck } from '@element-plus/icons-vue'
 import { useAppStore } from '../stores/appStore'
-import { evaluateHealth } from '../utils/health'
+import { toAlertRows, listRules } from '../utils/alertRules'
 import { equipmentPhoto } from '../utils/equipmentPhoto'
 import { formatDate } from '../utils/dates'
 import AnimatedNumber from '../components/AnimatedNumber.vue'
@@ -104,73 +107,40 @@ function goRecheck() {
 
 // 处置记录落在本地库 meta（随备份包一起迁移、随"重置演示数据"一起清空），
 // 不再用 localStorage——那样换台电脑就丢，已处理的告警会在新机器上"复活"。
-const doneMap = ref(store.getAlertDispositions())
-
-function saveDone() {
-  store.setAlertDispositions(doneMap.value)
-}
+//
+// ⚠️ 这里**不能**再存本地快照（原来是 `ref(store.getAlertDispositions())`）。
+// 本地快照 = 第二个真相源：侧边栏的「重置演示数据」会调 clearAlertDispositions()
+// 把库里的记录清空，而**已经挂载的**本页手里那份快照还是重置前的 key 集合，
+// 于是界面继续按旧 key 过滤（已处置的行不显示、已处置率按旧数算），
+// 只有离开本页再回来才自愈。现在直接绑 store 里那个响应式对象，改哪边都同步。
+const doneMap = computed(() => store.alertDispositions || {})
 
 const doneKeys = computed(() => new Set(Object.keys(doneMap.value)))
 const doneCount = computed(() => Object.keys(doneMap.value).length)
 
-/** 规则引擎实时扫描全部告警 */
+/**
+ * 告警列表。
+ *
+ * 设备类告警**全部来自 utils/alertRules.js 的规则引擎**：看板的「严重预警」用的是
+ * 同一个 scanAlerts 结果的 critical 计数，而本页的「高危」取映射后 level==='danger'
+ * 的行 —— 一一对应，两页的数字必然相等，不可能再各算各的。
+ *
+ * 此前本页内联了第二套扫描，问题有两个：
+ *   1) 与看板是两套算法，只是碰巧算出同一个数（cafcd1c 修好字段之后），
+ *      任何一边改动都会立刻分叉；
+ *   2) 内联那套漏掉了规则引擎里的「高频故障 / 极高频故障 / 闲置设备」——
+ *      规则明明命中了，告警中心却看不见，而这些恰恰是最该被处置的设备。
+ *
+ * 只有下面两类**不是设备规则**（一个按工单判定、一个按备件判定），继续留在本页。
+ */
 const alerts = computed(() => {
-  const list = []
+  const list = toAlertRows(store)
+
   // 必须用本地日期：toISOString 会先转 UTC，东八区早 8 点前算出来的是昨天，
   // 于是"今天到期"的复诊不会被判为逾期——漏提醒，而且是静默的。
   const todayStr = formatDate(new Date())
 
-  // 1) D 级设备（最高优先级）
-  for (const e of store.criticalList) {
-    const h = evaluateHealth(e)
-    list.push({
-      key: `critical:${e.id}`,
-      level: 'danger',
-      typeLabel: 'D 级设备',
-      equipment: e,
-      value: `健康分 ${h.score} · ${h.levelLabel}${e.last_maintenance_date ? ` · 上次维保 ${e.last_maintenance_date}` : ''}`,
-      suggestion: '需立即处置：停机检查、排查原因并派维修工单',
-      orderTitle: `${e.name} 健康分低（${h.score} 分 D 级），需立即排查处置`,
-      orderType: 'repair',
-      orderPriority: 'urgent',
-      sortWeight: 1000 + (100 - h.score)
-    })
-  }
-
-  // 2) 维保超期
-  for (const e of store.overdueList) {
-    list.push({
-      key: `overdue:${e.id}`,
-      level: e.overdueDays > 45 ? 'danger' : 'warning',
-      typeLabel: '维保超期',
-      equipment: e,
-      value: `已超期 ${e.overdueDays} 天（上次维保 ${e.last_maintenance_date}）`,
-      suggestion: `安排 ${e.name} 进站保养，避免健康分持续下降`,
-      orderTitle: `${e.name} 维保超期 ${e.overdueDays} 天，安排保养`,
-      orderType: 'maintenance',
-      orderPriority: e.overdueDays > 45 ? 'urgent' : 'high',
-      sortWeight: 500 + e.overdueDays
-    })
-  }
-
-  // 3) 健康持续恶化（与 D 级去重）
-  for (const e of store.worseningList) {
-    if (list.some(a => a.typeLabel === 'D 级设备' && a.equipment.id === e.id)) continue
-    list.push({
-      key: `worsening:${e.id}`,
-      level: 'warning',
-      typeLabel: '健康恶化',
-      equipment: e,
-      value: '健康分连续下降，趋势预警',
-      suggestion: `关注 ${e.name} 下降趋势，建议安排一次体检评估`,
-      orderTitle: `${e.name} 健康分持续下降，安排体检评估`,
-      orderType: 'maintenance',
-      orderPriority: 'high',
-      sortWeight: 300
-    })
-  }
-
-  // 4) 复诊逾期（工单已闭环但未确认效果）
+  // 复诊逾期（工单已闭环但未确认效果）
   for (const o of store.workOrders) {
     if (o.recheck_status === 'pending' && o.recheck_date && o.recheck_date < todayStr) {
       const eq = store.getEquipmentByName(o.equipment_name)
@@ -189,7 +159,7 @@ const alerts = computed(() => {
     }
   }
 
-  // 5) 备件缺料（库存 ≤ 安全库存，来自备件台账联动）
+  // 备件缺料（库存 ≤ 安全库存，来自备件台账联动）
   for (const p of store.lowStockParts) {
     list.push({
       key: `part:${p.id}`,
@@ -212,6 +182,13 @@ const alerts = computed(() => {
 
 const highCount = computed(() => alerts.value.filter(a => a.level === 'danger').length)
 
+/**
+ * 当前启用的规则条数。
+ * 顺带把 alertRules.listRules() 接上界面 —— 它此前没有任何调用方，
+ * 界面上能直接看到"引擎里到底跑了几条规则"，规则表也就可被当场确认。
+ */
+const ruleCount = listRules().length
+
 const handledRate = computed(() => {
   const total = doneCount.value + alerts.value.length
   if (!total) return 100
@@ -228,20 +205,22 @@ function generateOrder(a) {
     source: 'alert',
     description: `${a.value}\n建议：${a.suggestion}`
   })
-  doneMap.value[a.key] = 'handled'
-  saveDone()
+  // 写处置记录只有**一条**路径：store.setAlertDispositions()。
+  // 不直接改 store.alertDispositions 的属性，是为了让"改内存 + 写 meta + scheduleSave"
+  // 三件事永远一起发生 —— 直接改属性会写进内存却不落库。
+  store.setAlertDispositions({ ...doneMap.value, [a.key]: 'handled' })
   store.addLog({ content: `告警中心：为「${a.equipment.name}」生成工单「${a.orderTitle}」`, source: '告警', type: 'warning', tagType: 'warning' })
   ElMessage.success(`已为 ${a.equipment.name} 生成工单，可到「工单管理」派单处理`)
 }
 
 function markDone(a, mode) {
-  doneMap.value[a.key] = mode
-  saveDone()
+  store.setAlertDispositions({ ...doneMap.value, [a.key]: mode })
   ElMessage.success(mode === 'handled' ? `已标记「${a.equipment.name} · ${a.typeLabel}」为已处理` : `已忽略「${a.equipment.name} · ${a.typeLabel}」`)
 }
 
 function resetAll() {
-  doneMap.value = {}
+  // 走 store 的清理入口：内存里的响应式对象与库里的 meta 一起清掉，
+  // 侧边栏「重置演示数据」用的是同一个入口，两处不会再各清一半。
   store.clearAlertDispositions()
   ElMessage.success('已重置全部处置记录，告警重新扫描')
 }

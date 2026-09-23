@@ -4,7 +4,10 @@
 
 - 现状：`src/renderer/src/components/GlobalSearch.vue`（6.5KB）实现全局搜索（搜设备/工单/知识库），挂在 App 布局里；无键盘命令入口。
 - 目标：`Ctrl+K` 唤起**全局命令面板**，四类命令：导航（15 个页面）、动作（建单/记维保/导出报告等快捷操作）、查询（融合 GlobalSearch）、AI（自然语言转 AI 助手）。
-- 依赖：任务 05 域化架构的 `commands.js` 注册接口（本任务实现命令收集与执行，域注册命令的规范已在任务 05 定义；先接入现有页面的命令，未迁移域的命令由注册中心默认提供）。
+- 依赖：任务 05 域化架构的域注册中心（`registerDomain` / `getMenus` / `getRoutes` 已在用）。
+  ⚠️ 2026-09-17 修订：当时预留的 `getCommands()` 与各域 `commands.js` 因**始终没有消费方**已删除 ——
+  本任务落地时需把「命令收集 accessor + 消费方（面板本身）」**一起**加回来，不要只加声明。
+  先接入现有页面的命令，未迁移域的命令可由注册中心默认生成导航命令。
 
 ## 目标
 
@@ -18,10 +21,10 @@
 | 文件 | 动作 | 说明 |
 |------|------|------|
 | `src/renderer/src/components/CommandPalette.vue`（新增） | 面板 | 快捷键/搜索/选择/执行 |
-| `src/renderer/src/domains/registry.js` | 命令收集 | `getCommands()` 聚合各域 `commands.js` + 内置导航/动作命令 |
+| `src/renderer/src/domains/registry.js` | 命令收集 | **本任务需先补回** `getCommands()`（2026-09-17 因无消费方被删除，见任务 05 的修订说明），再聚合各域 `commands.js` + 内置导航/动作命令 |
 | `src/renderer/src/components/GlobalSearch.vue` | 改造/复用 | 搜索结果作为命令面板的"查询"类别（或面板内联搜索逻辑，GlobalSearch 保留原入口） |
 | `src/renderer/src/App.vue` | 挂载面板 | 全局注册快捷键与面板实例 |
-| 各域 `commands.js`（settings 域已有，其余现有域可先由注册中心默认生成导航命令） | 命令贡献 | 定义 `{ id, label, keywords, run }` |
+| 各域 `commands.js`（**需新建**：settings 域原有的那个已随 accessor 一起删除） | 命令贡献 | 定义 `{ id, label, keywords, run }` |
 
 ## 实现要点
 

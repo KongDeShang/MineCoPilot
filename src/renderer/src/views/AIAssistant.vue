@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="ai-assistant">
     <!-- 顶部 Tab 切换 -->
     <el-tabs v-model="activeTab" class="ai-tabs">
@@ -139,7 +139,8 @@
                     :disabled="isLoading"
                   >
                     <template #append>
-                      <el-button type="primary" @click="sendMessage" :disabled="isLoading">
+                      <!-- 空输入也要禁用：否则点一下就用兜底问题替用户"问"了一句 -->
+                      <el-button type="primary" @click="sendMessage" :disabled="isLoading || !inputText.trim()">
                         <el-icon><Promotion /></el-icon> 提问
                       </el-button>
                     </template>
@@ -228,6 +229,15 @@ const inputPanelCollapsed = ref(true)
 /** 聊天记录持久化键名（localStorage，数据不出本机） */
 const CHAT_STORAGE_KEY = 'ai_chat_messages'
 
+/**
+ * 本次页面加载的标记，跟着聊天记录一起存。
+ *
+ * 撤销栈只在内存里（见 nlActions：刷新即失效），条目 id 是自增的 undo-N，
+ * 刷新后从 undo-1 重新开始。存档里那张执行结果卡带着旧的 undoId，
+ * 若照着它去撤，会撤掉刷新后新写入的那一条——所以要先认会话。
+ */
+const CHAT_SESSION_ID = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+
 // ============================================================
 // AI 对话能力升级：多轮上下文 & 追问
 // ============================================================
@@ -313,7 +323,13 @@ function restoreChatHistory() {
       const fresh = Date.now() - savedAt < CHAT_MAX_AGE_MS
       const sameFleet = eqCount == null || eqCount === store.stats.equipmentCount
       if (Array.isArray(list) && list.length && fresh && sameFleet) {
+        // 存档里的理解卡只留了设备/工单的 id+name 快照（活对象存不下），
+        // 打上标记，确认写入前先按 id 换回台账里的活对象（见 rehydratePlan）
+        for (const m of list) if (m.plan) m.planRestored = true
         messages.value = list
+        // 追问解析（"它""这台"）靠这份上下文，和 messages 不是一回事，必须单独恢复
+        const conv = Array.isArray(saved) ? [] : saved?.conversation
+        conversation.value = Array.isArray(conv) ? conv : []
         return
       }
     }
@@ -321,30 +337,124 @@ function restoreChatHistory() {
     /* 记录损坏则回退欢迎语 */
   }
   messages.value = [welcomeMessage()]
+  conversation.value = []
 }
 
 /** 防抖保存聊天记录（最多 40 条，单条超长截断，控制 localStorage 体积） */
 let chatSaveTimer = null
 let sampleTimer = null
+
+/** 真正把聊天记录写进 localStorage（定时器与卸载前落盘共用同一份实现） */
+function persistChat() {
+  try {
+    const trimmed = messages.value.slice(-40).map(m => ({
+      role: m.role,
+      content: String(m.content || '').slice(0, 12000),
+      time: m.time,
+      thinkingSteps: m.thinkingSteps || null,
+      thinkingCollapsed: !!m.thinkingCollapsed,
+      refs: m.refs || [],
+      // 理解卡和执行结果卡必须一起存：它们就是卡片本身。
+      // 只存 content 的话，刷新后"已写入什么"和「撤销这次写入」一起消失，
+      // 数据已经落库、界面上却再也看不到也撤不回。
+      plan: serializePlan(m.plan),
+      execResult: serializeExecResult(m.execResult)
+    }))
+    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({
+      savedAt: Date.now(),
+      equipmentCount: store.stats.equipmentCount,
+      messages: trimmed,
+      // 追问上下文单存一份：它和 messages 不是一一对应（欢迎语、周报没有对应条目，
+      // 助手那条记的是叙述前的纯文本），从消息反推不出来，只能自己存
+      conversation: conversation.value.slice(-20).map(c => ({
+        role: c.role,
+        text: String(c.text || '').slice(0, 500),
+        equipmentName: c.equipmentName || null,
+        timestamp: c.timestamp
+      }))
+    }))
+  } catch { /* 存储失败不打断对话 */ }
+}
+
 function scheduleChatSave() {
   if (chatSaveTimer) clearTimeout(chatSaveTimer)
-  chatSaveTimer = setTimeout(() => {
-    try {
-      const trimmed = messages.value.slice(-40).map(m => ({
-        role: m.role,
-        content: String(m.content || '').slice(0, 12000),
-        time: m.time,
-        thinkingSteps: m.thinkingSteps || null,
-        thinkingCollapsed: !!m.thinkingCollapsed,
-        refs: m.refs || []
-      }))
-      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({
-        savedAt: Date.now(),
-        equipmentCount: store.stats.equipmentCount,
-        messages: trimmed
-      }))
-    } catch { /* 存储失败不打断对话 */ }
-  }, 500)
+  chatSaveTimer = setTimeout(() => { chatSaveTimer = null; persistChat() }, 500)
+}
+
+/**
+ * 理解卡的可存档副本。
+ *
+ * 不能直接存 plan 本身：items[].equipment、items[].order、ambiguous[].candidates
+ * 都是台账里的活对象（响应式代理），存下来只会变成一份快照，而恢复后直接执行
+ * 会把快照里没有的字段当 undefined 用——比如改状态那句 `before = eq.status`
+ * 取不到值，撤销时就把设备状态写成 undefined。所以这里只留重绘卡片和执行
+ * 真正用到的标量字段，设备/工单只留 id+name，执行前再由 rehydratePlan 换回活对象。
+ *
+ * 数量也做上限：一句话里的子句数（splitClauses）本来就只有几条，
+ * 这些上限只是兜住"存档被撑爆"，正常永远碰不到。
+ */
+function serializePlan(plan) {
+  if (!plan) return null
+  const eqRef = eq => (eq ? { id: eq.id, name: eq.name } : null)
+  return {
+    ok: !!plan.ok,
+    blocked: !!plan.blocked,
+    rawText: String(plan.rawText || '').slice(0, 2000),
+    impact: (plan.impact || []).slice(0, 20),
+    notFound: (plan.notFound || []).slice(0, 10).map(n => ({ clause: n.clause, reason: n.reason })),
+    ambiguous: (plan.ambiguous || []).slice(0, 10).map(g => ({
+      id: g.id,
+      clause: g.clause,
+      intent: g.intent,
+      candidates: (g.candidates || []).slice(0, 20).map(eqRef)
+    })),
+    items: (plan.items || []).slice(0, 20).map(item => ({
+      intent: item.intent,
+      intentLabel: item.intentLabel,
+      rawText: item.rawText,
+      matchedKeyword: item.matchedKeyword,
+      ambiguousId: item.ambiguousId || null,
+      preflightError: item.preflightError || null,
+      equipment: eqRef(item.equipment),
+      order: item.order ? { id: item.order.id, title: item.order.title, equipment_name: item.order.equipment_name } : null,
+      equipmentRef: item.equipmentRef
+        ? {
+            status: item.equipmentRef.status,
+            method: item.equipmentRef.method,
+            phrase: item.equipmentRef.phrase,
+            equipment: eqRef(item.equipmentRef.equipment)
+          }
+        : null,
+      title: item.title,
+      description: item.description,
+      priority: item.priority,
+      system: item.system,
+      date: item.date,
+      datePhrase: item.datePhrase,
+      serviceLevel: item.serviceLevel,
+      partsText: item.partsText,
+      targetStatus: item.targetStatus,
+      targetStatusLabel: item.targetStatusLabel
+    }))
+  }
+}
+
+/**
+ * 执行结果卡的可存档副本。
+ *
+ * undos 是一组闭包（`() => store.removeWorkOrder(order.id)`），JSON 存不下，
+ * 也不该存：撤销靠的是 store 内存里的撤销栈。这里只留重绘结果卡所需的字段，
+ * 外加 session——用来判断这张卡还是不是"本次页面加载写的"，见 undoPlan。
+ */
+function serializeExecResult(exec) {
+  if (!exec) return null
+  return {
+    results: (exec.results || []).map(r => ({ ok: !!r.ok, summary: r.summary, error: r.error })),
+    changes: (exec.changes || []).map(c => ({ label: c.label, detail: c.detail, kind: c.kind, id: c.id })),
+    undone: !!exec.undone,
+    undoId: exec.undoId || null,
+    session: exec.session || null
+  }
 }
 
 watch(messages, scheduleChatSave, { deep: true })
@@ -365,9 +475,6 @@ async function clearChat() {
   conversation.value = []
   ElMessage.success('对话记录已清空')
 }
-
-// 无输入时也能回答的默认问题
-const fallbackQuestion = '设备维保知识库能回答什么？'
 
 // ============================================================
 // AI 思考过程可视化
@@ -502,8 +609,8 @@ function askFollowup(question) {
  * 回车发送（要避开中文输入法的候选词确认）
  *
  * keyup 在输入法合成期间也会触发，而 v-model 此时还是旧值：
- * 用拼音输入时按回车选词，会把半成品发出去；输入框为空时更糟——
- * 直接发出兜底问题，屏幕上凭空出现一个没人问过的答案。
+ * 用拼音输入时按回车选词，会把半成品发出去（空输入凭空提问那条兜底已经去掉，
+ * 这里只剩"半成品"要拦）。
  * 所以合成中一律不发送（e.isComposing 由浏览器给出，最可靠）。
  */
 function onEnterKey(e) {
@@ -513,7 +620,14 @@ function onEnterKey(e) {
 
 async function sendMessage() {
   if (isLoading.value) return
-  const rawQuestion = inputText.value.trim() || fallbackQuestion
+  // 空输入直接返回，不再拿兜底问题替用户提问：那会在对话里凭空多出一个
+  // "用户"回合，屏幕上出现一个谁都没问过的答案，比不说话更糟。
+  // （示例问题/追问候选走的是 askQuick / askFollowup，它们会先填好输入框）
+  const rawQuestion = inputText.value.trim()
+  if (!rawQuestion) {
+    ElMessage.warning('请先输入问题')
+    return
+  }
   inputText.value = ''
 
   // 追问解析：把"那台设备"替换为上文设备名
@@ -851,6 +965,28 @@ function recheckPreflight(plan) {
 }
 
 /**
+ * 恢复出来的理解卡：把设备/工单快照按 id 换回台账里的活对象。
+ *
+ * 存档里只留了 id+name（活对象存不下），而 executePlanItem 要用设备的完整字段
+ * （改状态时 `before = eq.status`、写知识库时 `eq.category`、撤销时 `{...eq}` 快照），
+ * 直接拿快照去执行会把 undefined 写进数据库。换不回来的（台账里已经没了）
+ * 就置 null，让 executePlanItem 照常报"未确定设备，不能写入"。
+ */
+function rehydratePlan(plan) {
+  const liveEq = snap => (snap ? store.equipmentList.find(e => String(e.id) === String(snap.id)) || null : null)
+  for (const item of plan.items) {
+    if (item.equipment) item.equipment = liveEq(item.equipment)
+    if (item.order) item.order = store.workOrders.find(o => String(o.id) === String(item.order.id)) || null
+    if (item.equipmentRef && item.equipmentRef.equipment) {
+      item.equipmentRef.equipment = liveEq(item.equipmentRef.equipment)
+    }
+  }
+  for (const g of plan.ambiguous || []) {
+    g.candidates = (g.candidates || []).map(liveEq).filter(Boolean)
+  }
+}
+
+/**
  * 确认写入
  *
  * 必须防重复执行：卡片执行完不会消失，按钮仍在原地——
@@ -860,6 +996,13 @@ function confirmPlan(msg) {
   if (msg.executing || msg.execResult) return
   const plan = msg.plan
   if (!plan) return
+  // 存档恢复的理解卡：先换回活对象，再重做一次预检
+  // （存档期间工单可能已被别的操作关掉，"该设备有没有未完成工单"要按现在的台账算）
+  if (msg.planRestored) {
+    rehydratePlan(plan)
+    recheckPreflight(plan)
+    plan.impact = describeImpact(plan)
+  }
   msg.executing = true
 
   const results = []
@@ -886,7 +1029,9 @@ function confirmPlan(msg) {
   }
 
   const okCount = results.filter(r => r.ok).length
-  msg.execResult = { results, changes, undos, undone: false, undoId: null }
+  // session 记下这次写入发生在哪一次页面加载：撤销栈只在内存里，
+  // 刷新后 undoId 会从 undo-1 重排，恢复出来的旧卡必须靠它才敢撤（见 undoPlan）
+  msg.execResult = { results, changes, undos, undone: false, undoId: null, session: CHAT_SESSION_ID }
   msg.plan = null
   msg.executing = false
 
@@ -922,6 +1067,13 @@ function cancelPlan(msg) {
 function undoPlan(msg) {
   const exec = msg.execResult
   if (!exec || exec.undone) return
+  // 撤销栈只在内存里保留（nlActions：刷新即失效），刷新后条目 id 从 undo-1 重新排。
+  // 旧卡上的 undoId 可能是刷新前那个 undo-1，照着撤就会撤掉刷新后新写入的那一条——
+  // 与其撤错，不如说清"这次撤不了、数据还是写入后的状态"。
+  if (exec.session !== CHAT_SESSION_ID) {
+    ElMessage.warning('页面已刷新，这次写入不能再自动撤销（撤销记录只保留在内存中）；数据仍是写入后的状态，请到工单 / 维保页手工回退')
+    return
+  }
   const outcome = store.performUndo(exec.undoId)
   if (!outcome.ok) {
     ElMessage.warning(outcome.error)
@@ -1004,9 +1156,18 @@ onMounted(() => {
   if (llmAvailable()) llmLoad().catch(() => { /* 预热失败不打扰，叙述层会明示降级 */ })
 })
 
-// 离开页面时清掉挂起的定时器（否则卸载后仍会写一次 localStorage / 改一次输入框）
+/**
+ * 离开页面时处理挂起的定时器。
+ *
+ * ⚠️ 聊天记录要**落盘**，不是清掉。
+ * 原来这里对 `chatSaveTimer` 也是 `clearTimeout`，于是"发完消息（或刚产生理解卡）
+ * 500ms 内切走页面"这一次保存会被直接丢弃 —— 再回来时那几条记录、以及「撤销这次
+ * 写入」按钮就没了。而注释里的顾虑（"卸载后仍会写一次 localStorage"）并不成立：
+ * localStorage 不是组件状态，卸载后写它是安全的；真正有害的是不写。
+ * `sampleTimer`（填示例转写）改的才是组件内的 ref，那个必须清掉。
+ */
 onBeforeUnmount(() => {
-  if (chatSaveTimer) { clearTimeout(chatSaveTimer); chatSaveTimer = null }
+  if (chatSaveTimer) { clearTimeout(chatSaveTimer); chatSaveTimer = null; persistChat() }
   if (sampleTimer) { clearTimeout(sampleTimer); sampleTimer = null }
 })
 
