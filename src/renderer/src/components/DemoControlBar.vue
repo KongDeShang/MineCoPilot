@@ -13,20 +13,24 @@
       <span class="demo-bar-step">{{ step }} / {{ total }}</span>
       <span v-if="paused" class="demo-bar-paused">已暂停</span>
       <span v-else-if="playing" class="demo-bar-auto">自动演示中</span>
+      <span v-else class="demo-bar-manual">手动推进</span>
     </div>
     <div class="demo-bar-btns">
       <el-tooltip content="上一步" placement="top">
         <el-button size="small" circle @click="api.prev()"><el-icon><ArrowLeft /></el-icon></el-button>
       </el-tooltip>
-      <el-tooltip :content="paused ? '继续自动演示' : '暂停自动演示'" placement="top">
+      <!-- 一颗按钮两种角色：手动模式下是「开始自动」，自动模式下才是暂停/继续。
+           默认是手动（首启演示就是手动），而 togglePause 只翻 paused、不把 playing
+           置真 —— 照原样显示"暂停自动演示"的话，手动模式下按下去什么都不会发生。 -->
+      <el-tooltip :content="playBtnTip" placement="top">
         <el-button
           size="small"
           :type="paused ? 'success' : 'primary'"
           circle
-          :aria-label="paused ? '继续' : '暂停'"
-          @click="api.togglePause()"
+          :aria-label="playBtnTip"
+          @click="onPlayPause()"
         >
-          <el-icon><component :is="paused ? 'VideoPlay' : 'VideoPause'" /></el-icon>
+          <el-icon><component :is="paused || !playing ? 'VideoPlay' : 'VideoPause'" /></el-icon>
         </el-button>
       </el-tooltip>
       <el-tooltip content="下一步" placement="top">
@@ -66,6 +70,18 @@ const props = defineProps({
 const emit = defineEmits(['close'])
 
 const pct = computed(() => (props.total ? Math.round((props.step / props.total) * 100) : 0))
+
+/** 这颗按钮此刻是"开始自动""继续"还是"暂停" */
+const playBtnTip = computed(() => {
+  if (!props.playing) return '开始自动演示'
+  return props.paused ? '继续自动演示' : '暂停自动演示'
+})
+
+function onPlayPause() {
+  // 手动模式：切到自动；自动模式：暂停/继续
+  if (!props.playing) props.api.startAuto()
+  else props.api.togglePause()
+}
 </script>
 
 <style scoped>
@@ -113,6 +129,11 @@ const pct = computed(() => (props.total ? Math.round((props.step / props.total) 
 }
 .demo-bar-auto {
   color: var(--accent);
+  font-weight: 600;
+}
+/* 手动模式（默认）：不喊"自动"，也不喊"暂停"—— 它没在跑，是等人点 */
+.demo-bar-manual {
+  color: var(--text-3);
   font-weight: 600;
 }
 .demo-bar-btns {

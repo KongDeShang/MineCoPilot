@@ -94,21 +94,28 @@
         </div>
         <div class="header-right">
           <!-- 引导演示：把"该看什么"固化成可重复播放的路线（多条可选手动/自动）。
-               评委自己上手、或演示的人讲快了，都可以按一下重来。 -->
+               评委自己上手、或演示的人讲快了，都可以按一下重来。
+
+               ⚠️ 触发器里**不要**再套 el-tooltip。套上之后 el-dropdown 拿到的是
+               一个组件而不是元素触发器，popper 于是永远不定位：菜单在 DOM 里存在、
+               但 rect 恒为 0×0，人眼看到的就是"点了没反应"。合成点击（element.click()）
+               绕过命中检测，所以自动化测试照样全绿 —— 这个 bug 因此活了很久。
+               提示文案现在放在菜单内部，顺带也不再让两个都向下的浮层重叠。 -->
           <el-dropdown trigger="click" @command="onPickDemoRoute">
-            <el-tooltip content="按路线自动带你走一遍（可暂停/手动）" placement="bottom">
-              <el-button
-                size="small"
-                type="primary"
-                plain
-                :loading="tourStarting"
-              >
-                <el-icon><Guide /></el-icon> 引导演示
-                <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-              </el-button>
-            </el-tooltip>
+            <el-button
+              size="small"
+              type="primary"
+              plain
+              :loading="tourStarting"
+            >
+              <el-icon><Guide /></el-icon> 引导演示
+              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            </el-button>
             <template #dropdown>
               <el-dropdown-menu>
+                <li class="demo-route-hint" role="presentation">
+                  逐步点「下一步」推进；工具条上可切换自动
+                </li>
                 <el-dropdown-item
                   v-for="r in demoRoutes"
                   :key="r.id"
@@ -234,6 +241,7 @@ onMounted(() => {
   refreshLlmMode()
   llmTimer = setInterval(refreshLlmMode, 5000)
   maybeOpenWizard()
+  void maybeAutoStartTour()
 })
 
 /** 首次向导：仅 Electron 模式 + 没有任何已安装模型 + 用户未跳过过 */
@@ -390,18 +398,24 @@ async function resetDemo() {
  * 其余情况（某一步的元素没出现）由播放器内部跳过，不往上抛，
  * 因为演示途中弹错误框是最糟的收场。
  *
- * 默认自动演示：每步停留后自动前进，工具条可暂停/手动步进/重来。
+ * **默认手动**（`auto:false`）：一步一步点「下一步」推进，工具条上可随时切成自动。
+ * 用户口径就是"手动点击就开始下一步"，自动是讲超时时的兜底（见 docs/演示脚本.md）。
+ *
+ * @param {string} routeId 路线 id（main / ai-line）
+ * @param {{auto?: boolean, silent?: boolean}} [opts]
+ *        silent —— 首启自动播放用：无人触发，失败了不该弹错误框（演示还没开始
+ *        就报错是最糟的开场），只记一条 warn。
  */
 function onPickDemoRoute(routeId) {
   void startDemoTour(routeId)
 }
 
-async function startDemoTour(routeId) {
+async function startDemoTour(routeId, { auto = false, silent = false } = {}) {
   if (tourStarting.value) return
   tourStarting.value = true
   try {
     const result = await startTour(router, routeId, {
-      auto: true,
+      auto,
       onState: (s) => {
         if (!s) {
           tourApi.value = null
@@ -412,16 +426,49 @@ async function startDemoTour(routeId) {
       }
     })
     if (!result.ok) {
-      ElMessage.warning(result.reason)
+      if (silent) console.warn(`[引导演示] 启动失败：${result.reason}`)
+      else ElMessage.warning(result.reason)
       return
     }
     tourApi.value = result.api
     // 若 onState 尚未触发（路线极短），同步一次初始状态
     if (!tourState.value) tourState.value = result.api.getState()
   } catch (error) {
-    ElMessage.error(`引导演示启动失败：${error.message}`)
+    if (silent) console.warn('[引导演示] 启动失败：', error)
+    else ElMessage.error(`引导演示启动失败：${error.message}`)
   } finally {
     tourStarting.value = false
+  }
+}
+
+/** 首启演示是否已播放过（只播一次；想再看得按右上角「引导演示」） */
+const TOUR_SEEN_KEY = 'ks:tour-seen'
+
+/**
+ * 首次启动自动播放主线。
+ *
+ * 为什么要有它：应用打开就是看板，评委（或换台机器演示的人）不知道该看什么 ——
+ * 引导演示原本只能自己去右上角找，等于没有。首启自动播一遍，之后再想就按按钮重播。
+ *
+ * 三个刻意的决定：
+ *  1) `auto:false` —— **手动点「下一步」**推进，不自己走。演示节奏该由讲的人定；
+ *     要它自己走，工具条上按 ▶。
+ *  2) 等 `router.isReady()` 再起。第 2 步要等的 `.status-strip` 在首帧路由稳定前
+ *     还不存在，播放器会按设计静默跳步 —— 那两步不该在首启被白白吃掉。
+ *  3) 模型向导开着时不起（两个浮层抢同一块屏幕）。
+ *
+ * 失败时**不写标记**：下次启动还能再试，比"永远不播了"诚实。
+ */
+async function maybeAutoStartTour() {
+  let seen = null
+  try { seen = localStorage.getItem(TOUR_SEEN_KEY) } catch { /* 隐私模式：当作没看过 */ }
+  if (seen) return
+  try { await router.isReady() } catch { /* 拿不到就按当前页面起，只是起点早一点 */ }
+  if (wizardOpen.value) return
+  const before = tourApi.value
+  await startDemoTour('main', { auto: false, silent: true })
+  if (tourApi.value && tourApi.value !== before) {
+    try { localStorage.setItem(TOUR_SEEN_KEY, '1') } catch { /* 隐私模式忽略 */ }
   }
 }
 </script>
@@ -789,6 +836,19 @@ html, body, #app {
 .demo-route-desc {
   font-size: 11px;
   color: var(--text-3);
+}
+/* 菜单里的说明行：不可点，只交代"点了之后怎么推进"。
+   以前这句挂在触发器的 tooltip 上，而 tooltip 与菜单都朝下弹 —— 既叠在一起，
+   又因为套在 el-dropdown 里把菜单的定位搞坏了（见模板处注释）。 */
+.demo-route-hint {
+  padding: 6px 12px 8px;
+  font-size: var(--fs-2xs);
+  color: var(--text-3);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+  max-width: 260px;
+  line-height: 1.4;
+  list-style: none;
 }
 
 /* 响应式：窄屏折叠为图标栏 */

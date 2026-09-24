@@ -233,6 +233,21 @@ export async function startTour(router, routeId, { auto = false, onState } = {})
       emit()
       if (!paused) scheduleAuto()
     },
+    /**
+     * 从手动模式切到自动演示（工具条上的 ▶）。
+     *
+     * 默认是手动（`auto:false`，逐步点「下一步」），所以需要一条回头路：讲超时了
+     * 想让它自己走，按一下就从当前这步开始自动。已在自动模式时是空操作 ——
+     * 那种情况该用 togglePause。
+     */
+    startAuto() {
+      if (state.playing) return
+      state.playing = true
+      paused = false
+      state.paused = false
+      emit()
+      scheduleAuto()
+    },
     /** 重置到第一步 */
     reset: () => { clearAuto(); void goto(0) },
     /** 退出演示 */

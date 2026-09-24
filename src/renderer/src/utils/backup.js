@@ -45,6 +45,7 @@ const SETTINGS_KEYS = [
   'ks:theme',          // 深浅主题
   'ks:color',          // 色彩主题
   'ks:wizard-dismissed', // 模型向导已跳过
+  'ks:tour-seen',      // 首启引导演示已播放过（看过的人换机后不该再被自动播一遍）
   'mining-nav-pinned', // 侧边栏钉住项
   'ks:master-mode',    // AI 老师傅模式开关（任务 17）
   'ks:troubleshoot-maps' // 四类排查思路表用户版（任务 17）

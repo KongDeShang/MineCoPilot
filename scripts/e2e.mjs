@@ -13,7 +13,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, rmSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ensureServer, stopServer } from './devServer.mjs'
+import { ensureServer, stopServer, seedTourSeen, unseedTourSeen } from './devServer.mjs'
 
 const BASE = process.env.E2E_BASE_URL || 'http://localhost:5173'
 const CDP_PORT = Number(process.env.E2E_CDP_PORT || 9222)
@@ -242,6 +242,10 @@ async function main() {
     await session.send('Emulation.setDeviceMetricsOverride', {
       width: 1440, height: 940, deviceScaleFactor: 1, mobile: false
     })
+    // 首启引导演示会自己弹出来，而 driver 的遮罩拦鼠标 —— 本套件里的合成点击
+    // 倒是照样能过，但结尾那条"首启真的会自动播"的用例要的正是未播种的状态，
+    // 所以先种上，到那里再撤回（见 unseedTourSeen）。
+    const tourSeed = await seedTourSeen(session)
 
     // ---------- 0. 干净起点：清空本地库并重新加载（验证首启播种） ----------
     await session.goto(`${BASE}/#/dashboard`, 3500)
@@ -1263,61 +1267,141 @@ async function main() {
       resetAfterReload.statValues?.[0] === '60',
       `${resetAfterReload.statValues?.join(',')} | 闭环率 ${resetAfterReload.closing}`)
 
-    // ---------- 12. 引导演示：多路线入口 + 自动演示 + 工具条（任务 14）----------
-    await session.goto(`${BASE}/#/dashboard`, 2600)
-    const tourFlow = await session.eval(`(async () => {
-      const q = (s) => document.querySelector(s)
-      const wait = async (sel, ms) => {
-        const deadline = Date.now() + ms
-        while (Date.now() < deadline) {
-          const el = q(sel)
-          if (el) return el
-          await new Promise(r => setTimeout(r, 150))
-        }
-        return null
-      }
-      // 1) 打开"引导演示"下拉，选"主线"
-      const guideBtn = Array.from(document.querySelectorAll('.header-right button')).find(b => /引导演示/.test(b.textContent))
-      if (!guideBtn) return { ok: false, reason: '找不到引导演示按钮' }
-      guideBtn.click()
-      await new Promise(r => setTimeout(r, 500))
-      const item = Array.from(document.querySelectorAll('.el-dropdown-menu__item')).find(e => /主线/.test(e.textContent))
-      if (!item) return { ok: false, reason: '找不到主线选项' }
-      item.click()
-      // 2) 等 driver 卡片与工具条出现
-      const popover = await wait('.driver-popover', 6000)
-      if (!popover) return { ok: false, reason: 'driver 卡片未出现' }
-      const bar = await wait('.demo-bar', 3000)
-      // 3) 暂停自动演示（避免 3.2s 后自动前进打乱断言时序）
-      const pauseBtn = bar && Array.from(bar.querySelectorAll('button')).find(b => (b.getAttribute('aria-label') || '') === '暂停')
-      if (pauseBtn) pauseBtn.click()
-      await new Promise(r => setTimeout(r, 300))
-      const title1 = (q('.driver-popover-title') || {}).textContent || ''
-      const step1 = (q('.driver-popover-progress-text') || {}).textContent || ''
-      // 4) 手动点下一步 → 应跨路由到 /dashboard 并高亮第 2 步
-      const next = Array.from(document.querySelectorAll('.driver-popover button')).find(b => /下一步/.test(b.textContent))
-      if (next) next.click()
-      await new Promise(r => setTimeout(r, 2400))
-      const title2 = (q('.driver-popover-title') || {}).textContent || ''
-      const step2 = (q('.driver-popover-progress-text') || {}).textContent || ''
-      const onDashboard = location.hash.includes('/dashboard')
-      // 5) 工具条退出 → 卡片与工具条都应消失
-      const exitBtn = bar && Array.from(bar.querySelectorAll('button')).find(b => (b.getAttribute('aria-label') || b.textContent || '').includes('退出'))
-      if (exitBtn) exitBtn.click()
-      await new Promise(r => setTimeout(r, 600))
+    // ---------- 12. 引导演示：入口下拉（真鼠标）+ 手动推进 + 首启只播一次 ----------
+    /**
+     * 用**真实**鼠标事件（CDP Input.dispatchMouseEvent）点一个元素，并回报命中检测结果。
+     *
+     * 本节为什么不能用别处到处在用的 `element.click()`：合成点击**绕过命中检测** ——
+     * 元素被别的层盖住、尺寸为 0×0、乃至根本不可交互，`click()` 一样返回"成功"。
+     * 引导演示的下拉就这样在自动化里长期全绿：触发器里套了个 el-tooltip，
+     * el-dropdown 拿到的是**组件**而不是元素触发器，popper 于是从不定位，
+     * 菜单在 DOM 里存在、rect 恒为 0×0 —— 人眼看到的是"按钮在，下拉空/点不动"。
+     * 本节存在的首要理由是守住这个缺陷，所以点击必须走真鼠标。
+     */
+    async function realClickEl(sess, expr, label) {
+      const probe = await sess.eval(`(() => {
+        const el = ${expr}
+        if (!el) return { err: '找不到元素' }
+        const b = el.getBoundingClientRect()
+        if (!b.width || !b.height) return { err: '元素尺寸为 0×0' }
+        const x = Math.round(b.left + b.width / 2)
+        const y = Math.round(b.top + b.height / 2)
+        const hit = document.elementFromPoint(x, y)
+        return { x, y, hitSelf: !!hit && (hit === el || el.contains(hit)), hitTag: (hit && (hit.className || hit.tagName)) || null }
+      })()`)
+      if (probe.err) return { ok: false, err: `${label}：${probe.err}` }
+      await sess.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: probe.x, y: probe.y, button: 'none', buttons: 0 })
+      await sleep(120)
+      await sess.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: probe.x, y: probe.y, button: 'left', buttons: 1, clickCount: 1 })
+      await sleep(60)
+      await sess.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: probe.x, y: probe.y, button: 'left', buttons: 0, clickCount: 1 })
+      return { ok: true, hitSelf: probe.hitSelf, hitTag: probe.hitTag, at: `${probe.x},${probe.y}` }
+    }
+
+    /** 引导演示的当场状态（弹层 / 工具条模式 / 首启标记） */
+    const TOUR_STATE = `(() => {
+      const pop = document.querySelector('.driver-popover')
+      const bar = document.querySelector('.demo-bar')
+      const modeEl = bar && (bar.querySelector('.demo-bar-manual') || bar.querySelector('.demo-bar-auto'))
       return {
-        ok: true, title1, step1, title2, step2, onDashboard,
-        popoverGone: !q('.driver-popover'), barGone: !q('.demo-bar')
+        hasPopover: !!pop,
+        title: pop ? (pop.querySelector('.driver-popover-title') || {}).textContent : null,
+        progress: pop ? (pop.querySelector('.driver-popover-progress-text') || {}).textContent : null,
+        barMode: modeEl ? modeEl.textContent : null,
+        seen: (() => { try { return localStorage.getItem('ks:tour-seen') } catch { return '‹不可读›' } })()
       }
+    })()`
+
+    await session.goto(`${BASE}/#/dashboard`, 2600)
+
+    // 12a) 右上角入口：真鼠标点得开、菜单有真实尺寸
+    const trigger = await realClickEl(session,
+      `[...document.querySelectorAll('.header-right button')].find(b => /引导演示/.test(b.textContent))`, '引导演示按钮')
+    await sleep(700)
+    const menuBox = await session.eval(`(() => {
+      const m = document.querySelector('.el-dropdown-menu')
+      if (!m) return null
+      const b = m.getBoundingClientRect()
+      const item = m.querySelector('.el-dropdown-menu__item')
+      const ib = item && item.getBoundingClientRect()
+      return { w: Math.round(b.width), h: Math.round(b.height), itemW: ib ? Math.round(ib.width) : 0 }
     })()`)
-    check('引导演示：下拉选主线可启动并显示第一步（自动演示模式）',
-      /欢迎/.test(tourFlow.title1 || ''), tourFlow.title1)
-    check('引导演示：暂停后手动下一步跨路由高亮（进度 2/N）',
-      /一屏看清/.test(tourFlow.title2 || '') && tourFlow.onDashboard && /2\s*\/\s*12/.test(tourFlow.step2 || ''),
-      `${tourFlow.title2 || '(空)'} | ${tourFlow.step2 || '(空)'} | hash=${tourFlow.onDashboard}`)
-    check('引导演示：工具条退出后卡片与工具条都消失',
-      tourFlow.popoverGone === true && tourFlow.barGone === true,
-      JSON.stringify({ popoverGone: tourFlow.popoverGone, barGone: tourFlow.barGone }))
+    const pick = await realClickEl(session, `document.querySelector('.el-dropdown-menu__item')`, '主线菜单项')
+    await sleep(2500)
+    let t = await session.eval(TOUR_STATE)
+    check('引导演示：真鼠标点得开下拉（菜单有真实尺寸，不是 0×0）',
+      !!menuBox && menuBox.w > 100 && menuBox.h > 60 && menuBox.itemW > 100,
+      `触发器 ${trigger.err || trigger.at} | 菜单 ${JSON.stringify(menuBox)}`)
+    check('引导演示：真鼠标点菜单项能启动并停在第一步',
+      t.hasPopover && /欢迎/.test(t.title || '') && (t.progress || '').trim() === '1 / 12',
+      `${pick.err || pick.at} | ${t.title || '(无卡片)'} | ${t.progress}`)
+    check('引导演示：默认手动推进（工具条不喊"自动演示中"）',
+      t.barMode === '手动推进', String(t.barMode))
+
+    // 12b) 手动推进：真点卡片上的「下一步」
+    const nextBtn = await realClickEl(session, `document.querySelector('.driver-popover-next-btn')`, '下一步按钮')
+    await sleep(2200)
+    t = await session.eval(TOUR_STATE)
+    check('引导演示：真点「下一步」前进到第二步',
+      (t.progress || '').trim() === '2 / 12',
+      `${nextBtn.err || nextBtn.at} | ${t.title || '(无卡片)'} | ${t.progress}`)
+
+    // 12c) 工具条上那颗双角色按钮：手动模式下按它应切到自动，而不是按下去没反应
+    //      （改版前 togglePause 只翻 paused、不把 playing 置真，这颗按钮在手动模式下是死的）
+    const playBtn = await realClickEl(session, `document.querySelector('.demo-bar button[aria-label="开始自动演示"]')`, '开始自动演示按钮')
+    await sleep(900)
+    const autoMode = await session.eval(`(() => { const b = document.querySelector('.demo-bar-auto'); return b ? b.textContent : null })()`)
+    check('引导演示：手动模式下按播放键能切到自动演示（不是死按钮）',
+      playBtn.ok === true && autoMode === '自动演示中',
+      `${playBtn.err || playBtn.at} | ${autoMode}`)
+
+    // 12d) 退出：卡片与工具条都收干净
+    const exitBtn = await realClickEl(session, `document.querySelector('.demo-bar button[aria-label="退出"]')`, '退出按钮')
+    await sleep(900)
+    const closed = await session.eval(`({
+      popoverGone: !document.querySelector('.driver-popover'),
+      barGone: !document.querySelector('.demo-bar')
+    })`)
+    check('引导演示：退出后卡片与工具条都消失',
+      closed.popoverGone === true && closed.barGone === true,
+      `${exitBtn.err || exitBtn.at} | ${JSON.stringify(closed)}`)
+
+    // 12e) 首启只播一次：撤回播种 → 清标记 → **整页重载**，这时才走得到真正的首启路径
+    //      两处顺序都有讲究：
+    //        · 注入按文档生效，不先撤回的话重载会把标记又种回来，首启永远测不到；
+    //        · 首启判定挂在 onMounted 上，所以必须让文档**真的重建**。同一个 URL
+    //          （只有 hash 不同）的 navigate 是片段导航，应用不重新挂载 ——
+    //          写成 goto(`${BASE}/#/dashboard`) 的话这几条会齐刷刷地"没有弹层"。
+    await unseedTourSeen(session, tourSeed)
+    await session.eval(`localStorage.removeItem('ks:tour-seen')`)
+    await session.goto(`${BASE}/#/dashboard`, 1200)
+    await session.send('Page.reload')
+    await sleep(9000)
+    t = await session.eval(TOUR_STATE)
+    check('首启：全新状态打开会自动弹出引导演示（停在第 1 步）',
+      t.hasPopover && (t.progress || '').trim() === '1 / 12',
+      `${t.title || '(无卡片)'} | ${t.progress}`)
+    check('首启：默认手动 —— 等人点，不自己走', t.barMode === '手动推进', String(t.barMode))
+
+    await sleep(4500)
+    const waited = await session.eval(TOUR_STATE)
+    check('首启：干等 4.5 秒仍停在 1 / 12（默认手动，不自动前进）',
+      (waited.progress || '').trim() === '1 / 12' && waited.progress === t.progress,
+      `${t.progress} → ${waited.progress}`)
+
+    const firstNext = await realClickEl(session, `document.querySelector('.driver-popover-next-btn')`, '下一步按钮')
+    await sleep(2200)
+    t = await session.eval(TOUR_STATE)
+    check('首启：点一下「下一步」就前进到 2 / 12',
+      (t.progress || '').trim() === '2 / 12', `${firstNext.err || firstNext.at} | ${t.progress}`)
+    check('首启：播放过的标记已落盘（ks:tour-seen=1）', t.seen === '1', String(t.seen))
+
+    // 12f) 看过之后不再自动打扰（但入口仍可重播，12a 已经验过）
+    await session.send('Page.reload')
+    await sleep(6000)
+    t = await session.eval(TOUR_STATE)
+    check('首启只播一次：刷新后不再自动弹（不打扰老用户）',
+      !t.hasPopover, t.hasPopover ? '又自动弹了' : '无弹层')
 
     // ---------- 汇总 ----------
     console.log('')

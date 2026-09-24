@@ -55,6 +55,41 @@ export async function ensureServer(base) {
   return dev
 }
 
+/**
+ * 在页面脚本跑起来之前把「首启引导演示已看过」的标记种进 localStorage。
+ *
+ * 为什么每个套件都要种：引导演示现在会在**全新 profile 第一次打开时自动播放**，
+ * 而 driver.js 的遮罩是**拦鼠标**的 —— e2e 的点击、对比度审计的取色、e2e:nl 的
+ * 对话操作都会被它挡在外面。这些套件要验的是应用本体，不是那层引导。
+ *
+ * 注意方向：不是"引导演示打扰了测试"要藏起来，而是这几套用例的语义里
+ * 「首启那一次」已经被播放过了。引导本身由 e2e.mjs 结尾的一组专门用例守着 ——
+ * 它会先 `unseedTourSeen` 撤回这里的注入，再 removeItem + 刷新，所以两条互不干扰。
+ *
+ * `addScriptToEvaluateOnNewDocument` 对此后**每个**新文档都生效，
+ * 所以要在第一次导航之前调用。
+ *
+ * @returns {Promise<string|undefined>} 注入句柄，交给 unseedTourSeen 撤回
+ */
+export async function seedTourSeen(session) {
+  const r = await session.send('Page.addScriptToEvaluateOnNewDocument', {
+    source: "try { localStorage.setItem('ks:tour-seen', '1') } catch { /* 隐私模式 */ }"
+  })
+  return r && r.identifier
+}
+
+/**
+ * 撤回 seedTourSeen 注入的脚本。
+ *
+ * 为什么必须有这一个：注入是**对每个新文档**生效的，所以"removeItem 之后再刷新"
+ * 根本回不到首启路径 —— 刷新时那段脚本又把标记种回去了，用例会永远看不到自动播放。
+ * 想验首启的用例必须先把注入撤掉。
+ */
+export async function unseedTourSeen(session, identifier) {
+  if (!identifier) return
+  await session.send('Page.removeScriptToEvaluateOnNewDocument', { identifier })
+}
+
 /** 收掉自启的服务器（复用了外部服务器时是 no-op） */
 export function stopServer(dev) {
   try { dev?.kill() } catch { /* 已退出 */ }

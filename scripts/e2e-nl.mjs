@@ -11,7 +11,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, rmSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ensureServer, stopServer } from './devServer.mjs'
+import { ensureServer, stopServer, seedTourSeen } from './devServer.mjs'
 
 const BASE = process.env.E2E_BASE_URL || 'http://localhost:5173'
 const CDP_PORT = Number(process.env.E2E_NL_CDP_PORT || 9224)
@@ -162,6 +162,8 @@ async function main() {
     await session.send('Network.enable').catch(() => {})
     await session.send('Network.setCacheDisabled', { cacheDisabled: true }).catch(() => {})
     await session.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 940, deviceScaleFactor: 1, mobile: false })
+    // 首启引导演示的遮罩拦鼠标，会挡住下面的对话操作；本套件不验引导，种上标记跳过
+    await seedTourSeen(session)
 
     // ---------- 0. 干净起点 ----------
     await session.goto('/dashboard', 3500)

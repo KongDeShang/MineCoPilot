@@ -24,7 +24,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ensureServer, stopServer } from './devServer.mjs'
+import { ensureServer, stopServer, seedTourSeen } from './devServer.mjs'
 
 const BASE = process.env.E2E_BASE_URL || 'http://localhost:5173'
 const CDP_PORT = Number(process.env.E2E_CDP_PORT || 9223)
@@ -426,6 +426,8 @@ async function main() {
     await send('Runtime.enable')
     await send('Page.enable')
     await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false })
+    // 首启引导演示的遮罩会盖住要取色的内容（取到的是遮罩而不是页面底色）；本套件不验引导，种上标记跳过
+    await seedTourSeen({ send })
     // 深色模式：文档创建早期注入（覆盖首次导航；SPA 内 hash 导航不重建文档，无影响）
     if (isDark) {
       await send('Page.addScriptToEvaluateOnNewDocument', { source: DARK_INJECT })
@@ -442,6 +444,21 @@ async function main() {
       // 采样前再设一次，保证所有路由都在深色令牌下判定
       if (isDark) {
         await send('Runtime.evaluate', { expression: DARK_INJECT })
+        /**
+         * 翻完主题必须**等它稳定**再采样，不能紧接着就量。
+         *
+         * 本项目有十几处 0.15~0.3s 的 `transition: background/color`
+         * （tokens.css 的统一时长段 + EP 组件自带的过渡），翻主题会把这些元素
+         * 从浅色**动画**到深色。翻完立刻采样等于拍动画帧：实测第一屏报出 109 处
+         * "不达标"，全是「#e8eefb 压 #ffffff」「#0a1326 压 #121b30」这种半途颜色，
+         * 而同一批元素稳定下来是 6.58:1，达标。
+         *
+         * 为什么只有第一条路由中招：hash 导航不重建文档，深色属性会留在 html 上，
+         * 之后每条路由的"兜底注入"都是空操作（已经是深的），也就没有过渡；
+         * 只有第一条路由是真正从浅翻到深。所以这是个**只在 /dashboard 上出现**的
+         * 假门禁 —— 最容易被人当成"深色主题问题很多"而放宽阈值，把真问题一起放过。
+         */
+        await sleep(600)
       }
       const res = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })
       if (res.exceptionDetails) {
