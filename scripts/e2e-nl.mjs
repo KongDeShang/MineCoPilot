@@ -250,8 +250,10 @@ async function main() {
     })()`)
     check('新工单出现在工单列表', onPage.found === true)
 
-    // 注意：撤销栈是内存态（跨刷新不保留，这是有意的安全设计），
-    // 所以撤销验证必须排在任何页面刷新之前。
+    // ---------- 4. 刷新之后：撤销记录仍在，旧卡照样能撤 ----------
+    // P2-1 之前撤销栈是纯内存态、刷新即失效，所以这一节只能验"按钮置灰"。
+    // 现在撤销记录随本机存档持久化了，跨刷新撤销必须**真的能用** ——
+    // 而且"能用"要按数据条数验，不能只看按钮亮不亮（亮着却撤不动是更坏的体验）。
 
     await session.send('Page.reload', { ignoreCache: false })
     await sleep(4200)
@@ -265,14 +267,15 @@ async function main() {
     await session.goto('/ai-assistant', 2600)
 
     /*
-     * 4.5 刷新之后，旧卡上的「撤销这次写入」必须**看起来就不能按**。
+     * 4.1 刷新之后，旧卡上的「撤销这次写入」必须仍是**可按的**。
      *
-     * 原来的行为是：按钮照常高亮，点了才弹一句"页面已刷新，这次写入不能再自动撤销"。
-     * 诚实，但用户感知是 bug —— 亮着的按钮不能用，点一下才发现。
-     * 现在把拒绝提前到外观上（置灰 + tooltip）。
+     * P2-1 之前的实现是：刷新后按钮一律置灰，提示"已不能自动撤销"。
+     * 那是当时诚实、但能力有缺的做法（撤销记录只在内存里）。现在记录已落本机存档，
+     * 刷新后按钮还能按 —— 这条断言正对着这个能力变化，钉子就是它。
      *
-     * 这条断言必须**成对**看下一条：只测"置灰"的话，一个永远置灰的实现
-     * （功能等于被删掉）照样全绿。所以紧接着验"刚写入的卡必须是可按的"。
+     * 只测"能按"是不够的：一个**永远可按**的实现也能过。所以必须成对看 4.3
+     * （把本机存档清掉再刷新 → 按钮必须置灰 + 说出原因）和 4.2
+     * （按下去要真的回滚数据，不能只是亮着好看）。
      */
     const staleUndo = await session.eval(`(() => {
       const actions = Array.from(document.querySelectorAll('.cmd-result-actions'))
@@ -286,11 +289,34 @@ async function main() {
         hint: Array.from(box.querySelectorAll('.cmd-hint')).map(e => e.textContent.trim()).join(' | ')
       }
     })()`)
-    check('刷新后旧卡的撤销按钮置灰（不是"亮了点一下才说不能用"）',
-      staleUndo.found === true && staleUndo.disabled === true,
+    check('刷新后旧卡的撤销按钮仍可按（撤销记录已跨刷新持久化）',
+      staleUndo.found === true && staleUndo.disabled === false,
       staleUndo.found ? `disabled=${staleUndo.disabled}` : '页面上找不到带撤销入口的执行卡')
-    check('置灰的按钮把原因写在界面上（不只是 tooltip 里的一句）',
-      /已不能自动撤销/.test(staleUndo.hint || ''), staleUndo.hint || '(无提示文案)')
+    check('可按时提示写明撤销会恢复写入前的数据',
+      /撤销会恢复写入前的数据/.test(staleUndo.hint || ''), staleUndo.hint || '(无提示文案)')
+
+    // 4.2 真的按下去 —— 跨刷新撤销要么真回滚，要么这条红
+    const crossRefreshUndo = await session.eval(`(async () => {
+      const app = document.querySelector('#app').__vue_app__
+      const store = app.config.globalProperties.$pinia._s.get('app')
+      const btn = [...document.querySelectorAll('.cmd-result-actions button')].find(b => /撤销这次写入/.test(b.textContent))
+      if (!btn) return { ok: false, reason: '找不到撤销按钮' }
+      const before = store.workOrders.length
+      btn.click()
+      await new Promise(r => setTimeout(r, 2600))
+      const box = document.querySelector('.cmd-result-actions')
+      return {
+        ok: true, before, after: store.workOrders.length,
+        undoneTag: !!box && /已撤销/.test(box.textContent),
+        stackLeft: store.getUndoStack().length
+      }
+    })()`)
+    check('跨刷新点撤销真的回滚了数据（按条数验，不看文案）',
+      crossRefreshUndo.ok && crossRefreshUndo.after === crossRefreshUndo.before - 1,
+      `orders ${crossRefreshUndo.before} → ${crossRefreshUndo.after}`)
+    check('撤销后卡片标为已撤销（按钮让位给状态标签，不是留在那里等重复点击）',
+      crossRefreshUndo.ok && crossRefreshUndo.undoneTag === true,
+      JSON.stringify(crossRefreshUndo).slice(0, 200))
 
     const secondWrite = await session.eval(`(async () => {
       ${ASK_HELPER}
@@ -313,8 +339,8 @@ async function main() {
     })()`)
     check('第二条口述记录可写入', secondWrite.ok && secondWrite.after === secondWrite.before + 1,
       JSON.stringify(secondWrite))
-    // 与上一条成对：本次页面加载写入的卡，撤销按钮必须是可按的
-    check('刚写入的卡撤销按钮仍可按（置灰只针对跨刷新失效的，没有误伤）',
+    // 与 4.3 成对：那一条验"记录没了必须置灰"，这一条验"记录还在的可按"没有被误伤
+    check('刚写入的卡撤销按钮仍可按（置灰只针对记录已不在栈里的，没有误伤）',
       secondWrite.freshUndoDisabled === false, `disabled=${secondWrite.freshUndoDisabled}`)
 
     const undoDiag = await session.eval(`(() => {
@@ -411,15 +437,36 @@ async function main() {
       querySafe.after.cards === querySafe.before.cards, JSON.stringify(querySafe))
 
     // ---------- 7. 完成工单 + 复诊闭环（口述链路） ----------
+    /*
+     * ⚠️ 断言必须按**设备**看，不能钉死某一张工单 id。
+     *
+     * 原来的写法是：取数组里第一条未完成工单，确认后断言"open.id 变成 completed"。
+     * 这条只在"该设备恰好只有这一张未完成工单"时成立 —— 而演示台账里一台设备带
+     * 2~3 张未完成工单是常态（"这批活都还没干完"）。口语说的是"某台设备检修完了"，
+     * 具体收掉哪一张工单是执行器的选择，不是这次要验的契约。钉 id 等于把"设备唯一"
+     * 这个前提偷偷塞进断言，库一脏（反复跑 e2e 用的就是同一个 profile）就随机红。
+     *
+     * 所以这里验设备级语义：说完"检修完了"，该设备未完成工单数 -1、且完成的那张
+     * 挂上了 7 天后的复诊任务。这两条才是不管收掉哪张都必须成立的。
+     */
     await session.goto('/ai-assistant', 2600)
     const completeFlow = await session.eval(`(async () => {
       ${ASK_HELPER}
       const app = document.querySelector('#app').__vue_app__
       const store = app.config.globalProperties.$pinia._s.get('app')
-      // 找一台有未完成工单的设备，直接说"检修完了"
+      const openOf = (eqId) => store.workOrders.filter(
+        o => o.equipment_id === eqId && (o.status === 'pending' || o.status === 'processing')
+      )
       const open = store.workOrders.find(o => o.status === 'pending' || o.status === 'processing')
       if (!open) return { ok: false, reason: '没有未完成工单' }
       const eqName = open.equipment_name
+      const eqId = open.equipment_id
+      const openBefore = openOf(eqId).length
+      // 点之前就"已完成且挂着待复诊"的工单：点完之后必须**多**出一张，否则复诊断言
+      // 可能被库里本来就有的那条蒙对
+      const alreadyClosed = new Set(
+        store.workOrders.filter(o => o.equipment_id === eqId && o.recheck_status === 'pending').map(o => o.id)
+      )
       await window.__ask(eqName + '已经检修完了')
       await new Promise(r => setTimeout(r, 1200))
       const card = [...document.querySelectorAll('.cmd-card')].pop()
@@ -428,23 +475,32 @@ async function main() {
       const recheckBefore = store.recheckList.length
       btn.click()
       await new Promise(r => setTimeout(r, 2600))
-      const target = store.workOrders.find(o => o.id === open.id)
+      const openAfter = openOf(eqId).length
+      // 刚收掉的那张：该设备上"已完成 + 待复诊"的工单，且点之前不在这个集合里
+      const closed = store.workOrders
+        .filter(o => o.equipment_id === eqId && o.status === 'completed' && o.recheck_status === 'pending' && !alreadyClosed.has(o.id))
+        .sort((a, b) => (b.completed_at || '').localeCompare(a.completed_at || '') || b.id - a.id)[0]
       return {
-        ok: true, eqName, orderId: open.id,
-        status: target.status,
-        recheckDate: target.recheck_date,
-        recheckStatus: target.recheck_status,
+        ok: true, eqName, eqId,
+        openBefore, openAfter,
+        recheckDate: closed ? closed.recheck_date : null,
+        recheckStatus: closed ? closed.recheck_status : null,
+        closedId: closed ? closed.id : null,
         recheckPending: store.recheckList.length,
-        recheckBefore,
-        maintenanceAdded: (store.getMaintenanceByEquipmentId(target.equipment_id) || []).length
+        recheckBefore
       }
     })()`)
-    check('口述"已检修完"能把工单标记完成',
-      completeFlow.ok && completeFlow.status === 'completed',
-      JSON.stringify(completeFlow).slice(0, 200))
+    check('口述"已检修完"能收掉该设备的一张未完成工单（按设备计，不钉工单 id）',
+      completeFlow.ok && completeFlow.openAfter === completeFlow.openBefore - 1,
+      completeFlow.ok
+        ? `${completeFlow.eqName} 未完成 ${completeFlow.openBefore} → ${completeFlow.openAfter}`
+        : JSON.stringify(completeFlow).slice(0, 200))
     check('完成时自动生成复诊任务（闭环）',
-      completeFlow.ok && !!completeFlow.recheckDate && completeFlow.recheckStatus === 'pending',
-      `复诊日期=${completeFlow.recheckDate} 状态=${completeFlow.recheckStatus}`)
+      completeFlow.ok && completeFlow.closedId !== null && completeFlow.recheckStatus === 'pending' &&
+        !!completeFlow.recheckDate && completeFlow.recheckPending === completeFlow.recheckBefore + 1,
+      completeFlow.ok
+        ? `工单#${completeFlow.closedId} 复诊日期=${completeFlow.recheckDate} 状态=${completeFlow.recheckStatus}／复诊任务 ${completeFlow.recheckBefore} → ${completeFlow.recheckPending}`
+        : JSON.stringify(completeFlow).slice(0, 200))
 
     // ---------- 8. 归档幂等 + 状态机 ----------
     // 归档一次会连带写病历、健康快照、复诊任务、知识草案、故障案例卡、日志六样东西。
@@ -486,6 +542,72 @@ async function main() {
       archiveFlow.ok && archiveFlow.illegalRejected === true, `返回 ${JSON.stringify(archiveFlow.illegal)}`)
     check('状态机拒绝不存在的状态值',
       archiveFlow.ok && archiveFlow.garbageRejected === true, '返回 null 即为拒绝')
+
+    // ---------- 9. 撤销记录不在栈里时必须置灰并说出原因 ----------
+    /*
+     * 这是 4.1「刷新后仍可按」的**反面钉子**。没有它，一个把 undoable 写死成 true
+     * 的实现（按钮永远可按，点了静默撤不动或者报错）照样能让 4.1 全绿。
+     *
+     * 怎么制造"记录不在栈里"：把本机存档直接删掉再刷新 —— 这正是 tooltip 里
+     * 说的"被清空过"（浏览器清站点数据、或存档被存储预算顶出去导致的丢失）。
+     * 不用 store 内部方法去改栈，是因为要验的恰恰是**页面重载后**的 DOM 表现。
+     */
+    await session.goto('/ai-assistant', 2600)
+    const freshWrite = await session.eval(`(async () => {
+      ${ASK_HELPER}
+      const app = document.querySelector('#app').__vue_app__
+      const store = app.config.globalProperties.$pinia._s.get('app')
+      const before = store.workOrders.length
+      // 设备名从真实台账里取，不在这里猜前缀：用整名去匹配是指代消解里最靠前的一级，
+      // 猜错前缀会让这条断言挂在"指代没解析出来"上，而不是它要验的置灰逻辑。
+      const dev = store.equipmentList.find(e => /挖掘机/.test(e.name || ''))
+      if (!dev) return { ok: false, reason: '台账里找不到挖掘机' }
+      await window.__ask(dev.name + ' 履带张紧度异常，需要调整')
+      await new Promise(r => setTimeout(r, 1200))
+      const card = [...document.querySelectorAll('.cmd-card')].pop()
+      const btn = card ? Array.from(card.querySelectorAll('button')).find(b => /确认写入/.test(b.textContent)) : null
+      if (!btn || btn.disabled) return { ok: false, reason: '理解卡不可确认' }
+      btn.click()
+      await new Promise(r => setTimeout(r, 2500))
+      const box = [...document.querySelectorAll('.cmd-result-actions')].pop()
+      const undoBtn = box ? Array.from(box.querySelectorAll('button')).find(b => /撤销这次写入/.test(b.textContent)) : null
+      return {
+        ok: true, before, after: store.workOrders.length,
+        disabled: undoBtn ? (undoBtn.disabled === true || undoBtn.classList.contains('is-disabled')) : null,
+        archive: !!localStorage.getItem('ks:undo-stack')
+      }
+    })()`)
+    check('前置条件：新写入的一条确实进得了撤销入口（否则下面"置灰"无从谈起）',
+      freshWrite.ok && freshWrite.after === freshWrite.before + 1 && freshWrite.disabled === false,
+      JSON.stringify(freshWrite).slice(0, 200))
+
+    const afterWipe = await session.eval(`(async () => {
+      localStorage.removeItem('ks:undo-stack')
+      location.hash = '#/workorder'
+      await new Promise(r => setTimeout(r, 1500))
+      return { wiped: localStorage.getItem('ks:undo-stack') === null }
+    })()`)
+    await session.send('Page.reload', { ignoreCache: false })
+    await sleep(4200)
+    const orphans = await session.eval(`(async () => {
+      location.hash = '#/ai-assistant'
+      await new Promise(r => setTimeout(r, 2600))
+      const boxes = Array.from(document.querySelectorAll('.cmd-result-actions'))
+      const withUndo = boxes.filter(a => /撤销这次写入/.test(a.textContent))
+      if (!withUndo.length) return { found: false, boxes: boxes.length }
+      const box = withUndo[withUndo.length - 1]
+      const btn = Array.from(box.querySelectorAll('button')).find(b => /撤销这次写入/.test(b.textContent))
+      return {
+        found: true,
+        disabled: btn.disabled === true || btn.classList.contains('is-disabled'),
+        hint: Array.from(box.querySelectorAll('.cmd-hint')).map(e => e.textContent.trim()).join(' | ')
+      }
+    })()`)
+    check('存档被清掉后刷新：撤销按钮置灰（不是永远可按）',
+      afterWipe.wiped === true && orphans.found === true && orphans.disabled === true,
+      JSON.stringify({ ...orphans, wiped: afterWipe.wiped }).slice(0, 220))
+    check('置灰时把原因写在界面上（不能只藏在 tooltip 里）',
+      /撤销记录已不在撤销栈里/.test(orphans.hint || ''), orphans.hint || '(无提示文案)')
 
     // ---------- 汇总 ----------
     console.log('')

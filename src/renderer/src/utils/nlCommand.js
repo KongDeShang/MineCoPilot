@@ -801,7 +801,23 @@ export function parseCommand(store, text, options = {}) {
 
 /**
  * 执行一条操作计划项
- * @returns {{ ok: boolean, summary: string, changes: Array<object>, error?: string, undo?: Function }}
+ *
+ * **返回里撤销相关有两个字段，必须成对出现：**
+ *   · `undo`    —— 闭包，捕获了这次写入的现场（快照、新增 id 等）。当次页面内执行，
+ *                  是"这次写入能不能退回"的**执行**路径。
+ *   · `inverse` —— 可序列化的逆操作描述数组（同上那些现场，但是数据不是代码）。
+ *                  它才**persist 得下去**，因此跨页面刷新仍能撤销（见 stores/nlActions.js）。
+ *
+ * 为什么要两份：闭包不可能存进 localStorage，而"跨刷新能撤销"又必须靠可序列化描述。
+ * 两份实现最怕的是**悄悄漂移**（闭包改了、描述没改，两条路还原出的数据不一样），
+ * 因此约定：**每个分支要么都给、要么都不给**，且自检里有一条断言把两条路跑同一场景、
+ * 比对结果状态（scripts/store-check.mjs）。新增意图时若只写了 `undo` 不写 `inverse`，
+ * 那条断言会红。
+ *
+ * 描述里的 `after` / `afterDigest` 是**撤销前的 CAS 凭据**：撤销时先比对当前值，
+ * 不一致就拒绝并说明。跨刷新撤销的危险从来不是"撤不了"，而是"把别人后来的编辑悄悄盖回去"。
+ *
+ * @returns {{ ok: boolean, summary: string, changes: Array<object>, error?: string, undo?: Function, inverse?: Array<object> }}
  */
 export function executePlanItem(store, item, options = {}) {
   const nowStr = options.now ? formatStamp(options.now) : undefined
@@ -830,6 +846,8 @@ export function executePlanItem(store, item, options = {}) {
         ok: true,
         summary: `已为「${eq.name}」新建${priorityLabel(item.priority)}维修工单 #${order.id}`,
         changes,
+        // 逆操作描述：与下面 undo 闭包是同一个动作的两种写法（见 executePlanItem 顶部的说明）
+        inverse: [{ op: 'remove', table: 'work_orders', id: order.id }],
         undo: () => store.removeWorkOrder(order.id)
       }
     }
@@ -870,6 +888,29 @@ export function executePlanItem(store, item, options = {}) {
         ok: true,
         summary: `工单 #${item.order.id} 已完成，病历已归档${updated && updated.recheck_date ? `，${updated.recheck_date} 复诊` : ''}`,
         changes,
+        /*
+         * 逆操作描述（可序列化，供跨刷新撤销用）。
+         *
+         * `after` 是"写入后"的字段值，撤销前拿它与当前值比对（CAS）：不一致说明
+         * 这条记录在此之后被别人改过，那就**拒绝**撤销并说明，而不是把 before 盖回去 ——
+         * 跨刷新撤销的危险从来不是"撤不了"，而是"静默改错数据"。
+         * 取的是 updated（写完后的同一行）而不是猜目标值，避免哪天归档逻辑改了字段
+         * 而这里还在比一个过时的期望值。
+         *
+         * 顺序与上面的 undo 闭包体一致；执行器会反向执行（撤销总是按写入的逆序走）。
+         */
+        inverse: [
+          {
+            op: 'update',
+            table: 'work_orders',
+            id: item.order.id,
+            before: orderBefore,
+            after: pickFields(updated, Object.keys(orderBefore))
+          },
+          { op: 'remove_many', table: 'fault_cases', ids: newFaultCaseIds },
+          { op: 'remove_many', table: 'knowledge_items', ids: newKnowledgeIds },
+          equipmentInverse(store, snapshot)
+        ],
         undo: () => {
           // 工单字段**整体**还原，不能只把 status 改回 processing：
           // 归档时置的 archived_at 会留下，而 appStore 的归档守卫正是以
@@ -907,6 +948,12 @@ export function executePlanItem(store, item, options = {}) {
         ok: true,
         summary: `已为「${eq.name}」记录${item.serviceLevel}（${item.date}）`,
         changes,
+        inverse: [
+          ...(added && added.partsResult && store.revertConsumption
+            ? [{ op: 'revert_consumption', applied: added.partsResult.applied }]
+            : []),
+          equipmentInverse(store, snapshot)
+        ],
         undo: () => {
           // 备件库存和出库流水必须一起回滚：设备病历撤了、账却已经扣了，
           // 是典型的"账实不符且查不出原因"。
@@ -927,6 +974,16 @@ export function executePlanItem(store, item, options = {}) {
         ok: true,
         summary: `「${eq.name}」状态已改为 ${item.targetStatusLabel}`,
         changes,
+        inverse: [
+          {
+            op: 'update',
+            table: 'equipment',
+            id: eq.id,
+            before: { status: before },
+            // 写完后再读一次目标值，不写死 item.targetStatus：CAS 比的是"当时到底成了什么"
+            after: pickFields(eq, ['status'])
+          }
+        ],
         undo: () => store.updateEquipment(eq.id, { status: before })
       }
     }
@@ -939,6 +996,17 @@ export function executePlanItem(store, item, options = {}) {
         ok: true,
         summary: `「${item.order.equipment_name}」复诊完成，闭环率已更新`,
         changes,
+        inverse: [
+          {
+            op: 'update',
+            table: 'work_orders',
+            id: item.order.id,
+            // before 写死 pending（与 undo 闭包逐字一致，保证两条路结果相同）；
+            // 真正的并发检查在 after：撤销前比对当前 recheck_status 还是不是"复诊完成"。
+            before: { recheck_status: 'pending' },
+            after: pickFields((store.workOrders || []).find(o => String(o.id) === String(item.order.id)), ['recheck_status'])
+          }
+        ],
         undo: () => store.updateWorkOrder(item.order.id, { recheck_status: 'pending' })
       }
     }
@@ -959,6 +1027,7 @@ export function executePlanItem(store, item, options = {}) {
         ok: true,
         summary: `已写入知识库：《${created.title}》，来源标注为现场录入`,
         changes,
+        inverse: [{ op: 'remove', table: 'knowledge_items', id: created.id }],
         undo: () => store.removeKnowledgeItem(created.id)
       }
     }
@@ -1024,6 +1093,58 @@ function restoreEquipment(store, snapshot) {
   }
 }
 
+/**
+ * 从一行数据里取出指定字段（缺失补 null）
+ *
+ * "当时没有这个键"和"当时是 null"在撤销语义上是同一件事（都不会被 Object.assign 清掉），
+ * 所以统一收敛成 null，让写入时的 after 与撤销前的当前值用同一把尺子量。
+ */
+function pickFields(source, keys) {
+  const out = {}
+  for (const key of keys) out[key] = source ? (source[key] ?? null) : null
+  return out
+}
+
+/**
+ * 设备快照的逆操作描述（含 CAS 凭据）
+ *
+ * 必须在**写入之后**调用：`after` / `afterDigest` 记的是"这次写完时设备长什么样"，
+ * 撤销前拿它与当前值比对，不一致就拒绝撤销。理由见 executePlanItem 里
+ * COMPLETE_ORDER 分支的说明 —— 跨刷新撤销真正的危险是"静默盖掉别人后来的编辑"。
+ */
+function equipmentInverse(store, snapshot) {
+  if (!snapshot) return null
+  const current = (store.equipmentList || []).find(e => String(e.id) === String(snapshot.equipmentId))
+  return {
+    op: 'restore_equipment',
+    snapshot,
+    after: pickFields(current, Object.keys(snapshot.equipment)),
+    afterDigest: digestEquipmentState(store, snapshot.equipmentId)
+  }
+}
+
+/**
+ * 一台设备的「病历 + 健康快照」两份数组的内容摘要
+ *
+ * ⚠️ **这不是安全校验，是变更检测**：无密钥、不防伪造，只求"被动过就能看出来"，
+ * 不要拿它当完整性凭据用（备份那条链用的是 SHA-256，见 utils/backup.js）。
+ * 设备行字段用 pickFields 精确比对；这两份数组动辄几十条、不便逐字段比，
+ * 因此用摘要回答"还是不是原来那两份"，并把长度一并带上 —— 摘要只用于比对，
+ * 不匹配时也无法反推改了哪一条，所以提示语只敢说"被改过"，不编造细节。
+ */
+export function digestEquipmentState(store, equipmentId) {
+  const records = (store.getMaintenanceByEquipmentId ? store.getMaintenanceByEquipmentId(equipmentId) : []) || []
+  const snapshots = (store.getSnapshots ? store.getSnapshots(equipmentId) : []) || []
+  const text = JSON.stringify(records) + '\u0000' + JSON.stringify(snapshots)
+  // FNV-1a 32 位
+  let hash = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+  return `${hash.toString(16)}:${records.length}:${snapshots.length}`
+}
+
 /** 供 UI 校验：计划里是否有会产生写入的项 */
 export function hasWriteActions(plan) {
   return !!plan && plan.items.some(item => item.intent !== INTENTS.QUERY)
@@ -1033,4 +1154,4 @@ export function hasWriteActions(plan) {
  * 仅供自检/调试使用：暴露内部匹配函数。
  * 生产代码不要依赖这些下划线导出。
  */
-export { matchForm as _matchForm, matchFormForIntent as _matchFormForIntent, buildPlanItems as _buildPlanItems }
+export { matchForm as _matchForm, matchFormForIntent as _matchFormForIntent, buildPlanItems as _buildPlanItems, restoreEquipment, pickFields }

@@ -304,6 +304,16 @@ export const useAppStore = defineStore('app', () => {
         await saveNow()
         db.setMeta('seed_version', SEED_VERSION)
         await saveNow()
+        /**
+         * 播种 = 整库重建，设备/工单 id 从 1 重排 —— 与 resetToSeedData / 导入备份
+         * 是同一种局面，所以同样要清撤销栈。
+         *
+         * 什么时候真会撞上：数据库文件没了而 localStorage 还在（撤销栈就存在那里）。
+         * 此时启动会判定成"全新安装"并重新播种 60 台设备，于是一份指向**上一世**
+         * 记录的撤销条目会拿 id 去改新播种的同名行 —— 与那两个调用点的理由是同一个。
+         * 真·首次启动时撤销栈本来就是空的，这一步是空操作。
+         */
+        nlActions.clearUndoStack()
       } else if (decision === 'empty-ledger') {
         // 用户状态：空表就该是空的，不补演示数据
         hydrateFromDb({ seedFallbacks: false })
@@ -1195,6 +1205,13 @@ export const useAppStore = defineStore('app', () => {
    */
   const undoStack = ref([])
 
+  /**
+   * 逆操作执行器要按名字调 store 的公开方法，而 createNlActions 是在本对象
+   * 成型之前执行的 —— 拿不到它。这个持有者先当空壳传进去，return 前填上
+   * （见 stores/nlActions.js 里 applyInverse 的说明）。
+   */
+  const storeApi = { current: null }
+
   const nlActions = createNlActions({
     equipmentList,
     maintenanceRecords,
@@ -1204,10 +1221,11 @@ export const useAppStore = defineStore('app', () => {
     undoStack,
     persistAll,
     addLog,
-    now
+    now,
+    storeApi
   })
 
-  return {
+  const api = {
     // 数据
     equipmentList,
     maintenanceRecords,
@@ -1294,17 +1312,43 @@ export const useAppStore = defineStore('app', () => {
     replaceHealthSnapshots: nlActions.replaceHealthSnapshots,
     logVoiceAction: nlActions.logVoiceAction,
     /**
-     * 撤销相关的公开面**只保留界面真的用到的三个**：
+     * 撤销相关的公开面**只保留界面真的用到的几个**：
      *   · peekUndo    —— 侧边栏常驻「撤销上次写入」入口据此显示/隐藏（App.vue）
      *   · performUndo —— 执行撤销（侧边栏 + 聊天里的「撤销这次写入」）
+     *   · hasUndo     —— 卡片上的「撤销这次写入」能不能按（栈里还有没有这条）
      *   · getUndoStack—— 端到端脚本读取栈内容做断言（scripts/e2e-nl.mjs）
      * pushUndo / canUndo / clearUndoStack 都只在 store 内部使用（logVoiceAction、
      * resetToSeedData、reloadFromDb），对外暴露只会让人以为它们是给界面调的。
      */
     getUndoStack: nlActions.getUndoStack,
     peekUndo: nlActions.peekUndo,
-    performUndo: nlActions.performUndo
+    performUndo: nlActions.performUndo,
+    hasUndo: nlActions.hasUndo
   }
+
+  /**
+   * 到这里本对象才成型，填进持有者 —— 逆操作执行器（nlActions.applyInverse）靠它调上面的方法。
+   *
+   * ⚠️ 这里交给执行器的是**解包视图**，不是 api 本身。
+   * api 里的数据字段是 ref（`equipmentList`、`workOrders`、`partTransactions` …），
+   * 自动解包只发生在 **Pinia 的 store 实例**上；把一个裸对象当 store 交给执行器，
+   * 它写的 `api.equipmentList.find(...)` 就是 `ref.find is not a function` ——
+   * 这个错误在 store-check 第 12 节把三种逆操作都真跑一遍时才暴露出来（在此之前
+   * 逆操作只在浏览器里跑过，而浏览器里两边都是 store 实例，看不出差别）。
+   *
+   * 视图与 store 实例同形：方法原样带过去（它们内部自己读 .value），
+   * 凡是 ref / computed 一律用 getter 实时解包 —— **不能取快照**，列表会被整体替换，
+   * 快照会指向旧的数组。
+   */
+  const storeApiView = {}
+  for (const [key, value] of Object.entries(api)) {
+    Object.defineProperty(storeApiView, key, {
+      get: () => (value && typeof value === 'object' && 'value' in value ? value.value : value),
+      enumerable: true
+    })
+  }
+  storeApi.current = storeApiView
+  return api
 })
 
 export { daysSince, dueDate, daysUntilDue, equipmentAgeYears, now, daysAgoDate, daysAgoDateTime }

@@ -244,14 +244,11 @@ const inputPanelCollapsed = ref(true)
 /** 聊天记录持久化键名（localStorage，数据不出本机） */
 const CHAT_STORAGE_KEY = 'ai_chat_messages'
 
-/**
- * 本次页面加载的标记，跟着聊天记录一起存。
- *
- * 撤销栈只在内存里（见 nlActions：刷新即失效），条目 id 是自增的 undo-N，
- * 刷新后从 undo-1 重新开始。存档里那张执行结果卡带着旧的 undoId，
- * 若照着它去撤，会撤掉刷新后新写入的那一条——所以要先认会话。
- */
-const CHAT_SESSION_ID = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+// 这里原来有一个 CHAT_SESSION_ID：撤销栈只在内存里，刷新后 undoId 从 undo-1 重排，
+// 所以存档里的旧卡片要靠"这是不是本次页面加载"来判能不能撤。撤销栈现在跨刷新还在
+// （条目带可序列化的逆操作描述，见 nlActions），判据换成了"这条记录还在不在栈里"
+// —— store.hasUndo(undoId)。会话标记随之没有消费方，删掉：留着一个没人读的字段，
+// 下一个读代码的人会以为这里还有一道会话闸。
 
 // ============================================================
 // AI 对话能力升级：多轮上下文 & 追问
@@ -458,8 +455,11 @@ function serializePlan(plan) {
  * 执行结果卡的可存档副本。
  *
  * undos 是一组闭包（`() => store.removeWorkOrder(order.id)`），JSON 存不下，
- * 也不该存：撤销靠的是 store 内存里的撤销栈。这里只留重绘结果卡所需的字段，
- * 外加 session——用来判断这张卡还是不是"本次页面加载写的"，见 undoPlan。
+ * 也不该存：撤销靠的是 store 内存里的撤销栈（那条栈自己会持久化，见 nlActions）。
+ * 这里只留重绘结果卡所需的字段。
+ *
+ * undoId 单独留着是有用的：刷新后撤销栈会从 localStorage 恢复回来，同一批 id
+ * 仍然在栈里，所以存档卡片上的 undoId 依旧能被 store.hasUndo 认出来、仍然能撤。
  */
 function serializeExecResult(exec) {
   if (!exec) return null
@@ -467,8 +467,7 @@ function serializeExecResult(exec) {
     results: (exec.results || []).map(r => ({ ok: !!r.ok, summary: r.summary, error: r.error })),
     changes: (exec.changes || []).map(c => ({ label: c.label, detail: c.detail, kind: c.kind, id: c.id })),
     undone: !!exec.undone,
-    undoId: exec.undoId || null,
-    session: exec.session || null
+    undoId: exec.undoId || null
   }
 }
 
@@ -1025,6 +1024,7 @@ function confirmPlan(msg) {
   const results = []
   const undos = []
   const changes = []
+  const inverses = []
 
   for (const item of plan.items) {
     if (item.preflightError) {
@@ -1041,14 +1041,16 @@ function confirmPlan(msg) {
     results.push({ ok: outcome.ok, summary: outcome.summary, error: outcome.error })
     if (outcome.ok) {
       if (outcome.undo) undos.push(outcome.undo)
+      // inverse 与 undo 是同一件事的两种写法：undo 是闭包（只在本页有效），
+      // inverse 是可序列化的描述（跟着撤销栈进 localStorage，刷新后还能撤）。
+      // 两条都要收 —— 少了 inverse，这次写入刷新后就撤不回来了。
+      if (outcome.inverse) inverses.push(...outcome.inverse)
       changes.push(...(outcome.changes || []))
     }
   }
 
   const okCount = results.filter(r => r.ok).length
-  // session 记下这次写入发生在哪一次页面加载：撤销栈只在内存里，
-  // 刷新后 undoId 会从 undo-1 重排，恢复出来的旧卡必须靠它才敢撤（见 undoPlan）
-  msg.execResult = { results, changes, undos, undone: false, undoId: null, session: CHAT_SESSION_ID }
+  msg.execResult = { results, changes, undos, undone: false, undoId: null }
   msg.plan = null
   msg.executing = false
 
@@ -1059,7 +1061,9 @@ function confirmPlan(msg) {
       changes,
       intentLabel: plan.items[0].intentLabel,
       // 撤销函数进 store 的撤销栈：这样离开页面/走到别的页也依然能撤销
-      undos
+      undos,
+      // 可序列化的逆操作描述：撤销栈持久化的就是它，刷新后靠它恢复
+      inverse: inverses
     })
     // 记下本次写入在撤销栈里的 id：卡片上的"撤销这次写入"只撤这一条
     msg.execResult.undoId = entry ? entry.id : null
@@ -1079,16 +1083,22 @@ function cancelPlan(msg) {
 /**
  * 这张卡上的「撤销这次写入」现在能不能按。
  *
- * 判据与 undoPlan 完全一致（同一次页面加载），**有意写在两处**：
- * 这里是"外观"（按钮置灰 + tooltip），undoPlan 里是"执行前的最后一道闸"。
+ * 判据与 undoPlan 完全一致（`store.hasUndo(undoId)`，即"这条记录还在不在撤销栈里"），
+ * **有意写在两处**：这里是"外观"（按钮置灰 + tooltip），undoPlan 里是"执行前的最后一道闸"。
  * 只留外观那道不行 —— 按钮状态是渲染出来的，任何一次渲染异常或
  * 有人直接调用 undoPlan 都会绕过它；只留执行那道也不行 ——
  * 那就是原来的样子："按钮亮着，点了才告诉你不能用"。
+ *
+ * 这里没有响应式依赖：撤销栈是 store 里的 ref，hasUndo 读它，所以栈一变
+ * （撤过、被顶出、被清空）这张卡会自动重算。别改成缓存值。
  */
 function canUndoMsg(msg) {
   const exec = msg.execResult
   if (!exec || exec.undone) return false
-  return exec.session === CHAT_SESSION_ID
+  // 判据是"这条撤销记录还在不在栈里"，不是"是不是本次页面加载写的"。
+  // 撤销栈现在跨刷新还在（条目带可序列化的逆操作描述），所以刷新后旧卡片
+  // **仍然可以撤**；被撤过、被顶出栈、或被导入备份/恢复演示数据清掉的才置灰。
+  return store.hasUndo(exec.undoId)
 }
 
 /**
@@ -1099,19 +1109,30 @@ function canUndoMsg(msg) {
 function undoPlan(msg) {
   const exec = msg.execResult
   if (!exec || exec.undone) return
-  // 撤销栈只在内存里保留（nlActions：刷新即失效），刷新后条目 id 从 undo-1 重新排。
-  // 旧卡上的 undoId 可能是刷新前那个 undo-1，照着撤就会撤掉刷新后新写入的那一条——
-  // 与其撤错，不如说清"这次撤不了、数据还是写入后的状态"。
-  //
-  // 这一条现在通常**按不到了**（按钮已按 canUndoMsg 置灰，见 ChatMessage），
-  // 但闸门留在这里：置灰是外观，外观不该是唯一防线。
-  if (exec.session !== CHAT_SESSION_ID) {
-    ElMessage.warning('页面已刷新，这次写入不能再自动撤销（撤销记录只保留在内存中）；数据仍是写入后的状态，请到工单 / 维保页手工回退')
+  // 执行前的最后一道闸：置灰只是外观，外观不该是唯一防线。
+  // 判据与 canUndoMsg 一致，且**故意重复一次** —— 按钮状态是渲染出来的，
+  // 任何一次渲染异常或有人直接调用本函数都会绕过它。
+  if (!store.hasUndo(exec.undoId)) {
+    ElMessage.warning('这条写入已经撤过了，或者撤销记录已被清空（导入备份 / 恢复演示数据都会清空撤销栈）；数据不是写入后的状态，请到工单 / 维保页确认')
     return
   }
   const outcome = store.performUndo(exec.undoId)
   if (!outcome.ok) {
-    ElMessage.warning(outcome.error)
+    // 两种失败都落在这里：
+    // ① 压根没执行（error，例如数据层未就绪）——条目已被 performUndo 放回栈里，
+    //    栈还在，卡片仍是亮的，用户可以直接再点一次。
+    // ② 部分失败（failed 非空）——条目已从栈里取走且不放回，所以这张卡随后会置灰，
+    //    不能在原地重试。这一条必须说出来：只回滚了一半又不说、还留个亮着但点不动的
+    //    按钮，用户会以为数据完整地回去了（这正是改造前的老毛病）。
+    const detail = Array.isArray(outcome.failed) && outcome.failed.length
+      ? `（${outcome.failed.slice(0, 2).join('；')}）`
+      : ''
+    const partial = !outcome.error && Array.isArray(outcome.failed) && outcome.failed.length
+    const text = outcome.error
+      || `只回滚了 ${outcome.reverted || 0} 项，还有 ${outcome.failed.length} 项没能退回`
+    ElMessage.warning(partial
+      ? `${text}${detail}。这条撤销记录已作废，不能再点一次 —— 剩下的请到工单 / 维保页手工回退`
+      : text)
     return
   }
   exec.undone = true
