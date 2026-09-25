@@ -2,7 +2,7 @@
   "appId": "com.kuangshan.zhigong",
   "productName": "矿山智工",
   "directories": {
-    "output": "release",
+    "output": "release-online",
     "buildResources": "build"
   },
   "files": [
