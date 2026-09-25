@@ -454,8 +454,11 @@ async function main() {
       JSON.stringify(recheckFlow))
 
     // ---------- 4. 设备台账：健康分档 + 报告 ----------
-    // 设备量 >50 时页面启用虚拟滚动，只渲染可见卡片（首屏约 12 张）——
-    // 断言按"数据规模 60 台 + 首屏卡片完整渲染"验收，不再要求 DOM 同时存在 60 张。
+    // 设备量 >50 时页面启用虚拟滚动：DOM 里只放可见的卡片，但**滚到底必须能看到最后一台**。
+    // 这条断言不能写成 `cards >= 1 && cards <= 60` —— 12 张也能过，等于把"往下滚全是空白"
+    // 当成预期（2026-09-25 修：占位用 padding 加在带 max-height 的滚动容器上，全局
+    // box-sizing: border-box 让容器被 padding 撑成 4736px、max-height 形同虚设；同时
+    // ResizeObserver 的 contentRect 不含 padding，量到的"可视高"是 0 ⇒ 只渲染 overscan 那 4 行）。
     await session.goto(`${BASE}/#/equipment`, 2600)
     const equipment = await session.eval(`(() => {
       const cards = Array.from(document.querySelectorAll('.equip-card'))
@@ -471,7 +474,52 @@ async function main() {
         photos: cards.filter(c => /equipment-photos\\/.*\\.jpg/.test(c.querySelector('.equip-photo img')?.getAttribute('src') || '')).length
       }
     })()`)
+    // 滚到底：虚拟滚动只该减少**同时存在**的卡片数，不该减少**够得着**的设备数。
+    // 设备名形如「PC200 挖掘机-01」，按类别连号唯一，所以用名字去重即等于设备数。
+    const vgridReach = await session.eval(`(async () => {
+      const grid = document.querySelector('.equip-grid')
+      if (!grid) return { ok: false, reason: '没有 .equip-grid' }
+      const seen = new Set()
+      const collect = () => {
+        for (const n of grid.querySelectorAll('.equip-card .equip-name')) seen.add(n.textContent.trim())
+      }
+      const frame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 80)))
+      collect()
+      const firstScreen = grid.querySelectorAll('.equip-card').length
+      // 一屏一屏往下翻（不能直接设 scrollTop = scrollHeight：那样只会看到首屏和末屏两段，
+      // 中间的设备数不到，断言会以"可达不足"的形式误报）
+      const step = Math.max(1, grid.clientHeight)
+      for (let i = 0; i < 40; i++) {
+        if (grid.scrollTop + grid.clientHeight >= grid.scrollHeight - 2) break
+        grid.scrollTop = Math.min(grid.scrollTop + step, grid.scrollHeight)
+        await frame()
+        collect()
+      }
+      // 滚到底后最后一张卡必须真的落在可视窗口里（占位与实际行高若错位，尾部会留下够不着的空白）
+      const cards = grid.querySelectorAll('.equip-card')
+      const last = cards.length ? cards[cards.length - 1].getBoundingClientRect() : null
+      const box = grid.getBoundingClientRect()
+      return {
+        ok: true,
+        首屏卡片: firstScreen,
+        可达设备数: seen.size,
+        可视高: Math.round(grid.clientHeight),
+        滚动高: Math.round(grid.scrollHeight),
+        视口高: window.innerHeight,
+        末卡超出视口: last ? Math.round(last.bottom - box.bottom) : null,
+        末端渲染: cards.length
+      }
+    })()`)
     check('设备台账渲染设备卡片（虚拟滚动首屏）', equipment.cards >= 1 && equipment.cards <= 60, `首屏=${equipment.cards}`)
+    check('设备台账：滚到底能看到全部 60 台设备（虚拟滚动只减渲染量，不减可达性）',
+      vgridReach.ok === true && vgridReach.可达设备数 === 60,
+      `可达 ${vgridReach.可达设备数}/60 台 · 首屏 ${vgridReach.首屏卡片} 张 · 末端渲染 ${vgridReach.末端渲染} 张`)
+    check('设备台账：滚动容器被 max-height 收住（占位不能把容器撑高）',
+      vgridReach.ok === true && vgridReach.可视高 > 200 && vgridReach.可视高 < vgridReach.视口高,
+      `容器可视高 ${vgridReach.可视高}px / 视口 ${vgridReach.视口高}px · 滚动高 ${vgridReach.滚动高}px`)
+    check('设备台账：滚到底后最后一张卡片还在视口内（占位与真实行高对齐）',
+      vgridReach.ok === true && vgridReach.末卡超出视口 !== null && vgridReach.末卡超出视口 <= 4,
+      `末卡超出容器下沿 ${vgridReach.末卡超出视口}px`)
     check('健康度按四级分档展示（验收 #2）', equipment.overview.length === 4, equipment.overview.join(' | '))
     check('设备台账共 60 台（四档合计）', equipment.overviewTotal === 60, `合计=${equipment.overviewTotal}`)
     check('每张卡片都带等级与健康分', equipment.levels.length === 5 && equipment.levels.every(t => /级.*分/.test(t)), equipment.levels.join(','))

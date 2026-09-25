@@ -33,63 +33,66 @@
         </div>
       </div>
 
-      <!-- 设备卡片网格（照片 + 健康分 + 状态，一眼看全；>50 台自动启用虚拟滚动） -->
+      <!-- 设备卡片网格（照片 + 健康分 + 状态，一眼看全；>50 台自动启用虚拟滚动）
+           滚动容器只负责滚（max-height + overflow），内层才负责占位：
+           占位 padding 若加在容器上，border-box 下会把容器撑高、max-height 失效，见 utils/virtualGrid.js -->
       <div
         v-if="filteredEquipment.length"
         ref="gridContainerRef"
         class="equip-grid"
         :class="{ 'virtual-scroll': useVirtual }"
-        :style="useVirtual ? vgrid.wrapperStyle.value : undefined"
       >
-        <div v-for="(eq, i) in displayItems" :key="eq.id" class="equip-card" @click="viewDetail(eq)">
-          <div class="equip-photo">
-            <img :src="equipmentPhoto(eq.category)" :alt="eq.name" loading="lazy" />
-            <span class="equip-level" :class="'lv-' + eq.health.level.toLowerCase()">
-              {{ eq.health.level }} 级 · {{ eq.health.score }} 分
-            </span>
-            <span class="equip-status" :class="eq.status">
-              <i class="status-dot"></i>{{ statusLabel(eq.status) }}
-            </span>
-          </div>
-          <div class="equip-info">
-            <div class="equip-name-row">
-              <span class="equip-name">{{ eq.name }}</span>
-              <el-tag size="small" effect="plain">{{ eq.category }}</el-tag>
+        <div class="equip-grid-inner" :style="useVirtual ? vgrid.wrapperStyle.value : undefined">
+          <div v-for="(eq, i) in displayItems" :key="eq.id" class="equip-card" @click="viewDetail(eq)">
+            <div class="equip-photo">
+              <img :src="equipmentPhoto(eq.category)" :alt="eq.name" loading="lazy" />
+              <span class="equip-level" :class="'lv-' + eq.health.level.toLowerCase()">
+                {{ eq.health.level }} 级 · {{ eq.health.score }} 分
+              </span>
+              <span class="equip-status" :class="eq.status">
+                <i class="status-dot"></i>{{ statusLabel(eq.status) }}
+              </span>
             </div>
-            <div class="equip-model">{{ eq.model || '—' }} · {{ eq.location || '未定位' }}</div>
-            <div class="equip-healthbar">
-              <div class="equip-healthbar-track">
-                <!-- 依次长出：每张卡延后 40ms，扫过去像一排仪表同时上电。
-                     上限 0.4s 免得屏幕外的卡片等到天荒地老。 -->
-                <div
-                  class="equip-healthbar-fill"
-                  :style="{
-                    width: (entered ? eq.health.score : 0) + '%',
-                    background: eq.health.color,
-                    transitionDelay: Math.min(i * 0.04, 0.4) + 's'
-                  }"
-                ></div>
+            <div class="equip-info">
+              <div class="equip-name-row">
+                <span class="equip-name">{{ eq.name }}</span>
+                <el-tag size="small" effect="plain">{{ eq.category }}</el-tag>
               </div>
-            </div>
-            <div class="equip-meta-row">
-              <span class="equip-meta">上次维保：{{ eq.last_maintenance_date || '暂无记录' }}</span>
-              <el-tag :type="eq.maint.type" size="small">{{ eq.maint.label }}</el-tag>
-            </div>
-            <div class="equip-actions" @click.stop>
-              <el-button type="primary" size="small" link @click="viewDetail(eq)">
-                <el-icon><View /></el-icon> 详情
-              </el-button>
-              <el-button type="success" size="small" link @click="openRecordDialog(eq)">
-                <el-icon><Stamp /></el-icon> 记录维保
-              </el-button>
-              <el-button type="warning" size="small" link @click="openReport(eq)">
-                <el-icon><Document /></el-icon> 体检
-              </el-button>
-              <!-- 台账此前只有"新增"，录错了改不了（型号/位置/口述别名都只能删了重建）。
-                   图标用已登记白名单里的 EditPen，避免为一个按钮把包体白名单再加一项。 -->
-              <el-button size="small" link @click="openEditDialog(eq)">
-                <el-icon><EditPen /></el-icon> 编辑
-              </el-button>
+              <div class="equip-model">{{ eq.model || '—' }} · {{ eq.location || '未定位' }}</div>
+              <div class="equip-healthbar">
+                <div class="equip-healthbar-track">
+                  <!-- 依次长出：每张卡延后 40ms，扫过去像一排仪表同时上电。
+                       上限 0.4s 免得屏幕外的卡片等到天荒地老。 -->
+                  <div
+                    class="equip-healthbar-fill"
+                    :style="{
+                      width: (entered ? eq.health.score : 0) + '%',
+                      background: eq.health.color,
+                      transitionDelay: Math.min(i * 0.04, 0.4) + 's'
+                    }"
+                  ></div>
+                </div>
+              </div>
+              <div class="equip-meta-row">
+                <span class="equip-meta">上次维保：{{ eq.last_maintenance_date || '暂无记录' }}</span>
+                <el-tag :type="eq.maint.type" size="small">{{ eq.maint.label }}</el-tag>
+              </div>
+              <div class="equip-actions" @click.stop>
+                <el-button type="primary" size="small" link @click="viewDetail(eq)">
+                  <el-icon><View /></el-icon> 详情
+                </el-button>
+                <el-button type="success" size="small" link @click="openRecordDialog(eq)">
+                  <el-icon><Stamp /></el-icon> 记录维保
+                </el-button>
+                <el-button type="warning" size="small" link @click="openReport(eq)">
+                  <el-icon><Document /></el-icon> 体检
+                </el-button>
+                <!-- 台账此前只有"新增"，录错了改不了（型号/位置/口述别名都只能删了重建）。
+                     图标用已登记白名单里的 EditPen，避免为一个按钮把包体白名单再加一项。 -->
+                <el-button size="small" link @click="openEditDialog(eq)">
+                  <el-icon><EditPen /></el-icon> 编辑
+                </el-button>
+              </div>
             </div>
           </div>
         </div>
@@ -367,7 +370,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAppStore } from '../stores/appStore'
@@ -490,16 +493,17 @@ const gridContainerRef = ref(null)
 
 const vgrid = useVirtualGrid({
   items: filteredEquipment,
-  cardHeight: 280,
-  cardMinWidth: 280,
+  cardHeight: 280,            // 只是量到真实高度之前的估值
+  cardMinWidth: 300,          // 与 .equip-card 的 flex: 1 1 300px 对齐
   gap: 16,
-  overscan: 2
+  overscan: 2,
+  itemSelector: '.equip-card' // 给了就按真实 DOM 量行高/列数：CSS 一改占位也不会错位
 })
 
-// 当容器挂载且启用虚拟滚动时，手动绑定
+// 当容器挂载且启用虚拟滚动时绑定滚动容器
 watch([gridContainerRef, useVirtual], ([el, active]) => {
   if (active && el) {
-    vgrid.containerProps.value.ref(el)
+    vgrid.bind(el)
   }
 }, { immediate: true })
 
@@ -512,6 +516,9 @@ const displayItems = computed(() => {
 watch(searchText, () => {
   if (useVirtual.value) vgrid.reset()
 })
+
+// 离开页面时摘掉滚动监听与 ResizeObserver（这页会被反复进出，别让观测器越堆越多）
+onUnmounted(() => vgrid.destroy())
 
 
 /** 生成设备体检报告 */
@@ -934,18 +941,24 @@ function submitRecord() {
 }
 
 /* ===== 设备卡片网格 ===== */
+/* .equip-grid 是**滚动容器**，只管滚；排卡片与占位都在 .equip-grid-inner 上。
+   两者不能合一：滚容器带 max-height，而占位是 padding —— border-box 下
+   padding 超过 max-height 会把容器整体撑高（max-height 失效），
+   且 ResizeObserver 的 contentRect 不含 padding，视口高会被量成 0。 */
 .equip-grid {
+  margin-top: 16px;
+}
+.equip-grid-inner {
   display: flex;
   flex-wrap: wrap;
   gap: 16px;
-  margin-top: 16px;
+  align-content: flex-start;
 }
 
-/* 虚拟滚动模式：固定高度 + 滚动 */
+/* 虚拟滚动模式：限高 + 滚动 */
 .equip-grid.virtual-scroll {
   max-height: calc(100vh - 280px);
   overflow-y: auto;
-  align-content: flex-start;
 }
 .equip-card {
   flex: 1 1 300px;
