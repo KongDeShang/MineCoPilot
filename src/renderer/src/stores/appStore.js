@@ -20,6 +20,7 @@ import { evaluateHealth, evaluateTrend, computeOverdueDays as healthComputeOverd
 import { buildFaultStats } from '../utils/faultStats'
 import { parseAliases } from '../utils/aliases'
 import { decideBootSeed } from '../utils/seedGate'
+import { bootStep } from '../utils/bootSplash'
 import { buildDefaultKnowledge, extractKnowledgeFromOrders } from '../utils/knowledgeBase'
 import { draftFaultCase, buildFaultCasesFromOrders } from '../utils/faultCaseDraft'
 import { createNlActions } from './nlActions'
@@ -270,6 +271,7 @@ export const useAppStore = defineStore('app', () => {
    */
   async function initStore() {
     try {
+      bootStep('正在打开本地数据库…')
       await db.initDatabase()
       storageBackend.value = db.storageInfo.backend()
       dbReady.value = true
@@ -296,6 +298,7 @@ export const useAppStore = defineStore('app', () => {
        * 台账的备份"都会被当成首启，被 60 台演示设备 + 整库演示数据覆盖。
        */
       if (decision === 'seed') {
+        bootStep('正在准备演示数据（60 台设备 · 固定种子）…')
         applySeedData()
         persistAll()
         await saveNow()
@@ -306,6 +309,7 @@ export const useAppStore = defineStore('app', () => {
         hydrateFromDb({ seedFallbacks: false })
         ledgerEmpty.value = true
       } else {
+        bootStep('正在恢复本地数据…')
         hydrateFromDb()
         if (seedVersion !== SEED_VERSION) {
           // 种子结构升级：只记录版本，不覆盖用户数据
@@ -316,6 +320,7 @@ export const useAppStore = defineStore('app', () => {
       }
       // 老库（本次升级前装的）也要有示例手册：标记只在"这一版之后"才存在，
       // 所以这里对新装和升级是同一段代码，不需要分别处理
+      bootStep('正在导入随包手册…')
       await ensureBundledDocuments()
       loadSettings()
       loadAlertDispositions()
@@ -337,6 +342,7 @@ export const useAppStore = defineStore('app', () => {
           ? `${error.message}。已进入只读内存模式，原文件未被改动。`
           : error.message
       console.warn('[数据库] 初始化失败，降级为内存模式（不会写回磁盘）：', error)
+      bootStep('数据库不可用，正在进入只读演示模式…')
       applySeedData()
       await ensureBundledDocuments()
       return false
@@ -1031,15 +1037,12 @@ export const useAppStore = defineStore('app', () => {
     }
   })
 
-  /**
-   * 添加文档：保存文件 → 提取文本 → 登记元数据
-   * @param {Object} input { file: File, title, docType, model, category }
-   * @returns {Promise<{ok:boolean, doc?:Object, error?:string}>}
+  /*
+   * 这里原有三块 JSDoc（添加文档 / 删除文档 / 打开原文），但**下面没有对应的函数** ——
+   * 实现早已搬去 `stores/documentDomain.js`（addDocument / removeDocument / openDocument），
+   * 注释留在原地，读代码的人会以为 store 里还有实现。已于 2026-09-25 删除。
+   * 要改这三个方法请直接看 documentDomain.js。
    */
-
-  /** 删除文档：删记录 + 删文件字节 */
-
-  /** 用系统阅读器 / 新窗口打开文档原文 */
 
   /**
    * AI 检索池：内置规程 + 手册文本切片（命中时出处 = 手册名 + 页码）
@@ -1049,7 +1052,18 @@ export const useAppStore = defineStore('app', () => {
     const base = [...knowledgeItems.value]
     for (const doc of documents.value) {
       if (doc.status !== 'ready' || !doc.chunks || !doc.chunks.length) continue
-      for (const chunk of doc.chunks.slice(0, 120)) {
+      /*
+       * 取**全部**已存切片，不再截断。
+       *
+       * 这里原来是 `doc.chunks.slice(0, 120)`，而入库上限是 300（documentDomain.CHUNK_LIMIT）——
+       * 两个常量各写各的，后果是超过 120 页的手册，第 121 页起的正文永远进不了检索池，
+       * 而界面照旧按 PDF 总页数显示"可问答（N 页）"。随包 3 本手册是 36/32/18 页，
+       * 正好落在 120 以内，所以演示永远暴露不出来；导入一本真手册（《资料/》里
+       * XGT7528A、XE230_XE250C 都是两百页以上）立刻静默失效。
+       * 截断只发生在入库那一步（CHUNK_LIMIT），且由 documentDomain.readinessOf
+       * 写进 note 如实告知 —— 检索这一侧不该再有第二个上限。
+       */
+      for (const chunk of doc.chunks) {
         base.push({
           id: `${doc.id}-p${chunk.page}`,
           title: `《${doc.title}》· 第 ${chunk.page} 页`,
@@ -1060,7 +1074,7 @@ export const useAppStore = defineStore('app', () => {
           // 关键词里只留标题与机型，**刻意去掉 docType 与 category**。
           // 原因是这三本随包手册（以及大多数起重机手册）的 category 都是同一个词
           // 「起重机」：留着它，一句含"起重机"的提问就会给同一本手册的**全部
-          // 120 个切片**打上相同的元数据分，稳定排序下恒返回第 1/2/3 页 ——
+          // 切片**打上相同的元数据分，稳定排序下恒返回第 1/2/3 页 ——
           // 页码跟提问内容毫无关系，而"回答注明第 N 页"正是这个功能的卖点。
           // 标题与机型是真正的区分信号（指名道姓问某本手册时才命中），保留。
           keywords: [doc.title, doc.model].filter(Boolean),

@@ -23,6 +23,8 @@ import { APP_ICONS } from './utils/appIcons'
 import { useAppStore } from './stores/appStore'
 import { applyPref, readMirror, readColorMirror, applyColor, watchSystem, THEME_PREF_META_KEY } from './utils/theme'
 import * as db from './utils/database'
+import { bootStep } from './utils/bootSplash'
+import { installErrorBoundaries } from './utils/errorBoundary'
 
 async function bootstrap() {
   const app = createApp(App)
@@ -64,6 +66,20 @@ async function bootstrap() {
   applyColor(readColorMirror())
   watchSystem()
 
+  /**
+   * 错误边界：让运行期异常变成"一条提示 + 一行日志"，而不是一块白屏。
+   *
+   * 必须在 mount 之前装好 —— 首帧渲染就抛错的组件同样要被接住（那正是最像
+   * "软件打开就坏了"的一种）。addLog 用闭包延迟取用：store 此刻已就绪，
+   * 但写成闭包可以让"日志层自己出问题"不会变成 install 阶段的失败。
+   */
+  installErrorBoundaries(app, {
+    router,
+    log: (entry, options) => store.addLog(entry, options)
+  })
+
+  // 挂载后 #app 内的启动闪屏被 Vue 整体替换，无需手动清理
+  bootStep('正在加载界面…')
   app.mount('#app')
 }
 

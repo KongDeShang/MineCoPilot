@@ -135,6 +135,7 @@
 import { ref, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAppStore } from '../stores/appStore'
+import { confirmAction } from '../utils/confirmAction'
 
 const store = useAppStore()
 
@@ -205,15 +206,22 @@ function save() {
   dialogVisible.value = false
 }
 
-function remove(item) {
-  ElMessageBox.confirm(
-    `确定删除「${item.title}」吗？删除后 AI 助手将无法检索到该条目。`,
-    '删除确认',
-    { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
-  ).then(() => {
-    store.removeKnowledgeItem(item.id)
-    ElMessage.success('已删除')
-  }).catch(() => {})
+async function remove(item) {
+  // 写库动作（store.removeKnowledgeItem → persistAll）失败必须报出来，
+  // 不能靠 `.catch(() => {})` 吞掉 —— 那会变成"点了删除什么也没发生"。
+  // 取消与失败的区分统一在 utils/confirmAction.js 里，见那里的说明。
+  await confirmAction(
+    ElMessageBox.confirm(
+      `确定删除「${item.title}」吗？删除后 AI 助手将无法检索到该条目。`,
+      '删除确认',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+    ),
+    () => {
+      store.removeKnowledgeItem(item.id)
+      ElMessage.success('已删除')
+    },
+    { label: '删除规程' }
+  )
 }
 
 /** 确认采纳 AI 草稿：状态从 ai_draft 变为 confirmed */
@@ -222,15 +230,19 @@ function confirmDraft(item) {
   ElMessage.success(`已采纳「${item.title}」，正式纳入知识库`)
 }
 
-function resetKnowledge() {
-  ElMessageBox.confirm(
-    '将知识库重置为默认 30 条规程？所有自定义条目会被清除（建议先到「备份」导出）。',
-    '重置确认',
-    { type: 'warning', confirmButtonText: '重置', cancelButtonText: '取消' }
-  ).then(() => {
-    store.resetKnowledgeBase()
-    ElMessage.success('已重置为默认知识库')
-  }).catch(() => {})
+async function resetKnowledge() {
+  await confirmAction(
+    ElMessageBox.confirm(
+      '将知识库重置为默认 30 条规程？所有自定义条目会被清除（建议先到「备份」导出）。',
+      '重置确认',
+      { type: 'warning', confirmButtonText: '重置', cancelButtonText: '取消' }
+    ),
+    () => {
+      store.resetKnowledgeBase()
+      ElMessage.success('已重置为默认知识库')
+    },
+    { label: '重置知识库' }
+  )
 }
 </script>
 

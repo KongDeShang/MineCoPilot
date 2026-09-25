@@ -37,7 +37,9 @@
              原来固定列合计 1210px，超出可用宽度 → 表格横向滚动，
              「复诊」正好被固定在右侧的「操作」压住，一列数据在默认窗口下看不见。
              配平后最小值 = 固定列 796 + 弹性列 318 = 1114，1440 下放得下，还有余量分给弹性列。 -->
-        <el-table-column prop="id" label="工单号" width="76" />
+        <!-- 窄屏（<1200px）时次要列整体让位：工单号/类型/来源/创建时间隐藏，
+             标题/关联设备/优先级/状态/复诊/操作始终可见 —— 关键列让位原则见 utils/responsive.js -->
+        <el-table-column v-if="!isNarrow" prop="id" label="工单号" width="76" />
         <el-table-column prop="title" label="标题" min-width="168" show-overflow-tooltip />
         <!-- 弹性列：宽屏摊开、窄屏收窄，而不是撑出滚动条。
              窗口比 1440 窄时先被裁掉的是后面的「创建时间」「来源」，
@@ -47,7 +49,7 @@
             <span class="clickable-link" @click="goToEquipment(row.equipment_name)">{{ row.equipment_name }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="type" label="类型" width="84">
+        <el-table-column v-if="!isNarrow" prop="type" label="类型" width="84">
           <template #default="{ row }">
             <el-tag :type="typeTag(row.type)">{{ typeLabel(row.type) }}</el-tag>
           </template>
@@ -78,12 +80,12 @@
             <span v-else class="muted">—</span>
           </template>
         </el-table-column>
-        <el-table-column prop="source" label="来源" width="72">
+        <el-table-column v-if="!isNarrow" prop="source" label="来源" width="72">
           <template #default="{ row }">
             <el-tag type="info" effect="plain" size="small">{{ sourceLabel(row.source) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="created_at" label="创建时间" width="144" />
+        <el-table-column v-if="!isNarrow" prop="created_at" label="创建时间" width="144" />
         <el-table-column label="操作" width="164" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" size="small" link @click.stop="openDetail(row)">详情</el-button>
@@ -337,6 +339,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { confirmAction } from '../utils/confirmAction'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore, computeOverdueDays } from '../stores/appStore'
 // 状态/优先级/类型/来源的文案与配色统一取自 utils/dictionaries.js（单一来源）。
@@ -349,6 +352,10 @@ import {
 } from '../utils/dictionaries'
 import { getHealthScore, levelOf, levelMeta } from '../utils/health'
 import { recommendKnowledge } from '../utils/knowledgeBase'
+import { useNarrowMode } from '../utils/responsive'
+
+// 窄屏（<1200px）隐藏次要列：工单号/类型/来源/创建时间让位，关键列保持可见
+const { isNarrow } = useNarrowMode()
 
 const store = useAppStore()
 const route = useRoute()
@@ -529,25 +536,32 @@ function completeRecheck(order) {
 }
 
 /** 复诊未通过：结掉本次复诊并按同一台设备重开一张维修工单（闭环继续往下走） */
-function failRecheck(order) {
-  ElMessageBox.confirm(
-    `复诊确认「${order.equipment_name}」仍未恢复正常？<br/>将重新开一张维修工单（7 天后再次复诊），并把本次复诊标记为已完成。`,
-    '复诊未通过',
-    {
-      type: 'warning',
-      dangerouslyUseHTMLString: true,
-      confirmButtonText: '重新开工单',
-      cancelButtonText: '取消'
-    }
-  ).then(() => {
-    const created = store.recheckFailedAndReopen(order.id)
-    if (!created) {
-      ElMessage.warning('这条复诊任务已经处理过了')
-      return
-    }
-    showDetail.value = false
-    ElMessage.success(`已重新开出工单 #${created.id}`)
-  }).catch(() => {})
+async function failRecheck(order) {
+  // 与 RecheckManage.markFailed 同一动作、同一处隐患：原来那个空 catch 会把
+  // recheckFailedAndReopen（写工单 + 健康快照 + 落盘）的异常一并吞掉。
+  // 两处的取消/失败区分都走 utils/confirmAction.js。
+  await confirmAction(
+    ElMessageBox.confirm(
+      `复诊确认「${order.equipment_name}」仍未恢复正常？<br/>将重新开一张维修工单（7 天后再次复诊），并把本次复诊标记为已完成。`,
+      '复诊未通过',
+      {
+        type: 'warning',
+        dangerouslyUseHTMLString: true,
+        confirmButtonText: '重新开工单',
+        cancelButtonText: '取消'
+      }
+    ),
+    () => {
+      const created = store.recheckFailedAndReopen(order.id)
+      if (!created) {
+        ElMessage.warning('这条复诊任务已经处理过了')
+        return
+      }
+      showDetail.value = false
+      ElMessage.success(`已重新开出工单 #${created.id}`)
+    },
+    { label: '重新开工单' }
+  )
 }
 
 function goToEquipment(name) {

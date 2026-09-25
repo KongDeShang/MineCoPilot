@@ -5,8 +5,16 @@
  *
  * 档位设计（Q4_K_M 量化，2026-09-16 修正：Qwen2.5 无 1.7B 型号，标准档实为 1.5B）：
  *   light     — Qwen2.5-0.5B  468MB  任意内存   narrate（叙述润色）
- *   standard  — Qwen2.5-1.5B  ~1.04GB ≥8GB     narrate + diagnose + summarize
- *   enhanced  — Qwen3-4B      ~2.5GB  ≥16GB    + 复杂推演
+ *   standard  — Qwen2.5-1.5B  ~1.04GB ≥8GB     narrate（诊断/摘要为声明，未接线）
+ *   enhanced  — Qwen3-4B      ~2.5GB  ≥16GB    预留，无云端下载源
+ *
+ * ⚠️ capabilities 里除 narrate 外的能力（diagnose / summarize / reason）**目前没有任何
+ * 调用方**：全仓渲染它们的只有两处界面角标（ModelHub.vue / ModelWizard.vue），
+ * llmGenerate 的调用方是 utils/narrate.js（叙述）与模型页自测按钮。也就是说，
+ * 换成标准档目前只买到"叙述更长 + 上下文窗口更大"，**不产生任何新功能**。
+ * `description` 是直接渲染到界面上的文案，因此按实现如实写，不写没接线的能力；
+ * 角标侧由 ModelHub.vue 的 ACTIVE_CAPS 区分「已启用 / 预留」。
+ * （决策见 docs/完善计划.md P1-6：先收敛口径，接线列为后续可选项。）
  *
  * 铁律：注册表只做元数据和选档，不加载模型。
  */
@@ -37,7 +45,7 @@ const TIERS = [
     sizeBytes: 1117320736,
     minMemoryGB: 8,
     capabilities: ['narrate', 'diagnose', 'summarize'],
-    description: '叙述 + 诊断 + 摘要：可分析故障模式并给出初步诊断',
+    description: '叙述润色加强：叙述更长、上下文窗口更大（诊断 / 摘要尚未接线）',
     contextSize: 2048,
     temperature: 0.3,
     maxTokens: 256
@@ -50,7 +58,7 @@ const TIERS = [
     sizeBytes: 2.5 * 1024 * 1024 * 1024,
     minMemoryGB: 16,
     capabilities: ['narrate', 'diagnose', 'summarize', 'reason'],
-    description: '全能力：复杂推演、多步推理、长文本摘要',
+    description: '预留档位：暂无云端下载源，当前不可安装',
     contextSize: 4096,
     temperature: 0.3,
     maxTokens: 512

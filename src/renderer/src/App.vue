@@ -120,11 +120,10 @@
                   v-for="r in demoRoutes"
                   :key="r.id"
                   :command="r.id"
-                  :disabled="r.pending"
                 >
                   <div class="demo-route-item">
                     <span>{{ r.name }}</span>
-                    <span class="demo-route-desc">{{ r.pending ? '待上线' : r.desc }}</span>
+                    <span class="demo-route-desc">{{ r.desc }}</span>
                   </div>
                 </el-dropdown-item>
               </el-dropdown-menu>
@@ -153,6 +152,35 @@
         </div>
       </el-header>
       <el-main class="app-main">
+        <!--
+          错误边界提示（见 utils/errorBoundary.js）。
+
+          位置有意放在 router-view **外面**：出错的通常正是当前路由的那棵子树，
+          Vue 会把坏掉的那棵卸载掉，而这一条挂在 App.vue 上，因此它还能渲染 ——
+          提示条与被提示的对象不能是同一棵子树，否则一起消失。
+
+          有一个诚实的例外：若 App.vue 自己的渲染就抛错，整棵树都没了，
+          这一条也无处安放（那种情况只剩日志可查，见错误处理器的注释）。
+        -->
+        <el-alert
+          v-if="appError"
+          class="error-bar"
+          type="error"
+          show-icon
+          @close="clearError"
+        >
+          <template #title>界面出错了：{{ appError.message }}</template>
+          <div class="error-bar-body">
+            <div>出错位置：{{ appError.where }}（{{ appError.at }}）</div>
+            <div v-if="appError.count > 1">同一错误已出现 {{ appError.count }} 次（日志只记了第一条）</div>
+            <div>其它功能不受影响。这一页可以重进；若反复出错，重启应用可恢复。</div>
+          </div>
+          <div class="error-bar-actions">
+            <el-button size="small" type="primary" @click="recoverFromError">{{ recoverLabel }}</el-button>
+            <el-button size="small" @click="clearError">知道了</el-button>
+          </div>
+        </el-alert>
+
         <router-view v-slot="{ Component }">
           <transition name="fade-slide" mode="out-in">
             <component :is="Component" />
@@ -192,6 +220,7 @@ import { modelsAvailable, modelsList } from './utils/modelsClient'
 import { startTour } from './utils/demoTour'
 import { DEMO_ROUTES } from './utils/demoRoutes'
 import { getMenus } from './domains/registry'
+import { appError, clearError } from './utils/errorBoundary'
 
 const route = useRoute()
 const router = useRouter()
@@ -328,6 +357,24 @@ function togglePin(item) {
 
 function go(path) {
   if (route.path !== path) router.push(path)
+}
+
+/**
+ * 出错后的恢复动作。
+ *
+ * 为什么要分两种：出错的那一页**恰好就是看板**时，"返回看板"等于原地不动 ——
+ * 按钮点了没反应，比没有按钮更让人以为卡死了。这种情况下能给的恢复只有整页重载。
+ * 重载不丢数据：beforeunload 里已经挂了 flush（main.js），会先把未落盘的改动写回。
+ */
+const recoverLabel = computed(() => (route.path === '/dashboard' ? '重新加载界面' : '返回看板'))
+
+function recoverFromError() {
+  clearError()
+  if (route.path === '/dashboard') {
+    window.location.reload()
+    return
+  }
+  router.push('/dashboard')
 }
 
 function doUndo() {
@@ -809,6 +856,24 @@ html, body, #app {
   background: var(--bg);
   padding: 20px;
   overflow-y: auto;
+}
+
+/* 错误边界提示条：占满内容区宽度，压在页面顶部，不遮挡内容（不 fixed）——
+   它是一条"通知"，不是模态框；用户可能就想照着提示继续用别的页。 */
+.error-bar {
+  margin-bottom: 14px;
+}
+
+.error-bar-body {
+  font-size: var(--fs-xs);
+  line-height: 1.7;
+  opacity: 0.9;
+}
+
+.error-bar-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
 }
 
 /* 路由过渡动画 */

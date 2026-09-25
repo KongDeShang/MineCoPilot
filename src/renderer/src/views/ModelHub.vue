@@ -1,10 +1,11 @@
-﻿<template>
+<template>
   <div class="model-hub">
     <!-- ============ 顶部状态横幅 ============ -->
     <div class="hero" :class="'hero-' + status.state">
       <div class="hero-left">
         <div class="hero-title">
-          <el-icon :size="22"><Cpu /></el-icon>
+          <span class="hero-status-dot" aria-hidden="true"></span>
+          <el-icon :size="20"><Cpu /></el-icon>
           本地模型引擎
           <el-tag :type="statusTagType" effect="dark" size="small" class="hero-tag">{{ statusLabel }}</el-tag>
         </div>
@@ -42,24 +43,27 @@
       </template>
       <div class="pipeline">
         <div class="pipe-step">
-          <div class="pipe-icon pipe-icon-1"><el-icon :size="18"><DataAnalysis /></el-icon></div>
-          <div class="pipe-title">规则引擎</div>
+          <div class="pipe-step-head">
+            <div class="pipe-icon pipe-icon-1"><el-icon :size="16"><DataAnalysis /></el-icon></div>
+            <div class="pipe-title">规则引擎</div>
+          </div>
           <div class="pipe-desc">算数字：健康分 · 四因子 · 停机损失 · 排期</div>
-          <div class="pipe-badge">确定性 · 可复现</div>
         </div>
         <div class="pipe-arrow"><span>→</span></div>
         <div class="pipe-step">
-          <div class="pipe-icon pipe-icon-2"><el-icon :size="18"><Reading /></el-icon></div>
-          <div class="pipe-title">规程库检索</div>
+          <div class="pipe-step-head">
+            <div class="pipe-icon pipe-icon-2"><el-icon :size="16"><Reading /></el-icon></div>
+            <div class="pipe-title">规程库检索</div>
+          </div>
           <div class="pipe-desc">命中可溯源规程 + 手册原文，带出处页码</div>
-          <div class="pipe-badge">依据可见 · 未命中明说查不到</div>
         </div>
         <div class="pipe-arrow"><span>→</span></div>
         <div class="pipe-step pipe-step-hot">
-          <div class="pipe-icon pipe-icon-3"><el-icon :size="18"><Cpu /></el-icon></div>
-          <div class="pipe-title">本地模型叙述</div>
+          <div class="pipe-step-head">
+            <div class="pipe-icon pipe-icon-3"><el-icon :size="16"><Cpu /></el-icon></div>
+            <div class="pipe-title">本地模型叙述</div>
+          </div>
           <div class="pipe-desc">把已核实的结论说成人话（逐字校验数字）</div>
-          <div class="pipe-badge">只润色 · 不新增事实</div>
         </div>
       </div>
       <div class="pipe-note">
@@ -93,17 +97,27 @@
           <div class="tier-meta">
             <span class="tm">{{ formatSize(t.sizeBytes) }}</span>
             <span class="tm">内存 ≥ {{ t.minMemoryGB || 0 }}GB</span>
-            <span v-for="c in t.capabilities" :key="c" class="tm cap">{{ capLabel(c) }}</span>
+            <span
+              v-for="c in t.capabilities"
+              :key="c"
+              class="tm cap"
+              :class="{ 'cap-reserved': !ACTIVE_CAPS.has(c) }"
+            >{{ capLabel(c) }}</span>
           </div>
-          <div class="tier-actions">
-            <!-- 下载中：进度条 -->
-            <div v-if="downloadState && downloadState.id === t.id" class="tier-dl">
-              <el-progress :percentage="downloadState.pct" :stroke-width="8" :show-text="false" style="flex:1" />
+          <!-- 下载中：整卡宽进度区（百分比 + 已收/总量） -->
+          <div v-if="downloadState && downloadState.id === t.id" class="tier-dl">
+            <div class="tier-dl-row">
+              <el-progress :percentage="downloadState.pct" :stroke-width="10" :show-text="false" style="flex:1" />
               <span class="tier-dl-pct">{{ downloadState.pct }}%</span>
+            </div>
+            <div class="tier-dl-meta">
+              {{ formatSize(downloadState.received) }} / {{ formatSize(downloadState.total) }}
               <span v-if="downloadState.error" class="tier-dl-err">{{ downloadState.error }}</span>
             </div>
+          </div>
+          <div class="tier-actions">
             <!-- 已安装 -->
-            <template v-else-if="t.installed">
+            <template v-if="t.installed">
               <el-button
                 v-if="t.id !== currentTierId"
                 size="small"
@@ -111,7 +125,7 @@
                 :loading="switching === t.id"
                 @click="switchTo(t.id)"
               >切换到该档</el-button>
-              <span v-else class="tier-current-tip">使用中</span>
+              <span v-else class="tier-current-tip"><el-icon><CircleCheck /></el-icon> 使用中</span>
               <el-button
                 size="small"
                 type="danger"
@@ -257,7 +271,15 @@ const downloadState = ref(null)
 let unsubProgress = () => {}
 
 const CAP_LABELS = { narrate: '叙述', diagnose: '诊断', summarize: '摘要', reason: '推演' }
-function capLabel(c) { return CAP_LABELS[c] || c }
+/**
+ * 已真正接线的能力 —— 只有「叙述」：调用方是 utils/narrate.js（AI 助手的叙述层）。
+ * 诊断 / 摘要 / 推演在 ModelRegistry 里声明了，但**全仓没有任何调用点**，换更大的档位
+ * 也不会让它们出现（llmGenerate 的调用方只有 narrate.js 与模型页自测按钮）。
+ * 此前角标一视同仁，读起来像"这档就能诊断"，与实现不符。预留项加后缀并弱化配色，
+ * 让"能做什么"一眼可辨（见 docs/完善计划.md P1-6）。
+ */
+const ACTIVE_CAPS = new Set(['narrate'])
+function capLabel(c) { return (CAP_LABELS[c] || c) + (ACTIVE_CAPS.has(c) ? '' : '（预留）') }
 
 const currentTier = computed(() => tiers.value.find(t => t.id === currentTierId.value) || null)
 
@@ -500,7 +522,10 @@ onBeforeUnmount(() => unsubProgress())
 <style scoped>
 .model-hub {
   padding: 16px;
-  max-width: 1080px;
+  /* 这里曾有 max-width: 1080px 且未配 margin: 0 auto —— 15 个页面里唯一给根容器
+     限宽的，内容左贴边、右侧留一片死空白，窗口越宽越明显。页面宽度交给布局容器，
+     不要把整页钉死；若将来只想限制卡片宽度，请限 .tier-item / .hub-grid 这类
+     具体网格项，而不是根节点。 */
 }
 
 /* ---------- 顶部横幅 ---------- */
@@ -510,11 +535,12 @@ onBeforeUnmount(() => unsubProgress())
   align-items: center;
   gap: 16px;
   flex-wrap: wrap;
-  padding: 18px 20px;
-  border-radius: 12px;
+  padding: 20px 24px;
+  border-radius: 14px;
   margin-bottom: 16px;
   color: #fff;
   background: var(--grad-strip);
+  box-shadow: 0 6px 18px var(--accent-shadow);
 }
 .hero-ready { background: linear-gradient(120deg, #0b3a82 0%, #1457b3 55%, #1658b6 100%); }
 /* hero-unavailable 落到 .hero 的 --grad-strip（#1c6bd4 处叠 .hb 白玻璃后白字只有 4.47:1），
@@ -532,6 +558,25 @@ onBeforeUnmount(() => unsubProgress())
   font-size: 17px;
   font-weight: 700;
 }
+/* 状态呼吸点：一眼可读引擎状态（就绪绿 / 加载黄脉冲 / 失败红 / 待命灰） */
+.hero-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #cbd5e1;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.18);
+}
+.hero-ready .hero-status-dot { background: #4ade80; }
+.hero-loading .hero-status-dot,
+.hero-generating .hero-status-dot {
+  background: #facc15;
+  animation: hero-pulse 1.2s ease-in-out infinite;
+}
+.hero-failed .hero-status-dot { background: #f87171; }
+@keyframes hero-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.25); }
+  50% { box-shadow: 0 0 0 6px rgba(250, 204, 21, 0.08); }
+}
 .hero-tag { margin-left: 4px; }
 .hero-sub {
   margin-top: 6px;
@@ -540,8 +585,8 @@ onBeforeUnmount(() => unsubProgress())
 }
 .hero-badges {
   display: flex;
-  gap: 14px;
-  margin-top: 10px;
+  gap: 10px;
+  margin-top: 12px;
   flex-wrap: wrap;
 }
 .hb {
@@ -556,10 +601,8 @@ onBeforeUnmount(() => unsubProgress())
 .hero-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
-  background: rgba(255, 255, 255, 0.1);
-  padding: 10px 12px;
-  border-radius: 10px;
+  gap: 12px;
+  padding: 4px 2px;
 }
 
 /* ---------- 架构图 ---------- */
@@ -574,27 +617,36 @@ onBeforeUnmount(() => unsubProgress())
 .pipeline {
   display: flex;
   align-items: stretch;
-  gap: 6px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 .pipe-step {
   flex: 1 1 180px;
   min-width: 0;
-  background: var(--accent-glass);
-  border: 1px solid var(--accent-glass-strong);
+  background: var(--card-2);
+  border: 1px solid var(--accent-line);
   border-radius: 10px;
-  padding: 14px 14px 12px;
-  text-align: center;
+  padding: 12px 14px;
+  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.pipe-step:hover {
+  border-color: var(--accent-mid);
+  box-shadow: 0 2px 10px var(--accent-shadow);
+}
+.pipe-step-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .pipe-step-hot {
-  background: var(--accent-glass);
-  border-color: var(--accent-glass-strong);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-shadow);
 }
 .pipe-icon {
-  width: 38px;
-  height: 38px;
-  margin: 0 auto 8px;
-  border-radius: 10px;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -604,31 +656,22 @@ onBeforeUnmount(() => unsubProgress())
 .pipe-icon-2 { background: var(--accent-mid); }
 .pipe-icon-3 { background: var(--accent); }
 .pipe-title {
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 700;
-  color: var(--accent);
+  color: var(--text-1);
 }
 .pipe-desc {
   font-size: 12px;
   color: var(--text-2);
-  margin-top: 5px;
-  line-height: 1.5;
-}
-.pipe-badge {
-  display: inline-block;
   margin-top: 8px;
-  font-size: 11px;
-  color: var(--accent);
-  background: var(--accent-glass);
-  padding: 2px 8px;
-  border-radius: 999px;
+  line-height: 1.6;
 }
 .pipe-arrow {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--accent);
-  font-size: 20px;
+  color: var(--accent-mid);
+  font-size: 18px;
   font-weight: 700;
 }
 .pipe-note {
@@ -637,8 +680,9 @@ onBeforeUnmount(() => unsubProgress())
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: var(--text-3);
+  color: var(--text-2);
   background: var(--accent-glass);
+  border: 1px dashed var(--accent-glass-strong);
   border-radius: 8px;
   padding: 8px 12px;
 }
@@ -667,8 +711,8 @@ onBeforeUnmount(() => unsubProgress())
 }
 .trial-output {
   margin-top: 14px;
-  background: var(--accent-glass);
-  border: 1px solid var(--accent-glass-strong);
+  background: var(--card-2);
+  border: 1px solid var(--accent-line);
   border-radius: 10px;
   padding: 12px 14px;
 }
@@ -707,13 +751,14 @@ onBeforeUnmount(() => unsubProgress())
 
 /* ---------- 规格卡 ---------- */
 .spec-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0;
 }
 .spec-item {
-  flex: 1 1 140px;
   min-width: 0;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--accent-line);
 }
 .spec-label {
   font-size: 11px;
@@ -723,14 +768,15 @@ onBeforeUnmount(() => unsubProgress())
   font-size: 13px;
   font-weight: 600;
   color: var(--text-1);
-  margin-top: 3px;
+  margin-top: 4px;
 }
 .spec-path {
   margin-top: 12px;
   font-size: 11px;
   color: var(--text-3);
   word-break: break-all;
-  background: var(--accent-glass);
+  background: var(--card-2);
+  border: 1px solid var(--accent-line);
   border-radius: 6px;
   padding: 6px 10px;
 }
@@ -747,24 +793,29 @@ onBeforeUnmount(() => unsubProgress())
 }
 .tier-grid {
   display: flex;
-  gap: 12px;
+  gap: 14px;
   flex-wrap: wrap;
 }
 .tier-item {
-  flex: 1 1 240px;
+  flex: 1 1 260px;
   min-width: 0;
-  border: 1px solid var(--accent-glass-strong);
-  border-radius: 10px;
-  padding: 14px;
-  background: var(--accent-glass);
+  border: 1px solid var(--accent-line);
+  border-radius: 12px;
+  padding: 16px;
+  background: var(--card);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+.tier-item:hover {
+  border-color: var(--accent-mid);
+  box-shadow: 0 4px 14px var(--accent-shadow);
+  transform: translateY(-1px);
 }
 .tier-item.tier-current {
   border-color: var(--accent);
-  background: var(--accent-glass);
-  box-shadow: 0 0 0 1px var(--accent-shadow);
+  box-shadow: 0 0 0 1px var(--accent), 0 4px 14px var(--accent-shadow);
 }
 .tier-top {
   display: flex;
@@ -780,8 +831,8 @@ onBeforeUnmount(() => unsubProgress())
 .tier-desc {
   font-size: 12px;
   color: var(--text-2);
-  line-height: 1.55;
-  min-height: 36px;
+  line-height: 1.6;
+  min-height: 38px;
 }
 .tier-meta {
   display: flex;
@@ -792,13 +843,23 @@ onBeforeUnmount(() => unsubProgress())
 .tm {
   font-size: 11px;
   color: var(--text-3);
-  background: var(--accent-glass);
+  background: var(--card-2);
+  border: 1px solid var(--accent-line);
   padding: 2px 8px;
   border-radius: 999px;
 }
 .tm.cap {
   color: var(--accent);
-  background: var(--accent-glass);
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  font-weight: 600;
+}
+/* 预留能力：弱化到与普通元信息同色，避免和"已启用"看起来一样（见 capLabel 注释） */
+.tm.cap-reserved {
+  color: var(--text-3);
+  background: var(--card-2);
+  border-color: var(--accent-line);
+  font-weight: 400;
 }
 .tier-actions {
   margin-top: auto;
@@ -806,28 +867,51 @@ onBeforeUnmount(() => unsubProgress())
   align-items: center;
   gap: 8px;
   min-height: 28px;
+  padding-top: 4px;
+  border-top: 1px dashed var(--accent-line);
 }
 .tier-current-tip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 12px;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--success-ink);
 }
 .tier-pending {
   font-size: 12px;
   color: var(--text-3);
 }
+/* 下载中：独占整卡宽的一块进度区，不与操作按钮挤一行 */
 .tier-dl {
-  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--accent-glass);
+  border: 1px solid var(--accent-glass-strong);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.tier-dl-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.tier-dl-pct {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  min-width: 38px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.tier-dl-meta {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-.tier-dl-pct {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--accent);
-  min-width: 34px;
-  text-align: right;
+  font-size: 11.5px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
 }
 .tier-dl-err {
   font-size: 12px;

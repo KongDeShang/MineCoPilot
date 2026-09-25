@@ -34,7 +34,12 @@
           <div class="wiz-model-meta">
             <span class="wm">{{ formatSize(m.sizeBytes) }}</span>
             <span class="wm">内存 ≥ {{ m.minMemoryGB || 0 }}GB</span>
-            <span v-for="c in m.capabilities" :key="c" class="wm cap">{{ capLabel(c) }}</span>
+            <span
+              v-for="c in m.capabilities"
+              :key="c"
+              class="wm cap"
+              :class="{ 'cap-reserved': !ACTIVE_CAPS.has(c) }"
+            >{{ capLabel(c) }}</span>
           </div>
           <div class="wiz-model-desc">{{ capDesc(m) }}</div>
           <el-button
@@ -104,15 +109,24 @@ const verified = ref(null)
 let unsubProgress = () => {}
 
 const CAP_LABELS = { narrate: '叙述', diagnose: '诊断', summarize: '摘要', reason: '推演' }
+/**
+ * 已真正接线的能力 —— 只有「叙述」（调用方 utils/narrate.js）。
+ * 诊断 / 摘要 / 推演在 ModelRegistry 里声明了，但**全仓零调用点**，换更大的档位
+ * 不会让它们出现。这里是用户第一次见到档位的地方（首启向导），尤其不能把
+ * "已在注册表里声明"说成"已具备" —— 原文案逐条列能力描述，读起来像这档就能诊断。
+ * 现在只描述已接线的，预留项按数量如实交代（见 docs/完善计划.md P1-6）。
+ */
+const ACTIVE_CAPS = new Set(['narrate'])
 const CAP_DESCS = {
-  narrate: '把诊断结论改写成人话',
-  diagnose: '分析故障模式并给出初步诊断',
-  summarize: '生成长周期报告摘要',
-  reason: '复杂推演、多步推理'
+  narrate: '把规则引擎的结论改写成通顺的人话'
 }
-function capLabel(c) { return CAP_LABELS[c] || c }
+function capLabel(c) { return (CAP_LABELS[c] || c) + (ACTIVE_CAPS.has(c) ? '' : '（预留）') }
 function capDesc(m) {
-  return (m.capabilities || []).map((c) => CAP_DESCS[c] || c).join('、') || '基础叙述'
+  const caps = m.capabilities || []
+  const active = caps.filter((c) => ACTIVE_CAPS.has(c)).map((c) => CAP_DESCS[c] || c)
+  const reserved = caps.length - active.length
+  const base = active.join('、') || '基础叙述'
+  return reserved ? `${base}（另有 ${reserved} 项能力已声明，尚未接线）` : base
 }
 
 function formatSize(bytes) {
@@ -147,7 +161,7 @@ async function refresh() {
   }
 }
 
-function startDownload(m) {
+async function startDownload(m) {
   downloadingId.value = m.id
   downloadingName.value = m.name
   received.value = 0
@@ -156,18 +170,36 @@ function startDownload(m) {
   dlError.value = ''
   verified.value = null
   step.value = 'downloading'
-  modelsDownload(m.id).then((r) => {
+  /*
+   * 这里原来只有 `.then()`，**没有 `.catch()`** —— 而 modelsDownload 走的是
+   * IPC（主进程下载 + sha256 校验），失败时会 reject。缺 catch 有两层后果：
+   *   1) 这个 Promise 成为"未处理的拒绝"（现在会被全局错误边界接住并弹提示条，
+   *      但在那之前它只是一条控制台记录）；
+   *   2) 更要紧的是**向导卡在"下载中"**：进度条不动、错误区为空、也没有重试入口，
+   *      用户以为只是网慢，实际早就断了。
+   * 现在失败一律落到 dlError，与"主进程回了 ok:false"走同一条出路。
+   */
+  try {
+    const r = await modelsDownload(m.id)
     if (r && r.ok) {
       verified.value = !!(r.sha256)
       step.value = 'done'
       emit('installed', m.id)
-      // 装好后顺手加载（就绪自检），失败不阻塞
-      if (llmAvailable()) llmLoad().catch(() => {})
+      // 装好后顺手加载（就绪自检）：失败不阻塞 —— 模型已经装好了，只是没预热，
+      // 下次提问时照常按需加载。但要在控制台留一句：让"预热失败"这件事有迹可循，
+      // 而不是彻底消失（调试"第一次提问为什么慢"时会需要它）。
+      if (llmAvailable()) {
+        llmLoad().catch((error) => console.warn('[模型向导] 装好后预热失败（不影响使用）', error))
+      }
     } else {
       dlError.value = (r && r.error) || '下载失败，请重试'
       step.value = 'downloading'
     }
-  })
+  } catch (error) {
+    dlError.value = (error && error.message) || '下载失败（进程通信异常），请重试'
+    step.value = 'downloading'
+    console.error('[模型向导] 下载流程异常', error)
+  }
 }
 
 function skip() {
@@ -266,6 +298,11 @@ onBeforeUnmount(() => unsubProgress())
 }
 .wm.cap {
   color: var(--accent);
+  background: var(--accent-glass);
+}
+/* 预留能力：弱化到普通元信息色，不与"已启用"看起来一样（见 capLabel 注释） */
+.wm.cap-reserved {
+  color: var(--text-3);
   background: var(--accent-glass);
 }
 .wiz-model-desc {

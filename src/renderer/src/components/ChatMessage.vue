@@ -123,14 +123,34 @@
           </div>
           <div class="cmd-result-actions">
             <el-tag v-if="msg.execResult.undone" type="info" size="small">已撤销</el-tag>
-            <el-button
+            <!--
+              撤销栈只在内存里（离开页面/刷新即失效），所以刷新之后这张卡上的
+              "撤销这次写入"是**撤不了**的。原来按钮照常高亮，点了才弹一句
+              "已经不能撤了" —— 诚实，但用户感知是 bug："亮着的按钮不能用"。
+              现在把拒绝提前到外观上：置灰 + tooltip 说明原因，点了没反应这件事
+              本身就成了说明（而不是一个要等点击才知道的意外）。
+
+              ⚠️ 必须套一层 <span>：disabled 的按钮不派发鼠标事件，
+              el-tooltip 拿不到 hover，提示就永远不出来 —— 那等于置灰了却不说为什么。
+            -->
+            <el-tooltip
               v-else
-              type="danger"
-              size="small"
-              link
-              @click="$emit('undo-plan')"
-            >撤销这次写入</el-button>
-            <span class="cmd-hint">撤销会恢复写入前的数据（含自动生成的复诊任务与健康快照）</span>
+              :disabled="undoable"
+              placement="top"
+              content="页面刷新后撤销记录已失效（撤销栈只保留在内存中）。数据仍是写入后的状态，请到工单 / 维保页手工回退。"
+            >
+              <span>
+                <el-button
+                  type="danger"
+                  size="small"
+                  link
+                  :disabled="!undoable"
+                  @click="$emit('undo-plan')"
+                >撤销这次写入</el-button>
+              </span>
+            </el-tooltip>
+            <span v-if="undoable" class="cmd-hint">撤销会恢复写入前的数据（含自动生成的复诊任务与健康快照）</span>
+            <span v-else class="cmd-hint">本次页面加载之前写入的，已不能自动撤销</span>
           </div>
         </div>
 
@@ -176,7 +196,13 @@ defineProps({
   /** 消息对象：{ role, content, time, thinkingSteps, plan, execResult, refs } */
   msg: { type: Object, default: null },
   /** 是否渲染"正在输入"占位气泡（此时不需要 msg） */
-  typing: { type: Boolean, default: false }
+  typing: { type: Boolean, default: false },
+  /**
+   * 这张卡上的「撤销这次写入」是否可用。
+   * 由父组件判定（撤销栈是内存态，父组件才知道这条写入是不是本次页面加载写的）。
+   * 默认 true：不传就该按"可撤"处理，免得别处复用本组件时按钮一律置灰。
+   */
+  undoable: { type: Boolean, default: true }
 })
 
 defineEmits(['pick-candidate', 'confirm-plan', 'cancel-plan', 'undo-plan', 'toggle-thinking', 'ask-followup'])

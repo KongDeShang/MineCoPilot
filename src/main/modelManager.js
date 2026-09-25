@@ -214,6 +214,22 @@ async function downloadOne(sourceUrl, destFile, { onProgress, expectedSha, retri
   throw lastErr
 }
 
+/**
+ * 计算**整个文件**的 SHA-256（分块流式读取，不在主进程里同步阻塞）。
+ *
+ * 续传场景必须用它，不能用"边收边 hash"：那样只覆盖本次新到的字节（见 downloadAttempt）。
+ * 468MB 约 1-2 秒，相对几分钟的下载可忽略。
+ */
+function sha256File(file) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256')
+    fs.createReadStream(file)
+      .on('data', (chunk) => hash.update(chunk))
+      .on('end', () => resolve(hash.digest('hex')))
+      .on('error', reject)
+  })
+}
+
 async function downloadAttempt(sourceUrl, destFile, { onProgress, expectedSha }) {
   const partFile = destFile + '.part'
   const start = fs.existsSync(partFile) ? fs.statSync(partFile).size : 0
@@ -238,14 +254,12 @@ async function downloadAttempt(sourceUrl, destFile, { onProgress, expectedSha })
       : parseInt(res.headers['content-length'] || 0, 10))
 
   return new Promise((resolve, reject) => {
-    const hash = crypto.createHash('sha256')
     const out = fs.createWriteStream(partFile, { flags: 'a' })
     let received = start
     let failed = false
 
     res.on('data', (chunk) => {
       received += chunk.length
-      hash.update(chunk)
       if (typeof onProgress === 'function') {
         onProgress({
           received,
@@ -266,9 +280,31 @@ async function downloadAttempt(sourceUrl, destFile, { onProgress, expectedSha })
     })
     res.on('end', () => {
       if (failed) return
-      out.end(() => {
+      out.end(async () => {
         if (failed) return
-        const actualSha = hash.digest('hex')
+        /**
+         * ⚠️ 必须对**整个 .part 文件**重新计算摘要，不能用"边收边 hash"。
+         *
+         * 原先这里是流式 hash（res.on('data') 里 hash.update(chunk)），只喂了
+         * **本次新收到**的字节。首下（start=0）时它恰好正确；但一旦续传（start>0，
+         * 走 Range 拿 206），hash 里只有后半段，而磁盘上的 .part 因为是追加写
+         * （flags:'a'）其实是完整的 —— 于是摘要必然与清单里的整文件 SHA 不符
+         * → 残档被删 → 从 0 重下。
+         *
+         * 净效果：下载承受不了任何一次网络中断，断一次就丢光进度。在线轨不带
+         * resources/models、下载是唯一途径，因此在弱网下基本拿不到模型。
+         * （进度上报那行一直用 received = start，是认得 start 的；摘要这条路径漏了同一件事。）
+         *
+         * 改为整体计算后，续传与"多源共享 .part"（见 downloadModel）天然正确，
+         * 也不再有 start 的边界可错。代价是多读一遍文件（468MB ≈ 1-2 秒）。
+         */
+        let actualSha
+        try {
+          actualSha = await sha256File(partFile)
+        } catch (err) {
+          reject(new Error(`读取已下载文件以校验摘要失败：${err && err.message ? err.message : err}`))
+          return
+        }
         if (expectedSha && actualSha !== String(expectedSha).toLowerCase()) {
           fs.rmSync(partFile, { force: true }) // 不符删残档可重试
           reject(new Error(`SHA-256 校验失败（期望 ${expectedSha}，实际 ${actualSha}），已删除残档，可重新下载`))

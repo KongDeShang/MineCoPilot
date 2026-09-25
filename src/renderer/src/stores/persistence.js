@@ -146,6 +146,10 @@ export function createPersistence(ctx) {
       file_size: Number(doc.fileSize) || 0,
       pages: Number(doc.pages) || 0,
       status: doc.status || 'ready',
+      // 截断前的切片总数（见 database.js 的 documents.chunk_total 迁移说明）。
+      // 老记录没有这个字段，回落到已存切片数 —— 那对老库等价于"没被截断"，
+      // 与旧版行为一致（旧版本来就不标注截断），不会凭空冒出警告。
+      chunk_total: Number(doc.chunkTotal) || (doc.chunks || []).length,
       chunks_json: JSON.stringify(doc.chunks || []),
       note: toRow(doc.note),
       added_at: doc.addedAt || stamp
@@ -436,6 +440,11 @@ export function createPersistence(ctx) {
       pages: Number(row.pages) || 0,
       status: row.status || 'ready',
       chunks: safeJson(row.chunks_json, []),
+      // 老库没有这一列（迁移刚补的），此时 chunk_total 为 null：
+      // 回落到已存切片数，语义是"没被截断"，与旧版行为一致。
+      chunkTotal: row.chunk_total != null
+        ? Number(row.chunk_total)
+        : safeJson(row.chunks_json, []).length,
       note: row.note || '',
       addedAt: row.added_at || ''
     }))

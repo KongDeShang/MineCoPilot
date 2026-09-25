@@ -257,6 +257,13 @@ function runMigrations() {
       ['status', "TEXT DEFAULT 'confirmed'"],
       ['frequency', 'INTEGER DEFAULT 0'],
       ['avg_repair_hours', 'REAL']
+    ],
+    documents: [
+      // 抽取到的文字层**总切片数**（截断前）。
+      // documents.chunks_json 只存前 CHUNK_LIMIT 片，光看它无法区分
+      // "这本手册本来就这么多页" 与 "被上限截掉了后半本" —— 而这两件事
+      // 对用户的意义完全不同（后者意味着后半本问不到）。存下总数才能如实标注。
+      ['chunk_total', 'INTEGER']
     ]
   }
 

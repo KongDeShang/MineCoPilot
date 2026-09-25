@@ -23,10 +23,25 @@
         <el-table-column prop="model" label="机型" width="130">
           <template #default="{ row }">{{ row.model || '—' }}</template>
         </el-table-column>
-        <el-table-column label="可问答" width="110">
+        <el-table-column label="可问答" width="140">
           <template #default="{ row }">
-            <el-tag size="small" :type="row.status === 'ready' ? 'success' : 'warning'" effect="plain">
-              {{ row.status === 'ready' ? `可问答（${row.pages} 页）` : '仅查看' }}
+            <!--
+              报的是**可被 AI 检索的页数**，不是 PDF 总页数。
+              原来用 row.pages（PDF 总页数），而被 CHUNK_LIMIT 截断时两者并不相等 ——
+              界面于是把"前 300 页可问答"显示成"可问答（420 页）"，用户问到第 350 页
+              没有结果，还以为是 AI 的问题。截断时另给一条明确的副标。
+            -->
+            <el-tooltip
+              v-if="row.status === 'ready' && isTruncated(row)"
+              :content="row.note || '文字层超出单份上限，仅前若干页可被 AI 检索'"
+              placement="top"
+            >
+              <el-tag size="small" type="warning" effect="plain">
+                可问答（{{ indexedPages(row) }}/{{ totalChunks(row) }} 页）
+              </el-tag>
+            </el-tooltip>
+            <el-tag v-else size="small" :type="row.status === 'ready' ? 'success' : 'warning'" effect="plain">
+              {{ row.status === 'ready' ? `可问答（${indexedPages(row)} 页）` : '仅查看' }}
             </el-tag>
           </template>
         </el-table-column>
@@ -56,6 +71,8 @@
       <div class="docs-note">
         文件只存本机（Electron 写入 userData/documents，网页版存 IndexedDB），全程离线。
         有文字层的 PDF 可问答——AI 引用时注明《手册名》第 N 页，可审计；扫描件自动降级为"仅查看"，不硬撑。
+        单份手册的文字层最多入库 300 页，超出部分只在原文中可查、不进 AI 检索——"可问答"列报的是
+        <strong>实际可检索的页数</strong>，被截断时标黄并写明上限，不拿 PDF 总页数冒充。
       </div>
     </el-card>
 
@@ -132,6 +149,29 @@ function fmtSize(bytes) {
   if (!bytes) return '—'
   if (bytes >= 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB'
   return Math.max(1, Math.round(bytes / 1024)) + ' KB'
+}
+
+/*
+ * 「可问答」列的口径。
+ *
+ * 这三个函数的共同前提是：**PDF 总页数（pages）不等于可检索页数**。
+ * 文字层按页切片入库，上限 CHUNK_LIMIT（现 300 片，见 documentDomain.readinessOf），
+ * 超限的部分进不了检索池；而一页若无文字层也不会产生切片。
+ * 所以界面必须报切片数，不能报 pages —— 后者会把"只有前 300 页能问"
+ * 显示成"可问答（420 页）"。
+ *
+ * 老库没有 chunkTotal 列（迁移是一列一列补的），此时回落到已存切片数，
+ * 等价于"没被截断"，与旧版行为一致。
+ */
+function totalChunks(row) {
+  const n = Number(row && row.chunkTotal)
+  return Number.isFinite(n) && n > 0 ? n : (row && row.chunks ? row.chunks.length : 0)
+}
+function indexedPages(row) {
+  return row && row.chunks ? row.chunks.length : 0
+}
+function isTruncated(row) {
+  return totalChunks(row) > indexedPages(row)
 }
 
 function onFileChange(uploadFile) {

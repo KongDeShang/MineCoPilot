@@ -465,12 +465,30 @@ async function doImport() {
       const ledgerNote = reloaded.reason === 'empty-ledger'
         ? '\n\n注意：这份备份里没有设备台账（其余数据已照常恢复），因此台账页会是空的——这是备份本身的状况，不是恢复失败。'
         : ''
+
+      /**
+       * 上面那句"文档资料均已替换为备份内容"曾是一句无条件的话，而文档恢复
+       * 其实是这段流程里最容易半途失败的一步（要清空 documents/ 再写回，
+       * 而 Windows 上正被阅读器占用的 PDF 删不掉）。失败时界面说"已替换"，
+       * 手册库里却留着旧文件 —— 于是按实际结果分三种说法。
+       */
+      const doc = r.docRestore || { ok: true }
+      // 这里不能用 Markdown 的 ** 强调：ElMessageBox.alert 收的是纯文本
+      // （没开 dangerouslyUseHTMLString），星号会原样显示出来。
+      const docNote = !doc.ok
+        ? `\n\n⚠️ 但文档资料（手册库文件）没能恢复：${doc.error}\n数据主体已恢复；手册可在「手册资料库」页重新添加。`
+        : (doc.warning ? `\n\n⚠️ 文档资料已写回，但${doc.warning}\n这些旧文件可能仍出现在手册库里，请到「手册资料库」页确认。` : '')
+      const docClaim = doc.ok
+        ? (doc.warning ? '文档资料已尽量替换为备份内容（见下方说明）' : '文档资料')
+        : ''
+
       ElMessageBox.alert(
-        '备份恢复成功，界面已同步刷新。设备台账、维保记录、工单、健康快照、知识库、文档资料、设置与聊天记录均已替换为备份内容。' +
+        `备份恢复成功，界面已同步刷新。设备台账、维保记录、工单、健康快照、知识库、${docClaim}、设置与聊天记录均已替换为备份内容。` +
           ledgerNote +
+          docNote +
           (r.autoBackupPath ? `\n\n导入前已自动备份当前数据到：\n${r.autoBackupPath}\n（导入后如有问题可凭此文件回滚）` : ''),
-        '导入完成',
-        { confirmButtonText: '知道了' }
+        docNote ? '导入完成（有需注意项）' : '导入完成',
+        { confirmButtonText: '知道了', type: docNote ? 'warning' : 'success' }
       )
       store.addLog({
         content: `导入数据备份${r.exportedAt ? `（导出于 ${r.exportedAt.slice(0, 10)}）` : ''}`,

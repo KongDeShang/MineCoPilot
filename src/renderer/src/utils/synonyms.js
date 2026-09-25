@@ -86,24 +86,12 @@ for (const group of SYNONYM_GROUPS) {
   }
 }
 
-/**
- * 获取一个词的所有同义词（含自身）
- * @param {string} word
- * @returns {string[]} 去重后的同义词数组
+/*
+ * 这里原有 getSynonyms(word)：返回一个词所在的那整组同义词。
+ * 已于 2026-09-25 删除 —— 全仓（含 scripts/ 与 docs/）零调用方，
+ * 而真正在用的 expandQuery 自己内联了一套同组展开逻辑，两处各写一份。
+ * 要"某词的整组同义词"时请复用 expandQuery（它返回的是 normalize 后的集合）。
  */
-export function getSynonyms(word) {
-  const nw = normalizeWord(word)
-  const primary = _synonymIndex.get(nw)
-  if (!primary) return [word]
-
-  // 找到该主词所在的组
-  for (const group of SYNONYM_GROUPS) {
-    if (normalizeWord(group[0]) === primary) {
-      return group
-    }
-  }
-  return [word]
-}
 
 /**
  * 对一段查询文本做同义词展开
@@ -132,26 +120,12 @@ export function expandQuery(queryText) {
   return expanded
 }
 
-/**
- * 判断两段文本是否"语义相关"（同义词有交集）
- * @param {string} text1
- * @param {string} text2
- * @returns {boolean}
+/*
+ * 这里原有 isRelated(text1, text2)：判断两段文本的同义词是否有交集。
+ * 已于 2026-09-25 删除 —— 零调用方（全仓 grep 只有定义本身）。
+ * 检索侧实际用的是 expandQuery 的返回集合与待匹配文本求交，
+ * 不需要再包一层布尔判断。
  */
-export function isRelated(text1, text2) {
-  const expanded1 = expandQuery(text1)
-  const expanded2 = expandQuery(text2)
-  if (expanded1.size === 0 && expanded2.size === 0) return false
-  const norm2 = normalizeWord(text2)
-  for (const word of expanded1) {
-    if (norm2.includes(word)) return true
-  }
-  const norm1 = normalizeWord(text1)
-  for (const word of expanded2) {
-    if (norm1.includes(word)) return true
-  }
-  return false
-}
 
 /* ============================================================================
  * 中文提问 → 英文手册用词

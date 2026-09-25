@@ -136,19 +136,11 @@ export function typewriterHTML(msg, html, opts = {}) {
   })
 }
 
-/**
- * 创建一个可取消的打字控制器
- *
- * @param {{ content: string }} msg
- * @param {string} html
- * @param {object} opts
- * @returns {{ promise: Promise<void>, cancel: () => void }}
+/*
+ * 这里原有 createTypewriter(msg, html, opts)：把 typewriterHTML 包成
+ * { promise, cancel } 的"可取消控制器"。
+ * 已于 2026-09-25 删除 —— 零调用方（全仓 grep 只有定义本身）。
+ * 取消能力并没有丢：typewriterHTML 本身就接受 opts.signal，
+ * 调用方（views/AIAssistant.vue）直接传 AbortSignal 即可，
+ * 中间那层包装只是把同一个 signal 包了一遍，没有增加任何能力。
  */
-export function createTypewriter(msg, html, opts = {}) {
-  const controller = new AbortController()
-  const promise = typewriterHTML(msg, html, { ...opts, signal: controller.signal })
-  return {
-    promise,
-    cancel: () => controller.abort()
-  }
-}

@@ -293,10 +293,31 @@ function registerIpc() {
     try {
       const dir = DOCS_DIR()
       await fs.promises.mkdir(dir, { recursive: true })
-      // 清空现有文件（保留目录本身）
-      const existing = await fs.promises.readdir(dir).catch(() => [])
+      /*
+       * 清空现有文件（保留目录本身）。
+       *
+       * 这两个 catch 原来都是空的（`.catch(() => [])` / `.catch(() => {})`），
+       * 而本函数对调用方的承诺恰恰是"先清空再写回，**保证与备份一致**"。
+       * 清不掉的时候（权限不足、或 PDF 正被阅读器占用 —— Windows 上很常见），
+       * documents/ 里会留下不属于这份备份的旧文件，而这里照样返回 ok:true：
+       * 用户看到"导入完成，文档资料已替换为备份内容"，手册库里却混着上一台机器的
+       * 资料，且没有任何地方能看出这件事。
+       * 现在把清除失败收集起来随结果返回，由界面如实转述（见 utils/backup.js）。
+       */
+      const cleanupFailures = []
+      let existing = []
+      try {
+        existing = await fs.promises.readdir(dir)
+      } catch (error) {
+        cleanupFailures.push(`读取 documents 目录失败：${error.message}`)
+      }
       for (const name of existing) {
-        await fs.promises.unlink(path.join(dir, name)).catch(() => {})
+        try {
+          await fs.promises.unlink(path.join(dir, name))
+        } catch (error) {
+          // ENOENT = 本来就不在，不是失败；其余（EBUSY / EPERM / EACCES）要记下来
+          if (error.code !== 'ENOENT') cleanupFailures.push(`${name}（${error.code || error.message}）`)
+        }
       }
       // 写回备份文件；文件名做安全清洗，禁止路径穿越
       let total = 0
@@ -312,7 +333,16 @@ function registerIpc() {
         if (total > 200 * 1024 * 1024) return { ok: false, error: '备份内文档总量超过 200MB，恢复中止' }
         await fs.promises.writeFile(path.join(dir, name), buf)
       }
-      return { ok: true, restored: files.length }
+      return cleanupFailures.length
+        // 仍然 ok:true —— 文件确实写回去了，能用的部分照常可用。
+        // 但把"没清干净"如实说出来，让界面能补一句"有 N 份旧文档没清掉"。
+        ? {
+            ok: true,
+            restored: files.length,
+            cleanupFailures,
+            warning: `有 ${cleanupFailures.length} 项旧文档未能清除：${cleanupFailures.slice(0, 3).join('；')}${cleanupFailures.length > 3 ? ' 等' : ''}`
+          }
+        : { ok: true, restored: files.length }
     } catch (error) {
       return { ok: false, error: error.message }
     }

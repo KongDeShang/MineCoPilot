@@ -131,8 +131,17 @@ async function collectDocsBrowser() {
   return files
 }
 
+/**
+ * 恢复文档文件（浏览器版：清空 IndexedDB 里的文档库再写回）
+ *
+ * 与 Electron 版是同一个承诺、同一处隐患：原来失败被空 catch 抹掉，
+ * 而调用方（Settings 的导入完成弹窗）会明说"文档资料已替换为备份内容"。
+ * 现在返回结果，由 importBackup 统一收进 docRestore。
+ *
+ * @returns {Promise<{ok:boolean, error?:string}>}
+ */
 async function restoreDocsBrowser(files) {
-  if (!Array.isArray(files) || !files.length) return
+  if (!Array.isArray(files) || !files.length) return { ok: true }
   try {
     const idb = await idbDocsOpen()
     const tx = idb.transaction(DOCS_IDB_STORE, 'readwrite')
@@ -144,7 +153,10 @@ async function restoreDocsBrowser(files) {
     }
     await new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onerror = () => reject(tx.error) })
     idb.close()
-  } catch { /* 恢复失败不阻断主流程 */ }
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, error: (error && error.message) || String(error) }
+  }
 }
 
 function blobToBase64(blob) {
@@ -347,16 +359,35 @@ export async function importBackup(fileContent) {
   // 恢复用户设置
   restoreSettings(parsed.settings)
 
-  // 恢复文档文件（Electron 走主进程还原 documents/；浏览器写回 IndexedDB）
+  /*
+   * 恢复文档文件（Electron 走主进程还原 documents/；浏览器写回 IndexedDB）
+   *
+   * 文档恢复失败**不阻断主流程**（数据主体已经恢复了，为此让整个导入失败不合理），
+   * 但不能像原来那样用一个空 catch 抹掉：这一步做的是"删掉当前全部手册再写回"，
+   * 失败意味着手册库缺文件、或混进不属于这份备份的旧文件。
+   * 而调用方（Settings.vue 的导入完成弹窗）会明说"文档资料已替换为备份内容" ——
+   * 那句就是谎报。所以这里把结果收敛成 docRestore 交给调用方如实转述。
+   *
+   * 注意主进程那条路径**不会**因此 reject：它以 { ok:false } / { warning } 表达失败，
+   * 只有 IPC 层异常才走下面的 catch。
+   */
+  let docRestore = { ok: true }
   try {
     if (isElectron()) {
-      await window.electronAPI.docs.restoreAll({ files: parsed.docFiles || [] })
+      const r = await window.electronAPI.docs.restoreAll({ files: parsed.docFiles || [] })
+      if (r && r.ok === false) {
+        docRestore = { ok: false, error: r.error || '主进程未返回成功' }
+      } else if (r && r.warning) {
+        docRestore = { ok: true, warning: r.warning }
+      }
     } else {
-      await restoreDocsBrowser(parsed.docFiles)
+      const r = await restoreDocsBrowser(parsed.docFiles)
+      if (r && r.ok === false) docRestore = { ok: false, error: r.error }
     }
-  } catch {
-    /* 文档恢复失败不阻断主流程 */
+  } catch (error) {
+    docRestore = { ok: false, error: (error && error.message) || String(error) }
   }
+  if (!docRestore.ok) console.error('[备份] 文档文件恢复失败：', docRestore.error)
 
-  return { ok: true, exportedAt: parsed.exportedAt, version: parsed.version || '1.0.0', autoBackupPath }
+  return { ok: true, exportedAt: parsed.exportedAt, version: parsed.version || '1.0.0', autoBackupPath, docRestore }
 }

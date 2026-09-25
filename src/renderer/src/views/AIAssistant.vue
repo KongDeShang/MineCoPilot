@@ -104,6 +104,15 @@
                       <el-icon><Delete /></el-icon> 清空对话
                     </el-button>
                     <el-tooltip
+                      content="开启：本地模型把规则引擎的结论润色成人话（纯离线，慢机器上需等待数秒）；关闭：直接显示规则引擎结论，响应更快。"
+                      placement="bottom"
+                    >
+                      <span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--text-2)">
+                        模型润色
+                        <el-switch v-model="narrationOn" size="small" />
+                      </span>
+                    </el-tooltip>
+                    <el-tooltip
                       content="数字由本地规则引擎实时计算，规程来自本地知识库，全程不联网；未命中时明确告知查不到。"
                       placement="bottom"
                     >
@@ -121,6 +130,7 @@
                   v-for="(msg, index) in messages"
                   :key="index"
                   :msg="msg"
+                  :undoable="canUndoMsg(msg)"
                   @pick-candidate="(cand) => pickCandidate(msg, cand)"
                   @confirm-plan="confirmPlan(msg)"
                   @cancel-plan="cancelPlan(msg)"
@@ -168,7 +178,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, nextTick, watch, onMounted, onBeforeUnmount, defineAsyncComponent } from 'vue'
+import { ref, reactive, computed, nextTick, watch, onMounted, onBeforeUnmount, defineAsyncComponent } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ChatMessage from '../components/ChatMessage.vue'
 import QuickQuestions from '../components/QuickQuestions.vue'
@@ -178,7 +188,7 @@ import { generateReport } from '../utils/reportGenerator'
 import { useAppStore } from '../stores/appStore'
 import { now } from '../utils/dates'
 import { llmAvailable, llmLoad } from '../utils/llmClient'
-import { htmlToText, narrateConclusionStream } from '../utils/narrate'
+import { htmlToText, narrateConclusionStream, isNarrationEnabled, setNarrationEnabled } from '../utils/narrate'
 import { statusLabel, priorityLabel } from '../utils/dictionaries'
 import { escapeHtml } from '../utils/html'
 import { typewriterHTML } from '../utils/typewriter'
@@ -216,6 +226,11 @@ const ExcelImportPanel = defineAsyncComponent({
 const store = useAppStore()
 
 const activeTab = ref('chat')
+// 本地模型润色开关：关闭后跳过叙述层，直接展示规则引擎结论（慢机器上避免等待感）
+const narrationOn = computed({
+  get: () => isNarrationEnabled(),
+  set: (v) => setNarrationEnabled(v)
+})
 const fillingSample = ref(false)
 const voiceText = ref('')
 const ocrText = ref('')
@@ -846,6 +861,8 @@ function narrateFallbackHtml(reason) {
  */
 async function narrateStream(msg, resultHtml, { persona } = {}) {
   try {
+    // 用户主动关闭润色时静默跳过（连降级块也不插——那是"不可用"的提示，不是"已关闭"的提示）
+    if (!isNarrationEnabled()) return
     if (!llmAvailable()) return
     const plain = htmlToText(resultHtml).slice(0, 1200)
     if (!plain) return
@@ -1060,6 +1077,21 @@ function cancelPlan(msg) {
 }
 
 /**
+ * 这张卡上的「撤销这次写入」现在能不能按。
+ *
+ * 判据与 undoPlan 完全一致（同一次页面加载），**有意写在两处**：
+ * 这里是"外观"（按钮置灰 + tooltip），undoPlan 里是"执行前的最后一道闸"。
+ * 只留外观那道不行 —— 按钮状态是渲染出来的，任何一次渲染异常或
+ * 有人直接调用 undoPlan 都会绕过它；只留执行那道也不行 ——
+ * 那就是原来的样子："按钮亮着，点了才告诉你不能用"。
+ */
+function canUndoMsg(msg) {
+  const exec = msg.execResult
+  if (!exec || exec.undone) return false
+  return exec.session === CHAT_SESSION_ID
+}
+
+/**
  * 撤销：只撤这张卡片对应的那一次写入。
  * 走 store 的撤销栈（离开页面后也能撤），但按 id 精确定位——
  * 盲取栈顶会撤错对象（写了 A、B 两条再点 A 的撤销，撤掉的却是 B）。
@@ -1070,6 +1102,9 @@ function undoPlan(msg) {
   // 撤销栈只在内存里保留（nlActions：刷新即失效），刷新后条目 id 从 undo-1 重新排。
   // 旧卡上的 undoId 可能是刷新前那个 undo-1，照着撤就会撤掉刷新后新写入的那一条——
   // 与其撤错，不如说清"这次撤不了、数据还是写入后的状态"。
+  //
+  // 这一条现在通常**按不到了**（按钮已按 canUndoMsg 置灰，见 ChatMessage），
+  // 但闸门留在这里：置灰是外观，外观不该是唯一防线。
   if (exec.session !== CHAT_SESSION_ID) {
     ElMessage.warning('页面已刷新，这次写入不能再自动撤销（撤销记录只保留在内存中）；数据仍是写入后的状态，请到工单 / 维保页手工回退')
     return

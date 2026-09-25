@@ -1403,6 +1403,99 @@ async function main() {
     check('首启只播一次：刷新后不再自动弹（不打扰老用户）',
       !t.hasPopover, t.hasPopover ? '又自动弹了' : '无弹层')
 
+    // ---------- 13. 错误边界：运行期异常要变成可见提示，而不是白屏 ----------
+    /**
+     * 为什么这一段必须在**真实浏览器**里跑，store-check 不够：
+     *   store-check 只能证明"处理器本身行为正确"，证明不了另外两件事 ——
+     *   (1) main.js 真的把处理器装到了应用实例上（少写那一行，那边的断言照样全绿）；
+     *   (2) App.vue 真的把 appError 渲染成了提示条（拿掉模板，也是全绿）。
+     *   一段"三层中只测了中间层"的守卫生效范围，正是这次要修的那类问题。
+     *
+     * 触发方式用 `window.dispatchEvent(new ErrorEvent(...))`：这是四条入口之一
+     * （组件外同步异常）的**真实**路径，走的是 installErrorBoundaries 里挂上的监听器。
+     * 它不产生 uncaught exception，所以不会被本脚本顶部的 exceptionThrown 统计误伤。
+     *
+     * 诚实的边界：这一段没有让某个组件**真的渲染失败**（那需要在页面上下文里
+     * 注坏一份数据，跨重构极易失效）。所以它证明的是"处理器在位 + 提示条会渲染 +
+     * 日志会落"，Vue 把组件内异常路由到 errorHandler 这一点由 store-check 覆盖，
+     * 两者合起来才是完整的一条链。
+     */
+    const ERR_MSG = 'e2e 探针：这一页渲染炸了'
+    const errWired = await session.eval(`(() => {
+      const app = document.querySelector('#app').__vue_app__
+      return { hasHandler: typeof app.config.errorHandler === 'function' }
+    })()`)
+    check('错误边界：main.js 真的把处理器装到了应用实例上（不是只写了个模块）',
+      errWired.hasHandler === true, String(errWired.hasHandler))
+
+    const errReported = await session.eval(`(async () => {
+      window.dispatchEvent(new ErrorEvent('error', {
+        message: '${ERR_MSG}',
+        error: new Error('${ERR_MSG}')
+      }))
+      // 必须等一拍再读 DOM：错误处理是同步的，但 Vue 的 DOM 更新是**异步**的
+      // （nextTick 批量 flush）。同步读会读到"提示条还没渲染"的中间态，
+      // 把一次正常的异步更新误判成白屏 —— 这条断言第一次写就是这么红的。
+      await new Promise(r => setTimeout(r, 400))
+      const bar = document.querySelector('.error-bar')
+      return {
+        appeared: !!bar,
+        text: bar ? bar.textContent.replace(/\\s+/g, ' ').trim() : '',
+        hasRecover: !!document.querySelector('.error-bar-actions button'),
+        // 出错后界面必须还活着：main 区还有内容，没变成一块白屏
+        mainAlive: !!document.querySelector('.app-main') && document.querySelector('.app-main').textContent.trim().length > 0
+      }
+    })()`)
+    check('错误边界：真实异常后界面出现提示条（不是白屏）',
+      errReported.appeared === true, errReported.appeared ? '提示条在' : '没有提示条（就是白屏）')
+    check('错误边界：提示条写明原因与出错位置',
+      errReported.text.includes(ERR_MSG) && /窗口运行时/.test(errReported.text),
+      errReported.text.slice(0, 120) || '(空)')
+    check('错误边界：提示条交代"其它功能不受影响"的恢复口径',
+      /其它功能不受影响/.test(errReported.text) && /重启应用/.test(errReported.text),
+      errReported.text.slice(0, 120) || '(空)')
+    check('错误边界：给出可点的恢复入口（返回看板 / 重新加载界面）',
+      errReported.hasRecover === true, String(errReported.hasRecover))
+    check('错误边界：出错后主内容区仍然有内容（提示条与被提示对象不在同一棵子树）',
+      errReported.mainAlive === true, String(errReported.mainAlive))
+
+    // 日志：现场没有开发控制台，操作日志是唯一能回答"刚才怎么了"的地方
+    const errLogged = await session.eval(`(() => {
+      const store = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('app')
+      const first = store.recentLogs[0]
+      return { content: String(first && first.content || ''), source: String(first && first.source || '') }
+    })()`)
+    check('错误边界：异常写进了本机操作日志（离线现场唯一的事后凭据）',
+      errLogged.content.includes(ERR_MSG) && errLogged.source === '错误边界',
+      errLogged.content.slice(0, 120) || '(日志为空)')
+
+    // 「知道了」必须真的收掉提示条 —— 一条永远消不掉的红色横幅会把正常界面也弄得像坏了
+    const dismissed = await session.eval(`(async () => {
+      const btn = Array.from(document.querySelectorAll('.error-bar-actions button'))
+        .find(b => b.textContent.trim() === '知道了')
+      if (!btn) return { ok: false, why: '找不到「知道了」按钮' }
+      btn.click()
+      await new Promise(r => setTimeout(r, 400))
+      return { ok: !document.querySelector('.error-bar') }
+    })()`)
+    check('错误边界：点「知道了」后提示条消失（否则正常界面也像坏的）',
+      dismissed.ok === true, dismissed.why || '已收掉')
+
+    // 恢复之后应用要还能用：换一个页面走一遍，证明出错没把路由/渲染拖坏
+    // 用 .equip-card 而不是 .el-table__row：设备台账是**卡片**列表不是表格，
+    // 拿表格行数当"渲染成功"的判据会恒为 0，把一次正常换页判成失败。
+    const afterErrNav = await session.eval(`(async () => {
+      location.hash = '#/equipment'
+      await new Promise(r => setTimeout(r, 1500))
+      return {
+        cards: document.querySelectorAll('.equip-card').length,
+        stillClean: !document.querySelector('.error-bar')
+      }
+    })()`)
+    check('错误边界：出错后换页仍然正常渲染（错误没有拖坏整棵应用）',
+      afterErrNav.cards > 0 && afterErrNav.stillClean === true,
+      `设备卡片 ${afterErrNav.cards} 张 / 提示条残留 ${!afterErrNav.stillClean}`)
+
     // ---------- 汇总 ----------
     console.log('')
     for (const c of checks) {

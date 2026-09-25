@@ -61,7 +61,7 @@
             <span class="part-name">{{ row.name }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="category" label="类别" width="110">
+        <el-table-column v-if="!isNarrow" prop="category" label="类别" width="110">
           <template #default="{ row }"><el-tag size="small" effect="plain">{{ row.category }}</el-tag></template>
         </el-table-column>
         <el-table-column label="库存" width="130">
@@ -77,7 +77,7 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="unit_price" label="单价" width="90">
+        <el-table-column v-if="!isNarrow" prop="unit_price" label="单价" width="90">
           <template #default="{ row }">¥{{ row.unit_price }}</template>
         </el-table-column>
         <el-table-column label="操作" width="210" fixed="right">
@@ -113,7 +113,8 @@
           </template>
         </el-table-column>
         <el-table-column prop="quantity" label="数量" width="70" />
-        <el-table-column label="来源" min-width="160">
+        <!-- 窄屏（<1200px）时来源列让位：时间/备件/方向/数量始终可见 -->
+        <el-table-column v-if="!isNarrow" label="来源" min-width="160">
           <template #default="{ row }">
             {{ row.note || (row.ref_type ? `${row.ref_type} #${row.ref_id}` : '—') }}
           </template>
@@ -212,6 +213,10 @@ import { ElMessage } from 'element-plus'
 import { Plus, ShoppingCart, WarningFilled, Box, Search, Tickets, CircleCheck } from '@element-plus/icons-vue'
 import { useAppStore } from '../stores/appStore'
 import AnimatedNumber from '../components/AnimatedNumber.vue'
+import { useNarrowMode } from '../utils/responsive'
+
+// 窄屏（<1200px）隐藏次要列：类别/单价/流水来源让位，名称/库存/状态保持可见
+const { isNarrow } = useNarrowMode()
 
 const store = useAppStore()
 

@@ -625,7 +625,19 @@ export function evaluateTrend(snapshots = []) {
   }
 }
 
-/** 是否需要"恶化中"预警（供 Dashboard 汇总） */
+/**
+ * 是否需要"恶化中"预警
+ *
+ * ⚠️ **当前无消费方**（2026-09-25 全仓 grep 确认，含 scripts/ 与 docs/）。
+ * 原注释写的是"供 Dashboard 汇总"，但 Dashboard 读的是 evaluateTrend 返回对象上的
+ * `trend.worsening` 字段（本函数内部那行判断的包装而已），并没有调它。
+ *
+ * 之所以没删：`utils/health.js` 在项目的**不动清单**上（docs/tasks/00-任务总览.md，
+ * 健康评分与规则引擎属"只增不改"的已验证资产）。删一个零调用方的一行包装
+ * 不可能造成回归，但那确实与清单字面冲突，需要单独点头 ——
+ * 于是先按下不表，把"无消费方"这件事写在源头上，免得下一个人以为它在被用。
+ * 要清理请连同 docs/完善计划.md 的 P1-5 一并处理。
+ */
 export function isWorsening(snapshots = []) {
   const trend = evaluateTrend(snapshots)
   return trend.kind === 'worsening'

@@ -1,6 +1,10 @@
 node_modules/
 dist/
 release/
+# release-online/ 是「在线包」的打包输出（含 180MB 的 setup.exe），与 release/ 同类。
+# 原来只忽略了 release/，这个目录一直是未跟踪状态 —— 离一次 git add -A 只差一步，
+# 而 180MB 的二进制一旦入库就再也拿不出来了（历史里删不掉，只能重写）。
+release-online/
 # 临时/中间文件（.tmp-*/ 只忽略目录，漏掉了同前缀的**文件**——
 # 曾经因为这条漏网，一次 git add -A 把 .tmp-commit-msg.txt 提交了进去）
 .tmp-*

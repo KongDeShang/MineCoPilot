@@ -22,10 +22,12 @@
  *
  * 覆盖范围与**不覆盖**的：
  *   · 覆盖：首启播种判据、addEquipment 字段白名单、别名端到端落盘、落盘失败可见性、
- *     日志窗口、撤销栈清理、工单持久化往返。
+ *     日志窗口、撤销栈清理、工单持久化往返、手册检索池上限、手册 chunk_total 往返、
+ *     错误边界处理器行为（挂载 / 落日志 / 去重 / 自身不抛错）。
  *   · 不覆盖：手册入库（依赖浏览器 origin，Node 里取不到 `/manuals/*.json`，
  *     `resetToSeedData` 会因此打三行警告；真实浏览器下的手册库由 e2e 覆盖）、
- *     以及任何需要 DOM 的路径。
+ *     以及任何需要 DOM 的路径 —— **错误提示条能不能渲染**就属于这一类，
+ *     由 e2e 第 13 节覆盖（那里还顺带验了 main.js 真的装了处理器）。
  */
 import initSqlJsImport from 'sql.js'
 import { readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync, statSync } from 'node:fs'
@@ -305,6 +307,194 @@ check('schema_version 已写入 meta', db.getMeta('schema_version') === '1', Str
   const found = restarted.store.workOrders.find(o => o.id === created.id)
   check('工单写入后重启仍在（persistence 行映射没丢字段）',
     !!found && found.title === '自检探针工单', found ? `#${found.id} ${found.title}` : '重启后找不到')
+}
+
+// 10) 手册检索池：不得有第二个上限（docs/完善计划.md P1-2 的回归守卫）
+//
+// 缺陷原貌：入库上限是 documentDomain.CHUNK_LIMIT = 300，而 appStore 的检索池
+// 另写了 `doc.chunks.slice(0, 120)`。两个常量各写各的，超过 120 页的手册，
+// 第 121 页起的正文永远进不了检索池，界面却按 PDF 总页数显示"可问答（N 页）"。
+// 随包 3 本手册是 36/32/18 页，正好演示不出来。
+//
+// 这条断言必须能失败：把 slice(0, 120) 放回去，下面第一条就会报"进池 120 片"。
+{
+  const makeProbeDoc = (id, chunkCount, chunkTotal) => ({
+    id,
+    title: `探针手册-${chunkCount}`,
+    docType: '使用手册',
+    model: '徐工 XCA60E',
+    category: '起重机',
+    fileName: `${id}.pdf`,
+    filePath: '',
+    fileSize: 1,
+    // pages 用"截断前总数"更贴近真实：被截断时 pages > 可检索页数
+    pages: chunkTotal,
+    status: 'ready',
+    chunkTotal,
+    chunks: Array.from({ length: chunkCount }, (_, i) => ({ page: i + 1, text: `探针正文第 ${i + 1} 页` })),
+    note: '',
+    addedAt: '2026-09-25'
+  })
+
+  // 200 片 > 旧版检索侧的硬编码 120，且 < 入库上限 300 —— 本该整本可检索
+  store.documents = [makeProbeDoc('doc-probe-200', 200, 200), ...store.documents]
+  const pool = store.answerItems.filter(x => String(x.id).startsWith('doc-probe-200-'))
+  check('手册检索池取全量切片（200 片整本进池，不被旧版 120 的硬编码截断）',
+    pool.length === 200, `进池 ${pool.length} 片`)
+  check('第 200 页确实可被检索（旧版会丢在 120 之后）',
+    pool.some(x => x.id === 'doc-probe-200-p200'),
+    pool.some(x => x.id === 'doc-probe-200-p200') ? '在池中' : '丢失')
+
+  // 截断标注：入库被 CHUNK_LIMIT 截到 300 时，chunkTotal 仍记 420，
+  // 界面才能算出"仅前 300 页可问答"而不是拿 pages 冒充。
+  store.documents = [makeProbeDoc('doc-probe-trunc', 300, 420), ...store.documents]
+  const truncPool = store.answerItems.filter(x => String(x.id).startsWith('doc-probe-trunc-'))
+  const truncDoc = store.documents.find(d => d.id === 'doc-probe-trunc')
+  check('被截断的手册：检索池等于已存切片数（300），且 chunkTotal 记下真实总数（420）',
+    truncPool.length === 300 && truncDoc.chunkTotal === 420,
+    `进池 ${truncPool.length} 片 / 总数 ${truncDoc.chunkTotal}`)
+  check('被截断时 pages(420) != 可检索页数(300) —— 界面据此标黄，不能拿 pages 冒充',
+    truncDoc.pages > truncPool.length,
+    `pages=${truncDoc.pages} 可检索=${truncPool.length}`)
+
+  /*
+   * chunk_total 必须真的落盘并读回：这一列是本次迁移新加的，
+   * 只写不读（或列没建成）都会让重启后截断标注凭空消失。
+   *
+   * 这里为什么要借 addLog 推一把：
+   *   persistAll() 是唯一把内存列表映射成数据库行的入口，而它没有对外暴露
+   *   （store 只导出 saveNow）。上面是直接给 store.documents 赋值的，
+   *   如果不经 persistAll，这些手册压根没进过 SQLite —— saveNow() 会因
+   *   `dirty === false` 直接返回 false（db.persist 的既定行为），
+   *   于是"重启后找不到该手册"，看起来像是持久化坏了，实际是这条断言自己没落盘。
+   *   addLog 是一条真实的用户路径（记操作日志 → persistAll 整表回写），
+   *   用它触发既不改数据语义，也顺带覆盖了"日志写入会带上本次手册变更"。
+   */
+  store.addLog({ content: '自检：把探针手册推入持久化', source: '自检' })
+  await store.saveNow()
+  const afterDocs = (await restartStore()).store.documents
+  const persisted = afterDocs.find(d => d.id === 'doc-probe-trunc')
+  check('chunk_total 落盘并读回（重启后截断标注不丢）',
+    !!persisted && persisted.chunkTotal === 420,
+    persisted ? `chunkTotal=${persisted.chunkTotal}` : '重启后找不到该手册')
+  check('chunks 落盘并读回（检索池重启后仍是全量 300 片）',
+    !!persisted && persisted.chunks.length === 300,
+    persisted ? `${persisted.chunks.length} 片` : '重启后找不到该手册')
+}
+
+// 11) 错误边界：运行期异常必须变成"一条提示 + 一行日志"，而不是一块白屏
+//     （docs/完善计划.md P1-3 的回归守卫）
+//
+// 为什么这条断言值得写：README 自己承认"模板里调一个没导入的函数会整页白屏"，
+// 而防线只有 vue/no-undef-properties 一条**静态**规则 —— 它管不住运行期异常。
+// 现场用户看到白屏只能关掉重开，事后也没有任何日志能回答"刚才怎么了"。
+//
+// 这里用桩 log 计数（要断去重），同时**转发给真实的 store.addLog** ——
+// 后者才是 main.js 实际接的线，不转发就只测了"边界会调回调"，
+// 测不到"操作日志真的收得下这种 entry"。
+{
+  const { installErrorBoundaries, clearError, appError } =
+    await import(mirror('utils/errorBoundary.mjs'))
+
+  const logs = []
+  const app = { config: {} }
+  let routeErrorHandler = null
+  installErrorBoundaries(app, {
+    router: { onError: (fn) => { routeErrorHandler = fn } },
+    log: (entry, options) => {
+      logs.push({ entry, options })
+      store.addLog(entry, options) // 与 main.js 的接线一致
+    }
+  })
+
+  check('错误边界：app.config.errorHandler 已挂上（否则组件内异常仍会白屏）',
+    typeof app.config.errorHandler === 'function', typeof app.config.errorHandler)
+  check('错误边界：router.onError 已挂上（懒加载 chunk 失败不经过 errorHandler）',
+    typeof routeErrorHandler === 'function', typeof routeErrorHandler)
+
+  app.config.errorHandler(new Error('自检探针：渲染炸了'), {}, 'render function')
+  check('错误边界：组件异常会写进操作日志（现场唯一的事后凭据）',
+    logs.length === 1 && logs[0].entry.content.includes('自检探针：渲染炸了'),
+    logs.length ? logs[0].entry.content : '没有写入日志')
+  check('错误边界：日志里带上出错位置（同一个 message 在不同钩子里含义不同）',
+    logs.length === 1 && logs[0].entry.content.includes('render function'),
+    logs.length ? logs[0].entry.content : '(无)')
+  check('错误边界：真的接到 store.addLog 上（不是只调了个回调）',
+    String(store.recentLogs[0] && store.recentLogs[0].content || '').includes('自检探针：渲染炸了'),
+    String(store.recentLogs[0] && store.recentLogs[0].content || '(日志首条为空)'))
+  check('错误边界：写日志用 silent，避免与持久化层互相触发',
+    logs.length === 1 && !!logs[0].options && logs[0].options.silent === true,
+    JSON.stringify(logs[0] && logs[0].options))
+  check('错误边界：提示条状态已置位（界面据此渲染"返回看板"）',
+    !!appError.value && appError.value.message === '自检探针：渲染炸了',
+    appError.value ? appError.value.message : '(空)')
+
+  /*
+   * 去重：渲染期异常是**按组件实例**触发的，一个 v-for 里的取值错误一帧能抛几十次。
+   * 不去重的话日志窗口（LOG_WINDOW=500）会被同一句话瞬间冲干净 ——
+   * 恰好把"出错前发生了什么"这段最该留的证据挤掉。
+   */
+  for (let i = 0; i < 20; i++) {
+    app.config.errorHandler(new Error('自检探针：渲染炸了'), {}, 'render function')
+  }
+  check('错误边界：同一条错误重复 20 次只记 1 条日志（不刷掉出错前的上下文）',
+    logs.length === 1, `${logs.length} 条`)
+  check('错误边界：重复时提示条累加计数（用户能看到"已出现 N 次"）',
+    !!appError.value && appError.value.count === 21,
+    appError.value ? String(appError.value.count) : '(空)')
+
+  /*
+   * 处理器自身不得抛错 —— 它在异常路径上被调用，自己再抛就是死循环
+   * （handler 抛错 → 又触发 handler），比原来的白屏更难查。
+   * 这几种输入都是真实会出现的：throw null、被 throw 出来的字符串、
+   * 循环引用对象（JSON.stringify 会抛）、message 是 getter 且抛错。
+   */
+  const weird = { self: null }
+  weird.self = weird
+  Object.defineProperty(weird, 'message', { get() { throw new Error('message getter 抛错') } })
+  const thrown = []
+  const silent = []
+  for (const bad of [null, undefined, '纯字符串错误', weird, { message: 123 }]) {
+    clearError()
+    try {
+      app.config.errorHandler(bad, {}, 'setup function')
+    } catch (error) {
+      thrown.push(String(error))
+    }
+    // 不抛只是及格线：还得**留下可见痕迹**。若某种畸形输入让提示条拿不到文案，
+    // 界面就等于什么都没发生 —— 那又回到"点了没反应"，与白屏只差一个程度。
+    if (!appError.value) silent.push(JSON.stringify(bad) || String(bad))
+  }
+  check('错误边界：遇到 null / 循环引用 / getter 抛错都不抛（否则死循环）',
+    thrown.length === 0, thrown.join('；') || '5 种畸形输入全部安全')
+  check('错误边界：5 种畸形输入都必须留下提示（拿不到 message 也要给兜底文案）',
+    silent.length === 0, silent.join('、') || '全部有提示')
+
+  // 写日志本身失败（落盘层出问题）不得反向触发上报
+  const app2 = { config: {} }
+  installErrorBoundaries(app2, {
+    router: { onError: () => {} },
+    log: () => { throw new Error('日志层也炸了') }
+  })
+  let leaked = null
+  try {
+    app2.config.errorHandler(new Error('自检探针：日志层故障'), {}, 'render function')
+  } catch (error) {
+    leaked = String(error)
+  }
+  check('错误边界：写日志失败时处理器仍然不抛（不递归）',
+    leaked === null, leaked || '安全')
+
+  // 路由级异常不经过 errorHandler，漏了这一段就等于漏了懒加载失败
+  const beforeRoute = logs.length
+  routeErrorHandler(new Error('自检探针：chunk 加载失败'), { fullPath: '/equipment' })
+  check('错误边界：路由异常单独上报（懒加载失败不走组件错误处理器）',
+    logs.length === beforeRoute + 1 && logs[beforeRoute].entry.content.includes('/equipment'),
+    logs.length > beforeRoute ? logs[beforeRoute].entry.content : '没有写入日志')
+
+  clearError()
+  check('错误边界：clearError 能清空提示条（点"知道了"之后不该一直挂着）',
+    appError.value === null, String(appError.value))
 }
 
 // ---------------------------------------------------------------------------

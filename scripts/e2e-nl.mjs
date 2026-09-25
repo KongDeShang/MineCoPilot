@@ -263,6 +263,35 @@ async function main() {
 
     // ---------- 5. 撤销（全局入口，离开聊天页也能撤） ----------
     await session.goto('/ai-assistant', 2600)
+
+    /*
+     * 4.5 刷新之后，旧卡上的「撤销这次写入」必须**看起来就不能按**。
+     *
+     * 原来的行为是：按钮照常高亮，点了才弹一句"页面已刷新，这次写入不能再自动撤销"。
+     * 诚实，但用户感知是 bug —— 亮着的按钮不能用，点一下才发现。
+     * 现在把拒绝提前到外观上（置灰 + tooltip）。
+     *
+     * 这条断言必须**成对**看下一条：只测"置灰"的话，一个永远置灰的实现
+     * （功能等于被删掉）照样全绿。所以紧接着验"刚写入的卡必须是可按的"。
+     */
+    const staleUndo = await session.eval(`(() => {
+      const actions = Array.from(document.querySelectorAll('.cmd-result-actions'))
+      const withUndo = actions.filter(a => /撤销这次写入/.test(a.textContent))
+      if (!withUndo.length) return { found: false }
+      const box = withUndo[0]
+      const btn = Array.from(box.querySelectorAll('button')).find(b => /撤销这次写入/.test(b.textContent))
+      return {
+        found: true,
+        disabled: btn.disabled === true || btn.classList.contains('is-disabled'),
+        hint: Array.from(box.querySelectorAll('.cmd-hint')).map(e => e.textContent.trim()).join(' | ')
+      }
+    })()`)
+    check('刷新后旧卡的撤销按钮置灰（不是"亮了点一下才说不能用"）',
+      staleUndo.found === true && staleUndo.disabled === true,
+      staleUndo.found ? `disabled=${staleUndo.disabled}` : '页面上找不到带撤销入口的执行卡')
+    check('置灰的按钮把原因写在界面上（不只是 tooltip 里的一句）',
+      /已不能自动撤销/.test(staleUndo.hint || ''), staleUndo.hint || '(无提示文案)')
+
     const secondWrite = await session.eval(`(async () => {
       ${ASK_HELPER}
       const app = document.querySelector('#app').__vue_app__
@@ -275,10 +304,18 @@ async function main() {
       if (!btn || btn.disabled) return { ok: false, reason: '理解卡不可确认' }
       btn.click()
       await new Promise(r => setTimeout(r, 2500))
-      return { ok: true, before, after: store.workOrders.length }
+      const box = [...document.querySelectorAll('.cmd-result-actions')].pop()
+      const undoBtn = box ? Array.from(box.querySelectorAll('button')).find(b => /撤销这次写入/.test(b.textContent)) : null
+      return {
+        ok: true, before, after: store.workOrders.length,
+        freshUndoDisabled: undoBtn ? (undoBtn.disabled === true || undoBtn.classList.contains('is-disabled')) : null
+      }
     })()`)
     check('第二条口述记录可写入', secondWrite.ok && secondWrite.after === secondWrite.before + 1,
       JSON.stringify(secondWrite))
+    // 与上一条成对：本次页面加载写入的卡，撤销按钮必须是可按的
+    check('刚写入的卡撤销按钮仍可按（置灰只针对跨刷新失效的，没有误伤）',
+      secondWrite.freshUndoDisabled === false, `disabled=${secondWrite.freshUndoDisabled}`)
 
     const undoDiag = await session.eval(`(() => {
       const app = document.querySelector('#app').__vue_app__

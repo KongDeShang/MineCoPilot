@@ -30,7 +30,15 @@ async function loadDocService() {
 export function createDocumentDomain(ctx) {
   const { documents, persistAll, addLog } = ctx
 
-  /** 入库时保留的文字层上限（够问答检索，又不至于把整库撑大） */
+  /**
+   * 入库时保留的文字层上限（够问答检索，又不至于把整库撑大）
+   *
+   * ⚠️ 这个上限**必须与检索口径一致**。曾经它被写成 300，而 appStore 的检索池
+   * 另写了一个 `slice(0, 120)` —— 于是超过 120 页的手册，第 121 页起的正文
+   * 在 AI 问答里永久检索不到，而界面照旧按 PDF 总页数显示"可问答（N 页）"，
+   * 用户无从察觉（随包 3 本手册是 36/32/18 页，正好演示不出来）。
+   * 现在检索池取全量已存切片，截断与否由下面的 readinessOf 如实标注。
+   */
   const CHUNK_LIMIT = 300
 
   /**
@@ -39,12 +47,36 @@ export function createDocumentDomain(ctx) {
    * 抽不到文字层不算失败：扫描件照样收下，只是降级为"仅查看"，
    * 界面上如实写明，不硬撑成"可问答"。手工添加与随包示例共用这一套判定，
    * 免得两处对"什么算可问答"给出不同答案。
+   *
+   * @param {Array} chunks 抽取到的逐页文字层（一页一片）
+   * @returns {{status:string, note:string, total:number, indexed:number, truncated:boolean}}
+   *   total     —— 抽取到的切片总数（截断前）
+   *   indexed   —— 实际可被 AI 检索的页数（= 入库保留的切片数）
+   *   truncated —— 是否被 CHUNK_LIMIT 截断
    */
   function readinessOf(chunks) {
-    const ok = Array.isArray(chunks) && chunks.length > 0
+    const total = Array.isArray(chunks) ? chunks.length : 0
+    if (!total) {
+      return {
+        status: 'view_only',
+        note: '未提取到文字层（扫描件），可打开查看原文，暂不能直接问答',
+        total: 0,
+        indexed: 0,
+        truncated: false
+      }
+    }
+    const indexed = Math.min(total, CHUNK_LIMIT)
+    const truncated = total > CHUNK_LIMIT
     return {
-      status: ok ? 'ready' : 'view_only',
-      note: ok ? '' : '未提取到文字层（扫描件），可打开查看原文，暂不能直接问答'
+      status: 'ready',
+      total,
+      indexed,
+      truncated,
+      // 截断一定要写进 note —— 界面按 note 渲染，不写就等于瞒着用户。
+      // 注意这里报的是"可检索的页数"，不是 PDF 总页数：两者在被截断时并不相等。
+      note: truncated
+        ? `文字层共 ${total} 页，超出单份上限 ${CHUNK_LIMIT} 页 —— 仅前 ${indexed} 页可被 AI 检索，其余请在原文中查看`
+        : ''
     }
   }
 
@@ -79,13 +111,17 @@ export function createDocumentDomain(ctx) {
       fileSize: saved.size || file.size,
       pages: parsed.ok ? parsed.pages : 0,
       status: readiness.status,
+      // 截断前的切片总数：光看 chunks.length 分不清"本来就这么长"与"被截了"
+      chunkTotal: readiness.total,
       chunks: chunks.slice(0, CHUNK_LIMIT),
       note: readiness.note,
       addedAt: now()
     }
     documents.value = [doc, ...documents.value]
     addLog({
-      content: `添加手册「${doc.title}」${doc.status === 'ready' ? `（${doc.pages} 页，可问答）` : '（扫描件，仅查看）'}`,
+      // 日志里报"可问答 N 页"而不是 PDF 总页数：被截断时两者不相等，
+      // 按总页数记会让操作日志本身成为不实记录。
+      content: `添加手册「${doc.title}」${doc.status === 'ready' ? `（可问答 ${readiness.indexed} 页）` : '（扫描件，仅查看）'}`,
       source: '手册库',
       type: doc.status === 'ready' ? 'success' : 'warning',
       tagType: doc.status === 'ready' ? 'success' : 'warning'
@@ -150,6 +186,7 @@ export function createDocumentDomain(ctx) {
         fileSize: imported.size,
         pages: imported.pages,
         status: readiness.status,
+        chunkTotal: readiness.total,
         chunks: imported.chunks.slice(0, CHUNK_LIMIT),
         note: readiness.note,
         addedAt: now()
