@@ -197,6 +197,8 @@ const handledRate = computed(() => {
 
 /** 一键生成工单并标记已处理 */
 function generateOrder(a) {
+  // origin 只进日志（「告警：新建工单 #N「…」」），由 store.addWorkOrder 统一写 ——
+  // 原先这条日志写在这里，于是"新建工单"这个动作本身没留痕（P2-2 口径）。
   store.addWorkOrder({
     equipment_name: a.equipment.name,
     title: a.orderTitle,
@@ -204,12 +206,11 @@ function generateOrder(a) {
     priority: a.orderPriority,
     source: 'alert',
     description: `${a.value}\n建议：${a.suggestion}`
-  })
+  }, { origin: '告警' })
   // 写处置记录只有**一条**路径：store.setAlertDispositions()。
   // 不直接改 store.alertDispositions 的属性，是为了让"改内存 + 写 meta + scheduleSave"
   // 三件事永远一起发生 —— 直接改属性会写进内存却不落库。
   store.setAlertDispositions({ ...doneMap.value, [a.key]: 'handled' })
-  store.addLog({ content: `告警中心：为「${a.equipment.name}」生成工单「${a.orderTitle}」`, source: '告警', type: 'warning', tagType: 'warning' })
   ElMessage.success(`已为 ${a.equipment.name} 生成工单，可到「工单管理」派单处理`)
 }
 

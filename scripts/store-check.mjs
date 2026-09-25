@@ -25,7 +25,9 @@
  *     日志窗口、撤销栈清理、工单持久化往返、手册检索池上限、手册 chunk_total 往返、
  *     错误边界处理器行为（挂载 / 落日志 / 去重 / 自身不抛错）、
  *     撤销的持久化与跨刷新可撤（六个意图成对给出闭包与描述、两条路撤出同一状态、
- *     CAS 拒绝静默覆盖、重启后仍能撤且 id 不复用、超预算从最早淘汰并留日志）。
+ *     CAS 拒绝静默覆盖、重启后仍能撤且 id 不复用、超预算从最早淘汰并留日志）、
+ *     操作日志补全（备件出入库/新增备件、新建工单的来源前缀、复诊两个结论、
+ *     编辑设备与更新工单"带 log 才留痕"，以及撤销不留伪造的编辑记录、silent 日志真落库）。
  *   · 不覆盖：手册入库（依赖浏览器 origin，Node 里取不到 `/manuals/*.json`，
  *     `resetToSeedData` 会因此打三行警告；真实浏览器下的手册库由 e2e 覆盖）、
  *     以及任何需要 DOM 的路径 —— **错误提示条能不能渲染**就属于这一类，
@@ -889,6 +891,198 @@ check('schema_version 已写入 meta', db.getMeta('schema_version') === '1', Str
         (store.recentLogs.find(l => /预算/.test(String(l.content || ''))) || {}).content || '没有找到日志')
     }
   }
+}
+
+// 13) 操作日志补全（docs/完善计划.md P2-2 的回归守卫）
+//
+// 口径：**日志落在 store 的写入口，而不是各 UI 入口各补一条**。改造前漏了三处实例：
+//   · `addWorkOrder` 自己没有日志，靠三个 UI 入口各补一条 —— 于是
+//     `recheckFailedAndReopen` 内部那次建单没有任何独立留痕；
+//   · 备件模块整个模块一条日志都没有：入库/出库/新增备件动的是真库存，
+//     流水表里查得到、"什么时候谁动的"却查不到，而自动扣减那一侧反倒留了痕；
+//   · 编辑设备、更新工单备注、复诊"无需复诊"，全都不留痕。
+//
+// 本节守三件事：
+//   · 手动写入口必须留痕（下面逐条点名，缺一条就红）；
+//   · **低层写入口默认不留痕**：`updateEquipment` / `updateWorkOrder` 不带
+//     `{ log: true }` 就不记。这不是洁癖 —— 撤销的两条路（闭包与可序列化描述）
+//     调的就是这两个函数，默认记日志会把"撤销"记成"用户编辑了一次设备"；
+//   · 于是"撤销：数据真的回退了、日志里也真有一条撤销、但没有'编辑设备'"是本节
+//     最该守住的不变量。三半缺一不可：少了"数据真的回退"那一半，
+//     撤销整个失效时"不留痕"会**静默变绿**（什么都没做，自然什么都没记）。
+{
+  /** 跑一个动作，返回期间新增的日志（最新在前） */
+  const logsDuring = (fn) => {
+    const before = store.recentLogs.length
+    fn()
+    return store.recentLogs.slice(0, store.recentLogs.length - before)
+  }
+  const hit = (logs, re) => (logs.find(l => re.test(String(l.content || ''))) || {}).content
+  const anyLog = (logs, re) => logs.some(l => re.test(String(l.content || '')))
+  const mentions = (logs, text) => logs.some(l => String(l.content || '').includes(text))
+  const dump = (logs) => (logs.length ? logs.map(l => l.content).join(' ／ ') : '无')
+
+  // 按条数取"新增"的做法在日志被窗口裁到 500 之后会恒返回 0（= 恒真），
+  // 所以先把余量本身断言出来，而不是默默依赖"现在还没写满"。
+  check('前置条件：日志条数离窗口上限（500）还有余量（否则下面按条数取"新增"会被裁剪成 0，断言恒真）',
+    store.recentLogs.length + 100 <= 500, `${store.recentLogs.length} 条`)
+
+  // ---------- A. 备件：入库 / 出库 / 新增备件 ----------
+  const part = store.partsInventory[0]
+  const restockLogs = logsDuring(() => store.restockPart(part.id, 3, '自检探针入库'))
+  check('备件入库留痕，且件名/数量/备注都在（只写"动过库存"等于没写）',
+    anyLog(restockLogs, /备件入库/) && mentions(restockLogs, part.name) && mentions(restockLogs, '×3') && mentions(restockLogs, '自检探针入库'),
+    `${hit(restockLogs, /备件入库/) || '(没有)'} ｜ 来源 ${(restockLogs.find(l => /备件入库/.test(String(l.content))) || {}).source || '(无)'}`)
+
+  const issueLogs = logsDuring(() => store.issuePart(part.id, 2, '自检探针出库'))
+  check('备件出库留痕（与入库分开记，出/入看日志就能分辨）',
+    anyLog(issueLogs, /备件出库/) && mentions(issueLogs, '×2') && mentions(issueLogs, '自检探针出库'),
+    hit(issueLogs, /备件出库/) || '(没有)')
+
+  const addPartLogs = logsDuring(() => store.addPart({ name: '自检探针备件', category: '其他', stock: 5, safety_stock: 2, unit: '件' }))
+  check('新增备件留痕（期初库存与安全库存都写进去）',
+    mentions(addPartLogs, '新增备件「自检探针备件」') && mentions(addPartLogs, '安全库存 2'),
+    hit(addPartLogs, /新增备件/) || '(没有)')
+
+  // ---------- B. 新建工单：来源前缀 ----------
+  let probeOrder = null
+  const woLogs = logsDuring(() => {
+    probeOrder = store.addWorkOrder({
+      equipment_id: store.equipmentList[0].id,
+      equipment_name: store.equipmentList[0].name,
+      title: '自检探针：新建工单留痕',
+      type: 'repair',
+      priority: 'high'
+    }, { origin: '告警' })
+  })
+  check('新建工单留痕，且写清是哪个入口建的（三个 UI 入口不能再各写各的文案）',
+    anyLog(woLogs, new RegExp(`^告警：新建工单 #${probeOrder.id}「自检探针：新建工单留痕」$`)),
+    hit(woLogs, /新建工单/) || '(没有)')
+
+  // ---------- C. 复诊闭环：内部建单要有独立日志，结论只写一次 ----------
+  const eqForRecheck = store.equipmentList.find(e => e.status !== 'fault') || store.equipmentList[0]
+  let recheckSrc = null
+  logsDuring(() => {
+    recheckSrc = store.addWorkOrder({
+      equipment_id: eqForRecheck.id, equipment_name: eqForRecheck.name,
+      title: '自检探针：复诊未通过用单', type: 'repair', priority: 'high'
+    })
+    store.updateWorkOrderStatus(recheckSrc.id, 'completed') // 完成 → 自动生成待复诊任务
+  })
+  check('前置条件：完成维修工单后确实生成了待复诊任务（否则下面两条复诊留痕无从谈起）',
+    recheckSrc && recheckSrc.recheck_status === 'pending',
+    `recheck_status=${recheckSrc && recheckSrc.recheck_status} 日期=${recheckSrc && recheckSrc.recheck_date}`)
+
+  let reopened = null
+  const failLogs = logsDuring(() => { reopened = store.recheckFailedAndReopen(recheckSrc.id) })
+  check('复诊未通过：内部那次"重新开单"有独立日志（原先只在末尾汇总里被顺带提到）',
+    !!reopened && mentions(failLogs, `复诊：新建工单 #${reopened.id}`),
+    hit(failLogs, /复诊：新建工单/) || dump(failLogs))
+  check('复诊未通过：结论只写一次（不能再出现"复诊完成"——同一件事读出两个相反结论）',
+    anyLog(failLogs, /复诊未通过：/) && !anyLog(failLogs, /复诊完成：/),
+    dump(failLogs))
+
+  let needNot = null
+  logsDuring(() => {
+    needNot = store.addWorkOrder({
+      equipment_id: eqForRecheck.id, equipment_name: eqForRecheck.name,
+      title: '自检探针：无需复诊用单', type: 'repair', priority: 'high'
+    })
+    store.updateWorkOrderStatus(needNot.id, 'completed')
+  })
+  const notNeededLogs = logsDuring(() => store.markRecheckNotNeeded(needNot.id))
+  check('复诊"无需复诊"留痕（与"复诊完成"成对，同一页两个按钮不能一个留痕一个不留）',
+    anyLog(notNeededLogs, /复诊标记为无需复诊/), dump(notNeededLogs))
+
+  // ---------- D. 编辑设备 / 更新工单：带 log 才留痕 ----------
+  const eqProbe = store.equipmentList.find(e => e.status !== 'maintenance') || store.equipmentList[0]
+  const editLogs = logsDuring(() => store.updateEquipment(eqProbe.id, { status: 'maintenance' }, { log: true }))
+  check('编辑设备留痕，且写清改了哪个字段（字段名要落成中文，不能漏出 status）',
+    mentions(editLogs, `编辑设备「${eqProbe.name}」`) && mentions(editLogs, '状态') && !mentions(editLogs, 'status') &&
+      (editLogs.find(l => String(l.content).includes('编辑设备')) || {}).source === '设备',
+    hit(editLogs, /编辑设备/) || '(没有)')
+
+  const silentEditLogs = logsDuring(() => store.updateEquipment(eqProbe.id, { status: 'running' }))
+  check('编辑设备**不带 log 就一条都不记**（撤销走的就是这条路，默认记日志会把撤销记成用户编辑）',
+    silentEditLogs.length === 0, dump(silentEditLogs))
+
+  const orderProbe = store.workOrders.find(o => o.status === 'pending') || store.workOrders[0]
+  const noteLogs = logsDuring(() => store.updateWorkOrder(orderProbe.id, { description: '自检探针：处置备注' }, { log: true }))
+  check('更新工单备注留痕，字段名写成"处置备注"（界面上叫什么，日志里就该叫什么）',
+    mentions(noteLogs, `工单 #${orderProbe.id}「${orderProbe.title}」更新了处置备注`),
+    hit(noteLogs, /更新了/) || '(没有)')
+
+  const silentNoteLogs = logsDuring(() => store.updateWorkOrder(orderProbe.id, { description: '自检探针：再改一次' }))
+  check('更新工单**不带 log 就一条都不记**（保存了但内容没变时更不该留一条"更新"）',
+    silentNoteLogs.length === 0, dump(silentNoteLogs))
+
+  // ---------- E. 撤销：数据回退 + 有撤销日志 + 没有"编辑设备" ----------
+  // 走**可序列化描述**那条路（与刷新后撤销同一条），最终调的就是 `updateEquipment(id, before)`。
+  const undoEqId = eqProbe.id
+  store.updateEquipment(undoEqId, { status: 'maintenance' })      // 造"写入前"的状态
+  const beforeStatus = store.equipmentList.find(e => String(e.id) === String(undoEqId)).status
+  const entry = store.logVoiceAction({
+    rawText: '自检探针：改设备状态（用来验证撤销不留痕）',
+    summary: '自检',
+    changes: [{ label: '状态 → 运行中' }],
+    intentLabel: '自检',
+    inverse: [{ op: 'update', table: 'equipment', id: undoEqId, before: { status: 'maintenance' }, after: { status: 'running' } }]
+  })
+  store.updateEquipment(undoEqId, { status: 'running' })          // 本次"写入"
+  const writtenStatus = store.equipmentList.find(e => String(e.id) === String(undoEqId)).status
+  let undoResult = null
+  const undoLogs = logsDuring(() => { undoResult = store.performUndo(entry.id) })
+  const finalStatus = store.equipmentList.find(e => String(e.id) === String(undoEqId)).status
+
+  check('前置条件：这次撤销**确实做了事**（写入前后状态不同、撤回了写入前、ok=true）',
+    writtenStatus === 'running' && finalStatus === 'maintenance' && undoResult && undoResult.ok === true,
+    `${beforeStatus} → 写入后 ${writtenStatus} → 撤销后 ${finalStatus}（ok=${undoResult && undoResult.ok}）`)
+  check('撤销自己留了痕（能力缩水/数据变更不能静默）',
+    anyLog(undoLogs, /撤销口述录入/) && mentions(undoLogs, '回滚 1 项变更'), dump(undoLogs))
+  check('撤销走低层写入口，日志里**不出现**"编辑设备"（撤销不该被记成用户编辑了一次设备）',
+    !anyLog(undoLogs, /编辑设备/), dump(undoLogs))
+
+  // ---------- F. silent 落盘的日志真的进了库 ----------
+  // logPart 与几个 store 写入口都用 `silent: true`（只写内存，由入口末尾统一落盘一次）。
+  // 这个开关正是"数据静默丢失"的高发处：哪一处忘了在末尾 persistAll，日志就只在内存里
+  // 活到关窗为止 —— 而"操作日志是离线现场唯一的事后凭据"这句话，正建立在它落了库上。
+  //
+  // ⚠️ 这条必须**单独验**：放在本节末尾统一"重启看看在不在"是不成立的 ——
+  // 后面任何一次 persistAll 都会把日志整表重写一遍，顺手把它落盘，
+  // 于是"restockPart 忘了落盘"这个缺陷照样全绿（被别的动作掩盖了）。
+  // 所以换一个干净 store：**只做这一个动作**，再冲刷一次，看它在不在库里。
+  //
+  // ⚠️ 为什么必须显式 `saveNow()` 才谈得上"重启后还在"：
+  //   `persistAll` 做的是 replaceAll（写**内存库**）+ scheduleSave（600 ms 去抖后才写磁盘），
+  //   而 destroyDatabase 只 close 内存库、不冲刷脏数据。紧接着重启 = 在去抖窗口内把
+  //   内存库丢掉，落盘的永远只有上一次的内容 —— 那样测的是去抖，不是本条要测的东西。
+  //   显式 saveNow 之后，"日志没进库"就只剩一个原因：persistAll 压根没被调用
+  //   （日志只有经 replaceAll 的 logsToRows 才会进内存库，别的动作也帮不了它）。
+  await store.saveNow()
+  const sep = await restartStore()
+  sep.store.restockPart(sep.store.partsInventory[0].id, 1, '自检探针：silent 落盘单测')
+  const probeWroteToMemory = sep.store.recentLogs.some(l => String(l.content || '').includes('silent 落盘单测'))
+  await sep.store.saveNow() // 冲刷内存库（见上），只做这一件事之后立刻重启
+  const sepBack = await restartStore()
+  check('前置条件：这条会标 silent 的日志在内存里确实写进去了（否则下面"重启后还在不在"恒假）',
+    probeWroteToMemory === true, `内存 ${sep.store.recentLogs.length} 条中${probeWroteToMemory ? '有' : '没有'}这一条`)
+  check('标了 silent 的日志真的落库了 —— 只做这一件事就重启，仍读得到（不靠后续动作顺手落盘）',
+    sepBack.store.recentLogs.some(l => String(l.content || '').includes('silent 落盘单测')),
+    `重启后读到 ${sepBack.store.recentLogs.length} 条日志`)
+
+  // ---------- G. silent 必须是**第二参数**，不能写进日志对象里 ----------
+  // 这条断言是"变异验证反过来抓出实现缺陷"的产物，值得单独记一笔：
+  //   `addLog(entry, { silent = false })` 的 silent 在**第二参数**上。P2-2 新加的几处
+  //   却把它写进了 entry 对象里（`addLog({ content, …, silent: true })`）——
+  //   它**不报错**：日志照写、界面照显示、断言全绿，只是 silent 静默失效 ——
+  //   每次写日志都各自 persistAll 一次（整库 DELETE 10 表 + 全量 re-INSERT 两遍），
+  //   而"由入口末尾统一落盘一次"这条纪律根本没生效。内存里的日志对象还多带一个野键。
+  //   它是被 M7（把 restockPart 的 persistAll 拿掉）反查出来的：那次变异**没能**
+  //   让"silent 日志真的落库"变红，因为日志那一侧自己偷偷落了一次盘，把缺陷掩盖了。
+  //   两个缺陷互相抵消，断言看着没问题 —— 所以这里直接盯住那个野键。
+  check('日志条目里不该出现 silent 键（它是 addLog 的第二参数，写进对象里等于静默失效）',
+    !store.recentLogs.some(l => 'silent' in l),
+    (store.recentLogs.find(l => 'silent' in l) || {}).content || '全部条目都干净')
 }
 
 // ---------------------------------------------------------------------------

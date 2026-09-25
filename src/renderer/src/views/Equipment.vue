@@ -607,13 +607,9 @@ function createOrderFromReport() {
     priority: r.summary.level === 'D' ? 'urgent' : r.summary.level === 'C' ? 'high' : 'normal',
     source: 'manual',
     assigned_to: ''
-  })
-  store.addLog({
-    content: `体检报告转为工单 #${created.id}：${created.title}`,
-    source: '体检',
-    type: 'primary',
-    tagType: 'primary'
-  })
+    // origin 只进日志。这一单入库时 source 写的也是 'manual'（与工单页手工新建同值），
+    // "从体检报告来的"这层信息原本只活在下面那条 UI 日志里 —— 现在由 origin 带进去
+  }, { origin: '体检' })
   ElMessage.success(`已生成工单 #${created.id}，可在工单管理中跟进`)
   showReport.value = false
   router.push({ path: '/workorder' })
@@ -660,9 +656,12 @@ function addEquipment() {
     delete patch.status
     delete patch.maintenance_cycle_days
     delete patch.last_maintenance_date
-    store.updateEquipment(editingId.value, patch)
+    // log: true —— 用户的一次独立操作，该留痕。updateEquipment 是低层原语，
+    // 默认不记日志：口述改状态与撤销路径也走它（见 stores/nlActions.js 的说明）
+    store.updateEquipment(editingId.value, patch, { log: true })
     ElMessage.success('设备信息已更新')
   } else {
+    // 日志由 store.addEquipment 自己记（Excel 导入走 silent 分支、由导入汇总记一条）
     store.addEquipment({
       ...patch,
       status: 'running', last_maintenance_date: null, maintenance_cycle_days: 90

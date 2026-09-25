@@ -64,11 +64,53 @@ export function createNlActions(ctx) {
     return true
   }
 
-  /** 直接改设备字段（口述改状态的撤销也需要它） */
-  function updateEquipment(id, patch) {
+  /**
+   * updateEquipment 的字段名 → 日志里给人看的说法
+   *
+   * 只让日志读起来像人话，不追求覆盖全字段：查不到的一律原样回退成字段名。
+   * 与 `stores/appStore.js` 的 `WORK_ORDER_FIELD_TEXT` 同一写法。
+   */
+  const EQUIPMENT_FIELD_TEXT = {
+    name: '名称',
+    model: '型号',
+    category: '类别',
+    location: '位置',
+    purchase_date: '购置日期',
+    status: '状态',
+    aliases: '别名',
+    notes: '备注',
+    maintenance_cycle_days: '维保周期'
+  }
+
+  /**
+   * 直接改设备字段（低层原语）
+   *
+   * ⚠️ 默认**不写操作日志**。三类调用方语义完全不同：
+   *   · 台账页「编辑设备」保存 —— 用户的一次独立操作，该留痕（调用方传 log: true）
+   *   · 口述改状态（nlCommand 的 SET_STATUS）—— 已有 `logVoiceAction` 那条
+   *     "口述录入「…」→ …"，在这里再记一条就是同一件事记两遍
+   *   · **撤销**（闭包路径在 nlCommand、描述路径在 performUndo，两条都走它）——
+   *     `performUndo` 已记"撤销口述录入…（回滚 N 项变更）"；在这里记，
+   *     日志里就会把一次撤销记成一次不存在的用户编辑
+   *
+   * 默认静默 + 调用方显式 opt-in：反过来（默认记、让撤销去 suppress）只要有一处
+   * 忘了传参，日志里就会凭空多出一条没发生过的操作 —— 而日志页正是"可审计 AI"的证据链。
+   * 同一个理由见 `stores/appStore.js` 的 `updateWorkOrder`。
+   */
+  function updateEquipment(id, patch, { log = false } = {}) {
     const eq = equipmentList.value.find(e => String(e.id) === String(id))
     if (!eq) return null
+    const changed = Object.keys(patch || {}).filter(k => JSON.stringify(eq[k]) !== JSON.stringify(patch[k]))
     Object.assign(eq, patch)
+    // 没真改动就不记（重复点一次保存不该留下一条"更新"）
+    if (log && changed.length) {
+      addLog({
+        content: `编辑设备「${eq.name}」：${changed.map(k => EQUIPMENT_FIELD_TEXT[k] || k).join('、')}`,
+        source: '设备',
+        type: 'primary',
+        tagType: 'primary'
+      }, { silent: true })
+    }
     persistAll()
     return eq
   }

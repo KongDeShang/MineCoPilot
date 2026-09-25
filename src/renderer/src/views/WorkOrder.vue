@@ -426,7 +426,9 @@ function copyToNote(entry) {
   if (current.value) {
     // 先算好再交给 store 写，不直接改 store 里的对象
     const merged = (current.value.description || '') + '\n\n' + note
-    store.updateWorkOrder(current.value.id, { description: merged })
+    // log: true —— 这是用户的一次独立操作（引用知识库到备注），该留痕。
+    // updateWorkOrder 是低层原语，默认不记日志：撤销路径也走它，默认记会把撤销记成编辑。
+    store.updateWorkOrder(current.value.id, { description: merged }, { log: true })
     ElMessage.success('已引用到工单备注')
   }
 }
@@ -620,12 +622,8 @@ function addOrder() {
     source: 'manual',
     created_at: new Date().toLocaleString('zh-CN')
   })
-  store.addLog({
-    content: `新建工单 #${created.id}「${created.title}」`,
-    source: '工单',
-    type: 'primary',
-    tagType: 'primary'
-  })
+  // 「新建工单」的日志由 store.addWorkOrder 自己记（P2-2 口径：日志落在写入口，
+  // 不由各 UI 入口各补一条 —— 三个入口各补一条时，内部调用那次建单就漏了留痕）。
   showAddDialog.value = false
   newOrder.value = { title: '', equipment_name: '', type: 'maintenance', priority: 'normal', description: '' }
   ElMessage.success(`工单 #${created.id} 创建成功`)

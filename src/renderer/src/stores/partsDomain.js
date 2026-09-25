@@ -81,7 +81,35 @@ const STOCK_OFFSET = {
 }
 
 export function createPartsDomain(ctx) {
-  const { partsInventory, partTransactions, persistAll } = ctx
+  const { partsInventory, partTransactions, persistAll, addLog } = ctx
+
+  /**
+   * 备件台账的手动写入口都要留痕（P2-2）
+   *
+   * 原先整个模块**一条日志都没有**：入库 / 出库 / 新增备件动的是真金白银的库存，
+   * 流水表里查得到，操作日志里却查不到"什么时候谁动的"。而自动扣减那一侧反倒有日志 ——
+   * 记录维保时的联动扣减留了痕，手动改库存没留痕，正好反着。
+   *
+   * ⚠️ 两条路径**故意不在这里记**：
+   *   1) `consumePartsFromText` —— 它由调用方（addMaintenanceRecord / Excel 导入 /
+   *      首启 replayRecentPartUsage）记一条汇总。尤其首启那次会对近 30 天记录回冲
+   *      34 笔，在这里记会让首屏凭空多出十几条"入库"，把真实操作挤出日志窗口。
+   *   2) `revertConsumption` —— 撤销路径，`performUndo` 已记"回滚 N 项变更"，
+   *      在这里再记就把"撤销"记成了"入库"。
+   *
+   * 一律 `silent: true`，由各入口在末尾统一落盘一次（与 documentDomain 同一写法）。
+   *
+   * ⚠️ `silent` 是 `addLog` 的**第二参数**（`addLog(entry, { silent })`）。
+   * 写进 entry 对象里**不会报错**：日志照写，只是 silent 静默失效 ——
+   * 每次写日志都各自 persistAll 一次（整库 10 张表 DELETE + 全量重写两遍），
+   * 而"由入口末尾统一落盘一次"这条纪律根本没生效，日志对象里还会多一个野键。
+   * 这个错犯过一次（P2-2 首次提交前共 7 处），是靠 store-check 第 13 节 G 组
+   * 那条"日志条目里不该出现 silent 键"抓回来的。
+   */
+  function logPart(content, type) {
+    if (!addLog) return
+    addLog({ content, source: '备件', type, tagType: type }, { silent: true })
+  }
 
   /**
    * 备件台账种子：直接由 PARTS_CATALOG 派生
@@ -169,12 +197,23 @@ export function createPartsDomain(ctx) {
 
   /** 入库 */
   function restockPart(partId, quantity, note = '手动入库') {
-    return adjustPartStock(partId, Number(quantity), { type: 'in', note })
+    const qty = Number(quantity)
+    // silent 改内存 → 记日志（也 silent）→ 末尾统一落盘一次，只为"库存 + 流水 + 日志"写一次库
+    const part = adjustPartStock(partId, qty, { type: 'in', note, silent: true })
+    if (!part) return null
+    if (qty !== 0) logPart(`备件入库：${part.name} ×${qty} ${part.unit}（${note}）`, 'success')
+    persistAll()
+    return part
   }
 
   /** 出库 */
   function issuePart(partId, quantity, note = '手动出库') {
-    return adjustPartStock(partId, -Number(quantity), { type: 'out', note })
+    const qty = Number(quantity)
+    const part = adjustPartStock(partId, -qty, { type: 'out', note, silent: true })
+    if (!part) return null
+    if (qty !== 0) logPart(`备件出库：${part.name} ×${qty} ${part.unit}（${note}）`, 'primary')
+    persistAll()
+    return part
   }
 
   function addPart(item) {
@@ -190,6 +229,7 @@ export function createPartsDomain(ctx) {
     }
     if (!record.name) return null
     partsInventory.value.push(record)
+    logPart(`新增备件「${record.name}」（期初 ${record.stock} ${record.unit}，安全库存 ${record.safety_stock}）`, 'success')
     persistAll()
     return record
   }

@@ -150,7 +150,8 @@ export const useAppStore = defineStore('app', () => {
   // 用户改库存的时候，那时早就建好了。
   const parts = createPartsDomain({
     partsInventory, partTransactions,
-    persistAll: (...args) => persistAll(...args)
+    persistAll: (...args) => persistAll(...args),
+    addLog: (...args) => addLog(...args)
   })
   // 备件领域对外的接口原样接回 store（页面/端到端脚本刚才怎么用，现在还怎么用）
   //
@@ -613,16 +614,27 @@ export const useAppStore = defineStore('app', () => {
     }
   })
 
-  function markRecheckDone(orderId) {
+  /**
+   * 结掉一次复诊任务（结论：已复诊）
+   *
+   * `log: false` 供 `recheckFailedAndReopen` 用：那次调用紧接着会记一条
+   * "复诊未通过：… → 已重新开出工单 #N"。两条都记的话，日志页上就是
+   * "复诊完成：X「Y」" 后面紧跟 "复诊未通过：X「Y」" —— 同一件事读出两个相反的结论，
+   * 而结论其实只有一个（复诊做了，没通过）。所以由调用方决定结论怎么写，
+   * 这里只在"结论就是已完成"时记。
+   */
+  function markRecheckDone(orderId, { log = true } = {}) {
     const order = workOrders.value.find(o => o.id === orderId)
     if (!order) return null
     order.recheck_status = 'done'
-    addLog({
-      content: `复诊完成：${order.equipment_name}「${order.title}」`,
-      source: '复诊',
-      type: 'success',
-      tagType: 'success'
-    })
+    if (log) {
+      addLog({
+        content: `复诊完成：${order.equipment_name}「${order.title}」`,
+        source: '复诊',
+        type: 'success',
+        tagType: 'success'
+      }, { silent: true })
+    }
     persistAll()
     return order
   }
@@ -630,7 +642,16 @@ export const useAppStore = defineStore('app', () => {
   function markRecheckNotNeeded(orderId) {
     const order = workOrders.value.find(o => o.id === orderId)
     if (!order) return null
+    // 与上面"复诊完成"成对：两者都是复诊任务的**结论**，只记一半等于审计链缺一环。
+    // 原先这个分支不写日志 —— 复诊管理页点"无需复诊"之后，任务凭空消失而无留痕，
+    // 而"复诊完成"却记了。同一页上两个按钮，一个留痕一个不留，反而更容易被当成后者出了错。
     order.recheck_status = 'not_needed'
+    addLog({
+      content: `复诊标记为无需复诊：${order.equipment_name}「${order.title}」`,
+      source: '复诊',
+      type: 'info',
+      tagType: 'info'
+    }, { silent: true })
     persistAll()
     return order
   }
@@ -645,6 +666,8 @@ export const useAppStore = defineStore('app', () => {
    * 两个动作一次做完：
    *   1) 把本次复诊任务结掉 —— 复诊**确实做了**，只是结论是"未通过"。
    *      不结的话它会一直挂在"待复诊"里，闭环率也永远算不对。
+   *      注意这一步传 `{ log: false }`：结论由下面那条"复诊未通过"统一写，
+   *      否则日志页上会是"复诊完成 → 复诊未通过"两条相反的结论。
    *   2) 用同一台设备重新开维修工单（7 天复诊），新单完成后照常归档病历、
    *      再生成下一次复诊，闭环得以继续往下走。
    *
@@ -653,7 +676,7 @@ export const useAppStore = defineStore('app', () => {
   function recheckFailedAndReopen(orderId, { note = '' } = {}) {
     const src = workOrders.value.find(o => o.id === orderId)
     if (!src || src.recheck_status !== 'pending') return null
-    markRecheckDone(orderId)
+    markRecheckDone(orderId, { log: false })
     const order = addWorkOrder({
       equipment_id: src.equipment_id,
       equipment_name: src.equipment_name,
@@ -666,7 +689,7 @@ export const useAppStore = defineStore('app', () => {
         `复诊确认原工单 #${src.id}「${src.title}」的处置效果未达标，需重新派单处理。`,
         note
       ].filter(Boolean).join('\n')
-    })
+    }, { origin: '复诊' })
     addLog({
       content: `复诊未通过：${src.equipment_name}「${src.title}」→ 已重新开出工单 #${order.id}`,
       source: '复诊',
@@ -705,11 +728,31 @@ export const useAppStore = defineStore('app', () => {
       notes: eq.notes || ''
     }
     equipmentList.value.push(record)
-    if (!silent) persistAll()
+    // silent 是 Excel 导入用的（导一批几百台，由 importFromExcel 记一条汇总）。
+    // 手动新增走非 silent 分支 —— 一条台账凭空多出来必须有留痕（P2-2）。
+    if (!silent) {
+      addLog({
+        content: `新增设备「${record.name}」（${[record.model, record.category].filter(Boolean).join(' ') || '未填型号'}）`,
+        source: '设备',
+        type: 'success',
+        tagType: 'success'
+      }, { silent: true })
+      persistAll()
+    }
     return record
   }
 
-  function addWorkOrder(order) {
+  /**
+   * 新建工单
+   *
+   * 日志在这里写，**不由各 UI 入口各补一条**（P2-2 口径）。原先三个入口各记一条，
+   * 于是 `recheckFailedAndReopen` 内部那次建单没有任何独立留痕 —— 它只被末尾那条
+   * "复诊未通过 → 已重新开出工单"的汇总日志提到，"新建工单"这个动作本身没留痕。
+   *
+   * `origin` 是各入口的来路，**只进日志、不入库**。入库的 `record.source` 是另一套口径
+   * （体检转工单入库时写的也是 'manual'），来路原本只活在日志文案里，现在由各入口传进来。
+   */
+  function addWorkOrder(order, { origin = '工单' } = {}) {
     const record = {
       id: nextWorkOrderId.value,
       status: 'pending',
@@ -725,6 +768,13 @@ export const useAppStore = defineStore('app', () => {
       if (eq) record.equipment_id = eq.id
     }
     workOrders.value.unshift(record)
+    addLog({
+      content: `${origin}：新建工单 #${record.id}「${record.title}」`,
+      source: origin,
+      // 告警转单在既有日志口径里是 warning（告警本身是异常），其余是 primary
+      type: origin === '告警' ? 'warning' : 'primary',
+      tagType: origin === '告警' ? 'warning' : 'primary'
+    }, { silent: true })
     persistAll()
     return record
   }
@@ -826,10 +876,48 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  function updateWorkOrder(id, patch) {
+  /**
+   * updateWorkOrder 的字段名 → 日志里给人看的说法
+   *
+   * 只是让日志读起来像人话，**不追求覆盖全字段**：查不到的一律原样回退成字段名，
+   * 宁可显示 `recheck_status` 也不静默省略 —— 日志的价值在于"改过什么"完整可见。
+   */
+  const WORK_ORDER_FIELD_TEXT = {
+    description: '处置备注',
+    title: '标题',
+    priority: '优先级',
+    type: '工单类型',
+    equipment_name: '关联设备',
+    assigned_to: '负责人'
+  }
+
+  /**
+   * 改工单字段（低层原语）
+   *
+   * ⚠️ 默认**不写操作日志**。本函数是"改字段"的原语，调用方语义完全不同：
+   *   · 工单页「把处置结果追加到备注」—— 用户的一次独立操作，该留痕（调用方传 log: true）
+   *   · 口述完成工单 / 口述复诊的**撤销** —— 闭包路径与描述路径都走它，
+   *     而 `performUndo` 已记"撤销口述录入…（回滚 N 项变更）"；
+   *     在这里记，日志里就会把一次撤销记成一次不存在的用户编辑
+   *
+   * 默认静默 + 调用方显式 opt-in，比"默认记、再让撤销路径去 suppress"安全：
+   * 后者只要有一处撤销忘了传参，日志里就会凭空多出一条没发生过的操作。
+   * 同一个理由见 `stores/nlActions.js` 的 `updateEquipment`。
+   */
+  function updateWorkOrder(id, patch, { log = false } = {}) {
     const order = workOrders.value.find(o => o.id === id)
     if (!order) return null
+    const changed = Object.keys(patch || {}).filter(k => order[k] !== patch[k])
     Object.assign(order, patch)
+    // 没真改动就不记（界面上重复点一次保存不该留下一条"更新"）
+    if (log && changed.length) {
+      addLog({
+        content: `工单 #${id}「${order.title}」更新了${changed.map(k => WORK_ORDER_FIELD_TEXT[k] || k).join('、')}`,
+        source: '工单',
+        type: 'primary',
+        tagType: 'primary'
+      }, { silent: true })
+    }
     persistAll()
     return order
   }
