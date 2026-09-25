@@ -156,6 +156,7 @@ npm run lint         # 静态检查（只拦真错，不管风格）
 npm run self-check   # 纯逻辑断言（含落盘失败/播种判据/库损坏的故障注入）
 npm run main-check   # 主进程契约（IPC 参数形状、来源校验、档位切换、清单兜底）
 npm run store-check  # store 行为（Node 下真正装配 pinia + sql.js 跑 appStore/persistence）
+npm run pack-check   # 打包依赖闭包（运行时依赖会不会被 files 规则排掉、原生库解包没解包）
 npm run coverage     # 口述指代消解的功能覆盖矩阵
 npm run e2e          # 无头浏览器端到端（真实点击真实路由）
 npm run e2e:nl       # 口述录入端到端（含撤销、歧义、不误写）
@@ -175,10 +176,13 @@ npm run verify       # 以上全部 + 生产构建
 | `self-check` | Node，镜像 `utils/` 纯函数 | 规则/评分/解析/报告等纯逻辑 | 任何需要 pinia/sql.js 装配的东西 |
 | `store-check` | Node，**真正装配 store** | 字段白名单、播种判据、落盘失败、持久化往返 | DOM |
 | `main-check` | Node，桩掉 electron 加载主进程 | IPC 契约、来源校验、切档回滚、清单兜底 | 真实模型推理 |
+| `pack-check` | Node，读构建配置 + 真实 `node_modules` | 装机后才暴露的缺模块（依赖闭包被 `files` 排掉）、原生库没解包 | 装机后的实际运行 |
 | `e2e` / `e2e:nl` | 无头 Chromium | 交互、跨路由、刷新后仍在 | 主进程、视觉 |
 
 > **为什么补了 store-check 与 main-check**：这两个脚本落地前，`stores/appStore.js`（1200+ 行）与 `stores/persistence.js`（550+ 行）**从未被任何测试执行过**，对它们的"验证"是把源码读成字符串看有没有出现某个列名；而 `src/main/**` 与 `src/preload/**` 只有一条正则检查。代价是实测过的两个缺陷：`addEquipment` 字段白名单漏了 `aliases`（四条源码字符串断言全绿）、以及档位切换因为 preload 与主进程参数形状不一致而 **100% 失败**却全绿。
 > 现在这两处都有行为断言，并且**每条新断言都做过"能失败"的验证**：把 `aliases` 从白名单里删掉，`store-check` 立刻报 `aliases: 期望 ["小白","一号探针机"]，实际 undefined` 并以非 0 退出。
+
+> **为什么补了 `pack-check`**：上面那句"档位切换 100% 失败却全绿"后来又换了一条路复发。安装包里的档位切换报 `Cannot find package 'chalk' imported from .../app.asar/node_modules/node-llama-cpp/dist/bindings/Llama.js` —— 构建配置的 `files` 写了 `!node_modules/**`（本意是不把 Vite 已经打进 `dist/` 的 element-plus/echarts 再塞一份），node-llama-cpp 自己靠显式规则被重新包含了，但它的 **28 个运行时依赖全被排掉**。手写的白名单只能列出"我要哪个包"，列不出"我要的包依赖谁"。现在随包内容改为 `package.json` 里 `dependencies` 的**真实闭包**（`pack-check` 按真实 `node_modules` 自己算，不靠人维护清单），体积不变量随之从"白名单条目要少"改成"`dependencies` 要极简"。这类缺陷的共性是**开发态永远看不见**：`electron:dev` 有完整 `node_modules`，`vite build` 全绿、`verify` 全绿，只有装到机器上才炸 —— 所以它必须由断言守，不能靠跑一次看看。
 
 > **`verify` 全绿不等于界面没问题。** 两套端到端断言的是"数据和交互对不对"，而对比度、布局遮挡、以及"元素在但被 `display:none` 藏起来"这类**视觉缺陷它结构上抓不到** —— 一个文字读不出来的标签、一个被固定列盖住的关键列、一个压根没渲染出来的报告，在 DOM 层都是"存在、文案正确"。本次打磨中抓出的两个高严重度缺陷（见 [`docs/测试报告.md`](docs/测试报告.md) #20 #21）正是这样漏过去的，靠无头浏览器批量截图逐张看图才发现；同一类问题后来又抓到一个：体检报告预览因为根节点带着 `.print-doc`（那份样式写了 `display:none`，本意是"只给打印用"）而在屏幕上**全白**，屏上什么都没显示，而所有断言全绿。视觉这一层目前**靠人工过截图**，尚未自动化。
 

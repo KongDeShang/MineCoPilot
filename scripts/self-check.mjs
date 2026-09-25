@@ -1923,78 +1923,60 @@ function check(name, condition, detail = '') {
     [...whitelist].filter(n => !EXPORTED.has(n)).join('、') || '全部存在')
 }
 
-// ============ M 打包白名单（体积与可运行性同时守住） ============
+// ============ M 打包依赖（体积与可运行性同时守住） ============
 //
-// 背景：`files` 原先是排除清单，结果 app.asar 里塞了 node_modules 全部内容，
-// 绝大多数是 node-llama-cpp 编译/下载期的工具链依赖（yargs、log-symbols…），
-// 运行时一行都用不到。改成"白名单"（`!node_modules/**` 打头再显式放行）后，
-// 同一台机器先后两次完整构建实测：asar 216.6 MiB → 15.1 MiB（-93%），
-// NSIS 安装包 670.7 MiB → 627.2 MiB（-6.5%，模型文件 468 MB 占了大头，
-// 所以包体不会被 asar 的降幅等比例带动）。打包版另做了运行期验证，
-// 见 docs/测试报告.md #22。
+// 演进史（两次实测都留着，因为当前配置就是为了同时满足它们）：
+//   v1 排除清单：asar 216.6 MiB，里面几乎全是 node-llama-cpp 编译/下载期的
+//      工具链依赖（yargs、log-symbols…），运行时一行都用不到。
+//   v2 白名单：`!node_modules/**` 打头再显式放行三个包，asar 216.6 → 15.1 MiB
+//      （NSIS 670.7 → 627.2 MiB；模型文件 468 MB 占大头，所以包体降幅被摊薄）。
+//      **但这一版把 node-llama-cpp 的 28 个运行时依赖全排掉了** —— 手写的白名单
+//      只能列出"我要哪个包"，列不出"我要的包依赖谁"。开发态有完整 node_modules
+//      看不出来，装到评委机器上切档位就炸：
+//        Cannot find package 'chalk' imported from
+//        .../app.asar/node_modules/node-llama-cpp/dist/bindings/Llama.js
+//   v3 依赖闭包（当前）：不再写整片排除，`files` 只列源码/dist/package.json，
+//      随包内容 = package.json 里 dependencies 的**真实运行时闭包**。
+//      体积不变量因此从"白名单条目要少"变成"**dependencies 要保持极简**"：
+//      渲染侧依赖（element-plus/echarts/vue…）已由 Vite 打进 dist/，
+//      它们必须待在 devDependencies 里 —— 这是现在唯一的"别顺手加回来"。
 //
-// 这个配置的失效模式是**静默**的：少写一行 include，asar 里就少一个包，
-// `vite build` 全绿、`verify` 全绿、自检全绿，只有装到评委机器上点"加载模型"
-// 才炸。所以这里把几条不变量钉死。
+// 失效模式仍**静默**：asar 里少一个包，vite build 全绿、自检全绿，只有装到评委
+// 机器上才炸。所以闭包覆盖交给 scripts/pack-check.mjs（它按真实 node_modules 算
+// 闭包，不靠人列清单，并在 verify 链里）；这里只守剩下的三条不变量。
 {
   const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
   const files = (pkg.build && pkg.build.files) || []
   const unpack = (pkg.build && pkg.build.asarUnpack) || []
   const deps = Object.keys(pkg.dependencies || {})
 
-  // 1) **顺序**才是白名单成立的条件：排除项必须排在所有 node_modules 放行项之前。
-  //    反过来（放行在前、排除在后）就等于"先放进来再全排掉"，一个包都不会进
-  //    asar —— 而 electron-builder 不会为此报任何错，只在运行时缺模块。
-  //    注意不是"排除必须在第 0 位"：src/main、dist 那几条排在前面不影响，
-  //    它们和 node_modules 不重叠。第一版这里写死 files[0]，把自己扫挂了。
-  const exclAt = files.indexOf('!node_modules/**')
-  const incAt = files
-    .map((f, i) => (f.startsWith('node_modules/') ? i : -1))
-    .filter(i => i >= 0)
-  check('排除项 !node_modules/** 排在所有放行项之前（顺序反了白名单会全空）',
-    exclAt >= 0 && incAt.length > 0 && exclAt < Math.min(...incAt),
-    exclAt < 0 ? '没有 !node_modules/**'
-      : `排除 @${exclAt}，放行 @[${incAt.join(',')}]`)
+  // 1) 废弃写法不得回归。`!node_modules/**` 与"按依赖闭包包"是互斥的两种模型，
+  //    混用就是 v2 的缺陷：整片排除会把闭包里的包一起排掉，而 electron-builder
+  //    不会为此报任何错，只在运行时缺模块。
+  const blanket = files.filter(f => f === '!node_modules/**')
+  check('files 里没有 !node_modules/**（整片排除会把依赖闭包一起排掉，v2 的缺陷）',
+    blanket.length === 0,
+    blanket.length ? '又出现了 !node_modules/**' : '按 dependencies 的闭包包')
 
-  // 2) 运行时真正需要的三个包必须在清单里
-  const REQUIRED = [
-    'node_modules/node-llama-cpp/**/*',
-    'node_modules/@node-llama-cpp/win-x64/**/*',
-    'node_modules/@node-llama-cpp/win-x64-vulkan/**/*'
-  ]
-  const missingFiles = REQUIRED.filter(p => !files.includes(p))
-  check('必须随包的原生包都在 files 白名单里（漏一个就是装上打不开模型）',
-    missingFiles.length === 0,
-    missingFiles.length ? `缺 ${missingFiles.join('、')}` : 'node-llama-cpp + win-x64 + win-x64-vulkan')
+  // 2) 体积不变量：随包内容 = dependencies 的闭包，所以 dependencies 必须极简。
+  //    加一个渲染侧库进来（它已经被 Vite 打进 dist/）就是纯冗余，还会重新把
+  //    asar 撑大。两个方向都报，逼改动的人显式确认一次。
+  //    真正需要随包的运行期依赖只有 node-llama-cpp（ESM，运行时动态 import，
+  //    Vite 打不进主进程，见 src/main/ModelSession.js）。
+  const RUNTIME_DEPS = ['node-llama-cpp']
+  const extraDeps = deps.filter(d => !RUNTIME_DEPS.includes(d))
+  const lostDeps = RUNTIME_DEPS.filter(d => !deps.includes(d))
+  check('dependencies 与"需要随包的运行期依赖"一致（渲染侧库必须留在 devDependencies）',
+    extraDeps.length === 0 && lostDeps.length === 0,
+    extraDeps.length ? `多出：${extraDeps.join('、')}（已由 Vite 打进 dist/，进 asar 是冗余）`
+      : lostDeps.length ? `缺少：${lostDeps.join('、')}（缺了就是打包版加载不了模型）`
+        : deps.join('、'))
 
+  // 3) 原生二进制不能压进 asar（v2 之前那一类"装机后打不开模型"）
   const needUnpack = ['node_modules/node-llama-cpp/**/*', 'node_modules/@node-llama-cpp/**/*']
   const missingUnpack = needUnpack.filter(p => !unpack.includes(p))
   check('原生包仍在 asarUnpack 里（.node/.dll 不能压进 asar）',
     missingUnpack.length === 0, missingUnpack.join('、') || '全部在')
-
-  // 3) 白名单要真的排他。这条防"顺手又加回来"：
-  //    渲染进程的依赖已经被 Vite 打进 dist/ 了，再进 asar 就是纯冗余。
-  const shipped = deps.filter(d => d !== 'node-llama-cpp'
-    && files.some(f => f.startsWith(`node_modules/${d}/`)))
-  check('除 node-llama-cpp 外没有运行时依赖被重复打进 asar',
-    shipped.length === 0,
-    shipped.length ? `${shipped.join('、')}（渲染侧依赖已由 Vite 打进 dist/）` : `已排除 ${deps.length - 1} 个`)
-
-  // 4) 这条不是配置检查，是把**实测结论**钉在这里。
-  //    win-x64-vulkan 看着像"能省 99 MB 的明显冗余"—— CPU 兜底路径确实存在
-  //    （getGpuTypesToUseForOption 末位永远是 false），排掉程序不会崩。
-  //    但实测本机走的就是 vulkan：同一段生成，vulkan 中位数 450 ms，
-  //    退回 CPU 是 14580 ms（慢 32 倍），且 CPU 那条把提示词复读三遍不作答。
-  //    任何"再顺手排掉 vulkan"的改动都会把演示现场拖成这样，所以让它响。
-  check('没有把 win-x64-vulkan 排掉（实测生成快 32 倍，不是冗余）',
-    files.includes('node_modules/@node-llama-cpp/win-x64-vulkan/**/*'))
-
-  // 探测器自证：确认上面第 1 条不是因为"恰好没有 node_modules 放行项"
-  // 而短路成真的（比如有人把放行项全删了，incAt 为空数组，
-  // Math.min(...[]) 是 Infinity，比较恒真）。这一条把那种情况钉死。
-  check('打包白名单探测器：确实存在放行项，第 1 条不是空集恒真',
-    incAt.length === 3 && files.filter(f => f.startsWith('!')).length === 1,
-    `清单 ${files.length} 条，放行 ${incAt.length} 条，排除 ${files.filter(f => f.startsWith('!')).length} 条`)
 }
 
 // ============ P 手册检索（中文提问 → 英文原版手册正文） ============
