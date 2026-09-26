@@ -1020,9 +1020,7 @@ async function main() {
       !kbLive.error && (kbLive.refs || []).some(r => r.includes('现场案例')),
       kbLive.error || (kbLive.refs || []).join(' | '))
 
-    // ---------- 8.2 用户报障的复现与回归（2026-09-26）· 一：维修规程库点不动 ----------
-    // 每条都按**用户真实路径**走（真的点行、真点卡片），不抄近路调内部 API ——
-    // 否则"用户点不动"这种缺陷照样能全绿。
+    // ---------- 8.2 用户报障的复现与回归 · 二：故障案例库点不动 ----------
     // —— 报障 2：维修规程库无法点击打开 ——
     // 规程的症状/原因/步骤此前**只存在于编辑对话框里**，AI 草稿行更是连看都看不到。
     // 断言三条：行内有只读的「查看」入口、点开有详情面板、面板真的不提供输入框。
@@ -1093,6 +1091,52 @@ async function main() {
     check('维修规程库：点「编辑」只开编辑框，不会连带弹出详情',
       kbBtnNotHijack.dialog === true && kbBtnNotHijack.drawer === false,
       kbBtnNotHijack.reason || JSON.stringify(kbBtnNotHijack))
+    // —— 报障 3：故障案例库无法点击查看详情 ——
+    // 案例卡此前只有 hover 抬升，整张卡没有 click；展开的原文行也只是表格行。
+    await session.goto(`${BASE}/#/fault-cases`, 2600)
+    const caseDetail = await session.eval(`(async () => {
+      const card = document.querySelector('.case-card')
+      if (!card) return { ok: false, reason: '没有案例卡' }
+      card.click()
+      await new Promise(r => setTimeout(r, 800))
+      const dlg = document.querySelector('.case-detail')
+      return { ok: true, opened: !!dlg,
+        body: dlg ? dlg.textContent.replace(/\\s+/g, ' ').trim().slice(0, 600) : '' }
+    })()`)
+    check('故障案例库：点案例卡能打开详情',
+      caseDetail.opened === true, caseDetail.reason || JSON.stringify(caseDetail).slice(0, 200))
+    check('案例详情：设备/症状/原因/处理/来源工单都能看到（不只卡上那三个字段）',
+      ['症状', '原因', '处理', '来源工单'].every(k => (caseDetail.body || '').includes(k)),
+      (caseDetail.body || '').slice(0, 200))
+
+    const sampleDetail = await session.eval(`(async () => {
+      const bar = document.querySelector('.fault-row')
+      if (!bar) return { ok: false, reason: '没有故障排行条' }
+      bar.click()
+      await new Promise(r => setTimeout(r, 700))
+      const row = document.querySelector('.fault-samples .el-table__row')
+      if (!row) return { ok: false, reason: '展开后没有原文行' }
+      const label = row.textContent.replace(/\\s+/g, ' ').trim().slice(0, 80)
+      // 「故障描述（原文）」那一列在表格里是 show-overflow-tooltip，即**被截断**的。
+      // 点开就是为了看全 —— 所以拿行里那段原话去详情里比对，比"看得见标签"严得多：
+      // 曾经这里只断言标签名存在，详情里一个字的正文都没有也照样全绿。
+      const cell = row.querySelectorAll('.cell')[2]
+      const rowText = cell ? cell.textContent.replace(/\\s+/g, ' ').trim() : ''
+      row.click()
+      await new Promise(r => setTimeout(r, 800))
+      const dlg = document.querySelector('.case-detail')
+      const body = dlg ? dlg.textContent.replace(/\\s+/g, ' ').trim() : ''
+      return { ok: true, label, rowText, opened: !!dlg,
+        shown: rowText.length > 0 && body.includes(rowText), body: body.slice(0, 500) }
+    })()`)
+    check('故障案例库：展开的原文行也能点开看全文（不再只有 hover 提示）',
+      sampleDetail.opened === true, sampleDetail.reason || JSON.stringify(sampleDetail).slice(0, 200))
+    check('原文详情带设备与日期（可追溯到哪台设备哪一天）',
+      /设备/.test(sampleDetail.body || '') && /日期/.test(sampleDetail.body || ''),
+      (sampleDetail.body || '').slice(0, 200))
+    check('原文详情给出完整的故障描述正文（表格里被截断的那段）',
+      sampleDetail.shown === true,
+      `行内原文「${(sampleDetail.rowText || '').slice(0, 60)}」→ 详情里${sampleDetail.shown ? '有' : '没有'}`)
 
     // ---------- 8.5 随包示例手册：装完就有真手册可看、可问答 ----------
     // 断言重点不是"数据库里有三行"，而是**资源真的随包发出来了**：

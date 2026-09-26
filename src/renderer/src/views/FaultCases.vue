@@ -12,7 +12,10 @@
         </div>
       </template>
       <div class="cases-grid">
-        <div v-for="c in recentCases" :key="c.id" class="case-card">
+        <!-- 整张卡可点开详情：卡片只是摘要（症状/原因/处理各一行），
+             完整的备件、工时、来源工单要能在不跳页的前提下看到。 -->
+        <div v-for="c in recentCases" :key="c.id" class="case-card" tabindex="0"
+          title="点击查看完整案例" @click="openCaseDetail(c)" @keyup.enter="openCaseDetail(c)">
           <div class="case-head">
             <el-tag size="small" type="danger" effect="dark">{{ c.category || '通用' }}</el-tag>
             <span class="case-name">{{ c.equipment_name }}</span>
@@ -63,7 +66,8 @@
           <strong>{{ expandedItem.system }}</strong> 共 {{ expandedItem.count }} 条原文
           <el-button size="small" link type="primary" @click="expanded = null">收起</el-button>
         </div>
-        <el-table :data="expandedItem.samples" size="small" max-height="380" stripe>
+        <el-table :data="expandedItem.samples" size="small" max-height="380" stripe
+          @row-click="openSampleDetail">
           <el-table-column label="来源" width="100">
             <template #default="{ row }">
               <el-tag size="small" :type="row.source === '工单' ? 'warning' : 'info'" effect="plain">{{ row.source }}</el-tag>
@@ -80,6 +84,27 @@
         系统不生成"通用建议"，只呈现本地发生过的真实故障。
       </div>
     </el-card>
+
+    <!-- 案例/原文详情：一套浮层装两种内容（自动沉淀的案例卡 / 展开表里的原文行） -->
+    <el-dialog v-model="detailVisible" width="640px" destroy-on-close
+      :title="detailKind === 'case' ? '故障案例详情' : '故障原文'">
+      <div v-if="detail" class="case-detail">
+        <div v-for="(row, i) in detailRows" :key="i" class="case-detail-row">
+          <span class="case-detail-k">{{ row.label }}</span>
+          <span class="case-detail-v">{{ row.value }}</span>
+        </div>
+        <!-- 原文行：正文就是它的 title（faultStats 的样本行只带 title/来源/设备/日期，
+             没有单独的 text 字段）。表格里这一列是 show-overflow-tooltip，被截断了 ——
+             点开就是为了看全，所以这里必须把全文摆出来。 -->
+        <div v-if="detailKind === 'sample' && detail.title" class="case-detail-block">
+          <div class="case-detail-k">故障描述（原文）</div>
+          <div class="case-detail-text">{{ detail.title }}</div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="detailVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -112,6 +137,51 @@ const expandedItem = computed(() =>
   expanded.value ? faultStats.value.top.find(s => s.system === expanded.value) || null : null
 )
 const recentCases = computed(() => (store.faultCases || []).slice(0, 6))
+
+/**
+ * 详情浮层：一种内容两种来源 —— 自动沉淀的案例卡（case）、展开表里的原文行（sample）。
+ * 之前两张都点不动：案例卡没有 click，原文行只有 hover 提示（截断的文本根本看不全）。
+ */
+const detailVisible = ref(false)
+const detailKind = ref('case')
+const detail = ref(null)
+
+function openCaseDetail(c) {
+  detailKind.value = 'case'
+  detail.value = c
+  detailVisible.value = true
+}
+
+function openSampleDetail(row) {
+  detailKind.value = 'sample'
+  detail.value = row
+  detailVisible.value = true
+}
+
+/** 详情里的字段行：标签是给用户看的，也是自检断言「详情里到底能看到什么」的抓手 */
+const detailRows = computed(() => {
+  const d = detail.value
+  if (!d) return []
+  if (detailKind.value === 'case') {
+    return [
+      { label: '设备', value: d.equipment_name || '—' },
+      { label: '故障分类', value: d.category || '通用' },
+      { label: '归档日期', value: (d.createdAt || '').slice(0, 10) || '—' },
+      { label: '症状', value: d.symptom || '—' },
+      { label: '原因', value: d.cause || '（知识库未命中，留待人工补充）' },
+      { label: '处理', value: d.solution || '—' },
+      { label: '更换备件', value: d.parts_used || '—' },
+      { label: '参考工时', value: d.repair_hours != null ? `${d.repair_hours} h` : '—' },
+      { label: '来源工单', value: d.source_order_id != null ? `#${d.source_order_id}` : '—' }
+    ]
+  }
+  return [
+    { label: '来源', value: d.source || '—' },
+    { label: '设备', value: d.equipmentName || '—' },
+    { label: '日期', value: d.date || '—' },
+    { label: '来源单号', value: d.source === '工单' && d.id ? `#${d.id}` : '—' }
+  ]
+})
 
 function toggle(item) {
   expanded.value = expanded.value === item.system ? null : item.system
@@ -262,6 +332,49 @@ html[data-theme="dark"] .fault-rank.rank-5 { background: #4c5870; }
   padding: 12px 14px;
   background: linear-gradient(135deg, var(--card-2), var(--line-2));
   transition: box-shadow .2s, transform .2s;
+  cursor: pointer;
+}
+.case-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 详情浮层 */
+.case-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.case-detail-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.case-detail-k {
+  flex: 0 0 76px;
+  color: var(--text-3);
+  font-size: 12px;
+  padding-top: 1px;
+}
+.case-detail-v {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-1);
+  word-break: break-word;
+}
+.case-detail-block {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+}
+.case-detail-text {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--text-1);
+  white-space: pre-wrap;
 }
 .case-card:hover {
   box-shadow: 0 6px 16px var(--accent-shadow);
