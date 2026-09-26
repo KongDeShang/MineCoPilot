@@ -629,6 +629,61 @@ function check(name, condition, detail = '') {
   const none = kb.searchKnowledge('今天天气怎么样')
   check('无关问题不命中任何条目', none.length === 0, `hits=${none.length}`)
 
+  // 混合池排序：精选规程 vs 手册原文素材
+  //
+  // 问的就是用户那句「回转马达异响怎么回事」。池子里同时有本地那条
+  // 《XE215C 回转马达异响排查》（关键词 ['XE215C','回转马达','异响']）
+  // 与三本随包手册的全部切片：提问直中它的两个关键词 —— 用户问的就是它，
+  // 它必须排在手册原文素材之前，否则 limit=3 一切，出处里就没有它了。
+  //
+  // 为什么要单列一条：原有断言要么只喂精选条目（液压/制动），要么只喂手册切片
+  // （正文词表那条），**没有一个池子同时装着这两类**。而线上真正的检索池
+  // （appStore.answerItems）恰恰是两类混在一起 —— 出问题的就是这个交界。
+  // 池子的字段与 answerItems 逐项对齐（title 带《》装饰、docTitle 另给手册名、
+  // 关键词只留标题与机型、正文另给 pageText），否则这条断言测的是另一个池子。
+  {
+    const bundled = await import(mirror('bundledDocs'))
+    const publicDir = join(root, 'src', 'renderer', 'public', 'manuals')
+    const pool = kb.buildDefaultKnowledge()
+    pool.push({
+      id: 'demo-rotary-motor',
+      title: 'XE215C 回转马达异响排查',
+      category: '故障排查',
+      keywords: ['XE215C', '回转马达', '异响'],
+      symptoms: '回转马达异响、动作顿挫，回转启动/停止时有冲击',
+      causes: ['回转马达减速机齿轮油不足', '回转制动阀卡滞'],
+      steps: ['检查回转马达减速机齿轮油位', '检查回转制动阀'],
+      source: '本地规程 · e2e 录入'
+    })
+    let slices = 0
+    for (const d of bundled.BUNDLED_DOCS) {
+      const jsonPath = join(publicDir, `${d.slug}.json`)
+      if (!existsSync(jsonPath)) continue
+      const parsed = JSON.parse(readFileSync(jsonPath, 'utf8'))
+      for (const c of parsed.chunks || []) {
+        slices++
+        pool.push({
+          id: `${d.id}-p${c.page}`,
+          title: `《${d.title}》· 第 ${c.page} 页`,
+          docTitle: d.title,
+          category: '手册原文',
+          keywords: [d.title, d.model].filter(Boolean),
+          symptoms: `手册原文片段（${d.title} 第 ${c.page} 页）`,
+          causes: [],
+          steps: [c.text],
+          pageText: c.text,
+          source: `本地手册 · ${d.title}`
+        })
+      }
+    }
+    check('混合池里有手册切片（否则下面一条无从比较）', slices > 0, `${slices} 片`)
+
+    const mixed = kb.searchKnowledge('回转马达异响怎么回事', pool)
+    check('混合池里本地规程排在手册原文之前（提问直中它两个以上关键词时）',
+      mixed[0]?.entry.id === 'demo-rotary-motor',
+      `首位=${mixed[0]?.entry.title || '无'}；前三=${mixed.map(h => `${h.entry.title}(${h.score})`).join(' > ')}`)
+  }
+
   // 台账实时问答：数字必须来自数据，而不是写死
   const overdueEquipment = {
     id: 6, name: '6号钻机', model: '阿特拉斯D65', category: '钻机', location: 'C矿区',

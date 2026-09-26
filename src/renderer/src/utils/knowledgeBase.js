@@ -351,6 +351,11 @@ export function normalize(text) {
 /** 正文相关度的上限。刻意压得比一次标题命中（+12）低，见 scoreByContent 说明。 */
 const CONTENT_SCORE_CAP = 8
 
+/**
+ * 精选条目"问的就是它"的加权。见 searchKnowledge 里的用法与下面对 6 这个取值的说明。
+ */
+const CURATED_IDENTITY_BONUS = 6
+
 /** 子串在正文里出现了几次（用来做词频倍率，见 scoreByContent） */
 function countOccurrences(body, term) {
   let count = 0
@@ -539,18 +544,41 @@ export function searchKnowledge(question, items = KNOWLEDGE_BASE, limit = 3) {
     const nCategory = normalize(entry.category)
     if (q.includes(nTitle)) score += 12
     if (q.includes(nCategory)) score += 4
+    // 直接命中的关键词个数（同义词命中的不算，见下）
+    let directHits = 0
     for (const keyword of entry.keywords || []) {
       const k = normalize(keyword)
       if (!k) continue
       // 直接匹配
       if (q.includes(k)) {
         score += k.length >= 2 ? 3 : 2
+        directHits++
       }
       // 同义词扩展匹配（分值略低于直接命中）
       else if (expanded.has(k)) {
         score += k.length >= 2 ? 2 : 1
       }
     }
+    /*
+     * 精选条目：提问**同时直中它两个以上关键词** → 用户问的就是它，
+     * 让它排在手册原文素材之前（手册切片没有 keywords 之外的这条，也不该有：
+     * 手册是素材，不是"某条知识"）。
+     *
+     * 为什么必须有这条：手册正文分封顶 8，本意是"手册原文不能顶掉更对症的精选
+     * 条目"（见 scoreByContent 的封顶说明），但这个上限从来只挡住了**标题命中**
+     * （+12）那一路。只命中关键词的精选条目最多 3+3=6 < 8 —— 实测问
+     * 「回转马达异响怎么回事」（不带机型），刚录入的《XE215C 回转马达异响排查》
+     * 6 分被两页手册原文 8 分挤到第 4 名，limit=3 一切，出处里就没有它了；
+     * 同一次提问里加上机型（「XE215C 回转马达异响怎么处理？」）得 9 分就正常 ——
+     * 也就是说，用户多说一个词就换一个答案，而这是同一件事。
+     *
+     * 为什么是 6：两个最短的直接命中是 2+2=4（单字关键词），加上 6 = 10，
+     * 已经高过正文分上限 8 —— 于是"命中两个以上关键词的精选条目必定排在手册
+     * 原文之前"成为一条与具体词长无关的**不变量**，而不是压着 8 的近距离比较。
+     * 反过来说，只命中一个关键词的精选条目（"液压""系统"这类泛词）一分不加：
+     * 那时手册原文该赢还是赢（问「液压系统怎么保养」时第 30 页保养表照样在前三）。
+     */
+    if (!entry.pageText && directHits >= 2) score += CURATED_IDENTITY_BONUS
     // 带正文的条目额外按正文打分，把同分的页区分开
     if (contentScores) score += contentScores.get(entry) || 0
     return { entry, score }

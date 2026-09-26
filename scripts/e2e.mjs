@@ -1216,6 +1216,15 @@ async function main() {
     check('老师傅模式下问故障现象能命中本地规程/排查思路（不是一句"查不到"）',
       !masterAsk.error && (masterAsk.refs || []).length > 0 && !/查不到|没有检索到/.test(masterAsk.full || ''),
       masterAsk.error || `refs=${(masterAsk.refs || []).join(' | ')} text=${(masterAsk.text || '').slice(0, 120)}`)
+    // 上面那条只要求"有出处"，而实测有出处仍然答非所问：
+    // 问「回转马达异响怎么回事」，依据是《QY25K5D 汽车起重机 技术规格书》第 4 页、
+    // 《XCA60E 全地面起重机 技术规格书》第 4 页、「发动机异响」—— 非空、也都是本地出处，
+    // 但上一段刚录入的那条《XE215C 回转马达异响排查》被两页手册原文挤到第 4 名、
+    // 被 limit=3 截掉了。演示的关键动作（现场录一条规程 → 立刻问同一个现象）到这里是断的，
+    // 而"只要 refs 非空"永远绿。这里就断言**那一条**必须在出处里。
+    check('命中出处里有刚在上一段录入的那条本地规程（不能被手册原文挤出前三）',
+      !masterAsk.error && (masterAsk.refs || []).some(r => r.includes('回转马达异响排查')),
+      masterAsk.error || `refs=${(masterAsk.refs || []).join(' | ')}`)
 
     // 关掉也要立刻可见（防止"只能开不能关"），顺带把状态还原给后面的用例
     await session.goto(`${BASE}/#/settings`, 2400)
