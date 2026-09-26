@@ -682,6 +682,37 @@ function check(name, condition, detail = '') {
     check('混合池里本地规程排在手册原文之前（提问直中它两个以上关键词时）',
       mixed[0]?.entry.id === 'demo-rotary-motor',
       `首位=${mixed[0]?.entry.title || '无'}；前三=${mixed.map(h => `${h.entry.title}(${h.score})`).join(' > ')}`)
+
+    // 只报机型代号时的"点名"（P2-15）。
+    // 手册切片的关键词里那串机型是带品牌前缀的（`徐工 QY25K5D`），"提问点名了这本
+    // 手册 +12"那条判的又是 q.includes(手册全名) —— 用户只报代号时两个都命中不了；
+    // 而代号在正文分那一路是被**主动剔除**的（身份词对"翻哪一页"没有信息量）。
+    // 于是代号被全链路忽略，问 A 机型会引 B 机型的资料。
+    const byCode = kb.searchKnowledge('QY25K5D 支腿液压锁', pool)
+    check('只报机型代号也认得出是哪本手册（首位是 QY25K5D 的页）',
+      /^《QY25K5D/.test(byCode[0]?.entry.title || ''),
+      `首位=${byCode[0]?.entry.title || '无'}；前三=${byCode.map(h => `${h.entry.title}(${h.score})`).join(' > ')}`)
+    // 代号只对**它自己那本**手册生效：点两个不同的机型，必须引到两本不同的手册。
+    // （这条不是"首位是 XCA60E"的同义反复 —— 它抓的是"代号不分归谁、见码就加分"那种写法，
+    //  那时两个提问的首位会双双落到同一本手册上。）
+    const byOther = kb.searchKnowledge('XCA60E 支腿液压锁', pool)
+    const docOf = (title) => (String(title).match(/^《([^》]+)》/) || [])[1] || ''
+    check('代号只对它自己那本手册生效（点两个机型 → 两本不同手册）',
+      !!docOf(byCode[0]?.entry.title) && !!docOf(byOther[0]?.entry.title) &&
+        docOf(byCode[0].entry.title) !== docOf(byOther[0].entry.title),
+      `QY25K5D 问 → ${docOf(byCode[0]?.entry.title) || '无'} ｜ XCA60E 问 → ${docOf(byOther[0]?.entry.title) || '无'}`)
+
+    // 代号这条不能退化成"整本手册所有切片同分"——那样恒返回第 1/2/3 页，
+    // 页码就跟提问内容无关了（这正是 scoreByContent 存在的理由）。
+    // 两个都点了代号、正文词完全不同的问题，必须引到不同的页。
+    const pagesOf = (hits) => hits
+      .map(h => (String(h.entry.title).match(/第\s*(\d+)\s*页/) || [])[1])
+      .filter(Boolean).join(',')
+    const pitPages = pagesOf(byCode)
+    const capPages = pagesOf(kb.searchKnowledge('QY25K5D 最大起重量', pool))
+    check('点了代号也仍按正文选页（两个正文词不同的问题不能引同一组页）',
+      pitPages.length > 0 && capPages.length > 0 && pitPages !== capPages,
+      `支腿液压锁 → 第 ${pitPages} 页 ｜ 最大起重量 → 第 ${capPages} 页`)
   }
 
   // 台账实时问答：数字必须来自数据，而不是写死

@@ -515,6 +515,30 @@ function scoreByContent(q, entries) {
 }
 
 /**
+ * 提问是不是**点了这本手册的机型代号**（而不是把手册全名说出来）。
+ *
+ * 为什么需要它：手册切片的关键词里那串机型是带品牌前缀的（`徐工 QY25K5D`），
+ * 而"点名 +12"那条判的是 `q.includes(手册全名)` —— 用户只报代号（「QY25K5D 支腿液压锁」）
+ * 时两个都命中不了。更隐蔽的是代号在正文分那一路被**主动剔除**（`scoreByContent`
+ * 把身份词从检索词里滤掉，理由正当：这些字只说明指名了某本手册，对翻哪一页没有
+ * 信息量）。两处各自都对，合起来的结果是：提问里的机型代号被**全链路忽略** ——
+ * 问 A 机型，引的是 B 机型的资料（实测：问「QY25K5D 支腿液压锁」，前六条全是 XCA60E 的页）。
+ *
+ * 只在**手册切片**上生效：精选条目的代号写在 `keywords` 里，本来就走关键词那一路，
+ * 不该在这里再拿一份分。代号取"字母 + 数字"的串（QY25K5D / XCA60E / SQ10SK3Q /
+ * XGT7528A / XE230_XE250C 里的 XE230），长度 ≥ 4 才认，避免短串（XE、25）误伤。
+ */
+function namesDocByCode(q, entry) {
+  if (!entry.pageText) return false
+  const identity = [entry.docTitle, entry.model, ...(entry.keywords || [])].filter(Boolean).join(' ')
+  for (const code of identity.match(/[A-Za-z]+\d+[A-Za-z0-9]*/g) || []) {
+    const c = normalize(code)
+    if (c.length >= 4 && q.includes(c)) return true
+  }
+  return false
+}
+
+/**
  * 检索知识库
  * @param {string} question
  * @param {Array} items 知识条目数组（由调用方从 store 传入，便于知识库管理页增删后即时生效）
@@ -542,7 +566,9 @@ export function searchKnowledge(question, items = KNOWLEDGE_BASE, limit = 3) {
     // 所以这个加分只决定"哪本手册优先"，本手册内部的页序仍由正文分决定。
     const nTitle = normalize(entry.docTitle || entry.title)
     const nCategory = normalize(entry.category)
-    if (q.includes(nTitle)) score += 12
+    // "点名某本手册"有两种说法：说全名，或只报机型代号。两种都算，**取其一不叠加**
+    // （否则全名 + 代号双命中会给同一本手册 24 分，把"指哪本"变成压倒一切的信号）。
+    if (q.includes(nTitle) || namesDocByCode(q, entry)) score += 12
     if (q.includes(nCategory)) score += 4
     // 直接命中的关键词个数（同义词命中的不算，见下）
     let directHits = 0
