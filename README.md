@@ -93,6 +93,7 @@ Excel 台账导入 ──→ 健康评分 ──→ 告警扫描 ──→ 工�
 ### 4. 离线不是口号，是可以验证的
 
 - **运行期的对外网络请求只有一类：模型分发**。打开「本地模型」页或首次向导时会拉一次远端清单（`raw.githubusercontent.com` 上的 `models.json`，拉不到就用本地缓存/内置清单兜底），下载模型字节必须用户点击。除此之外 `src/` 内没有对外请求，也没有任何 API key
+- **模型存两处，且与程序装在哪块盘无关**：随包内置的档位在安装目录的 `resources/models`（只读，随卸载一起移除）；用户点选下载的档位固定放在**用户数据目录**（Windows 为 `%APPDATA%\kuangshan-zhigong\models\`），「本地模型」页会把这条路径写出来并提供「打开目录」。删除只作用于下载副本：删**正在使用**的档位会先释放模型会话再删文件、删完自动切到另一个已安装档位；随包只读的档位没有下载副本，因此不提供删除入口（界面标「随包内置·只读」）
 - Electron：`contextIsolation: true` / `nodeIntegration: false` / `sandbox: true`，preload 只通过 `contextBridge` 暴露白名单方法，不透传 `ipcRenderer`；每个 `ipcMain.handle` 都做调用来源校验（`main-check` 里有断言验证它真的拦得住不可信来源）
 - 外部链接交给系统浏览器打开，且**只放行 http/https/mailto**；打印用的空白子窗口单独放行（否则应用自带的打印在 Electron 下打不开）
 - 数据库是纯 JS 的 SQLite（sql.js），Electron 下落盘为 `userData/kuangshan-zhigong.db`（先写临时文件再改名），浏览器下走 IndexedDB，再降级到 localStorage。**落盘失败会抛错并显示"保存失败"，且保持脏状态以便重试** —— 不会像以前那样失败也显示"已保存"
@@ -154,7 +155,7 @@ Excel 台账导入 ──→ 健康评分 ──→ 告警扫描 ──→ 工�
 ```bash
 npm run lint         # 静态检查（只拦真错，不管风格）
 npm run self-check   # 纯逻辑断言（含落盘失败/播种判据/库损坏的故障注入）
-npm run main-check   # 主进程契约（IPC 参数形状、来源校验、档位切换、清单兜底）
+npm run main-check   # 主进程契约（IPC 参数形状、来源校验、档位切换、模型删除与释放顺序、清单兜底）
 npm run store-check  # store 行为（Node 下真正装配 pinia + sql.js 跑 appStore/persistence）
 npm run pack-check   # 打包依赖闭包（运行时依赖会不会被 files 规则排掉、原生库解包没解包）
 npm run coverage     # 口述指代消解的功能覆盖矩阵
@@ -175,7 +176,7 @@ npm run verify       # 以上全部 + 生产构建
 |------|--------|--------|--------------|
 | `self-check` | Node，镜像 `utils/` 纯函数 | 规则/评分/解析/报告等纯逻辑 | 任何需要 pinia/sql.js 装配的东西 |
 | `store-check` | Node，**真正装配 store** | 字段白名单、播种判据、落盘失败、持久化往返 | DOM |
-| `main-check` | Node，桩掉 electron 加载主进程 | IPC 契约、来源校验、切档回滚、清单兜底 | 真实模型推理 |
+| `main-check` | Node，桩掉 electron 加载主进程 | IPC 契约、来源校验、切档回滚、删除前先释放会话的顺序、清单兜底 | 真实模型推理、真实文件句柄（模型删除的 `EPERM` 只能靠真 Electron 探针实测，见测试报告 #28） |
 | `pack-check` | Node，读构建配置 + 真实 `node_modules` | 装机后才暴露的缺模块（依赖闭包被 `files` 排掉）、原生库没解包 | 装机后的实际运行 |
 | `e2e` / `e2e:nl` | 无头 Chromium | 交互、跨路由、刷新后仍在 | 主进程、视觉 |
 
