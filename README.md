@@ -161,9 +161,10 @@ npm run pack-check   # 打包依赖闭包（运行时依赖会不会被 files �
 npm run coverage     # 口述指代消解的功能覆盖矩阵
 npm run e2e          # 无头浏览器端到端（真实点击真实路由）
 npm run e2e:nl       # 口述录入端到端（含撤销、歧义、不误写）
-npm run audit:contrast  # 16 条路由的文字配色对比度（WCAG AA）
+npm run audit:contrast  # 15 条路由的文字配色对比度（WCAG AA，浅色令牌）
+npm run audit:contrast:dark  # 同一条门禁的深色版（**不在 verify 链里**，改深色样式要单独跑）
 
-npm run verify       # 以上全部 + 生产构建
+npm run verify       # 上面除深色那条外的 9 条 + 生产构建，共 10 步
 ```
 
 > 断言的**条数以脚本实际输出为准**，本文不写死数字 —— 这几个数曾经在 README、任务总览、测试报告里各写各的（88 / 91 / 102），谁也没发现，因为没有任何东西校验它们。要看当前值直接跑脚本，末行会打印"合计 N 项"。
@@ -216,7 +217,7 @@ npm run verify       # 以上全部 + 生产构建
 - **视觉无自动化回归**：改了样式只能靠人过截图，没有基线比对（见上"验收"一节的说明）
 - **首次启动有启动闪屏与分步进度**（打开数据库 → 准备演示数据 → 导入随包手册），不再空白等待；进度条为不确定态动画（各步耗时不均，不假装知道百分比）
 - **窄于 1200px 时表格自动隐藏次要列**（工单表隐藏工单号/类型/来源/创建时间，备件表隐藏类别/单价/流水来源；关键列始终可见，机制见 `utils/responsive.js`）
-- **深色主题已全量覆盖**（`tokens.css` 的 `html[data-theme="dark"]` 令牌块 + 设置页三选 + 深色下 15 路由对比度门禁），不再是"只有侧栏"
+- **深色主题已全量覆盖**（`tokens.css` 的 `html[data-theme="dark"]` 令牌块 + 设置页三选），不再是"只有侧栏"。深色下的对比度另有门禁 `npm run audit:contrast:dark`（深色令牌下审同样 15 条路由），但它**不在 `npm run verify` 链里** —— `verify` 跑的是浅色那条，动了深色样式必须单独跑一次，别把"浅色全绿"当成深色也过了
 
 ## 目录结构
 
@@ -232,9 +233,10 @@ src/
       stores/      Pinia（appStore 主状态 + nlActions 口述动作/撤销）
       styles/      设计令牌与 Element Plus 主题（tokens.css / driverTheme.css）
       utils/       健康评分、知识库、口述解析、数据库、Excel、备份、动效、引导路线…
-scripts/         五套验收脚本 + build-manual-assets.mjs（随包手册生成）
+scripts/         八套验收脚本（lint 之外的 self-check / main-check / store-check / pack-check /
+                 coverage / e2e / e2e-nl / contrast-audit）+ build-manual-assets.mjs（随包手册生成）
 docs/            参赛材料 / 演示脚本 / 测试报告 / 视觉规范 / 资料落地
-resources/models/ 本地模型（491 MB，不随仓库分发）
+resources/models/ 本地模型（468.6 MiB，约 491 MB；不随仓库分发）
 ```
 
 ## 许可

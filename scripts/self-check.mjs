@@ -1211,6 +1211,51 @@ function check(name, condition, detail = '') {
     bound, bound ? 'class="version">v{{ appVersion }}' : '没找到该绑定写法')
 }
 
+// ============ I5 文档里写的路由数必须等于 contrast-audit 实际审的路由数 ============
+{
+  /**
+   * 这一类缺陷在 2026-09-26 的文档审计里刚抓到：`/` 落地页删除后 `ROUTES` 从 16 条降到 15 条，
+   * 脚本自己跑得全绿，而 README / 任务总览 / 参赛材料三处仍写着 16 —— **门禁自己和文档对不上，
+   * 没有任何东西会响**（和 I4 那条"界面版本号 vs 包名"是同一种病：数字写了两份，就会漂）。
+   *
+   * 所以数字写在几处，就由几条断言盯着；**找不到数字也算失败** —— 把数字删掉不是修好，
+   * 是让下一次不一致变成"无法检测"。
+   */
+  const auditSrc = readFileSync(join(root, 'scripts', 'contrast-audit.mjs'), 'utf8')
+  const routesBlock = auditSrc.match(/const ROUTES = \[([\s\S]*?)\]/)
+  // 数之前先剥掉行注释：这段注释里写了「'/' 原先是落地页」，不剥会把注释里的引号也当成一条路由
+  const routesBody = (routesBlock ? routesBlock[1] : '').replace(/(^|\s)\/\/[^\n]*/g, ' ')
+  const routeCount = (routesBody.match(/'\/[^']*'/g) || []).length
+  check('前置条件：能从 contrast-audit.mjs 里数出路由条数（数不出来下面几条就没意义）',
+    routeCount > 0, `ROUTES = ${routeCount} 条`)
+
+  // 每个站点：找到那一行 → 抓出里面所有"N 路由" → 必须只有一个值，且等于 routeCount
+  const sites = [
+    ['README.md（audit:contrast 那行）', join(root, 'README.md'),
+      l => l.includes('npm run audit:contrast ')],
+    ['docs/tasks/00-任务总览.md（验收命令那行）', join(root, 'docs', 'tasks', '00-任务总览.md'),
+      l => l.includes('`npm run verify` =')],
+    ['docs/参赛材料.md（audit:contrast:dark 那行）', join(root, 'docs', '参赛材料.md'),
+      l => l.includes('audit:contrast:dark')],
+    ['docs/测试报告.md（验收结果总览表）', join(root, 'docs', '测试报告.md'),
+      l => l.includes('`npm run audit:contrast`')],
+    ['scripts/contrast-audit.mjs（顶部注释）', join(root, 'scripts', 'contrast-audit.mjs'),
+      l => l.includes('深色令牌下的')]
+  ]
+  for (const [label, file, pick] of sites) {
+    const line = readFileSync(file, 'utf8').split(/\r?\n/).find(pick)
+    const nums = line
+      ? [...new Set((line.match(/\d+\s*条?路由/g) || []).map(s => s.match(/\d+/)[0]))]
+      : []
+    check(`写成"N 路由"的地方与 ROUTES 一致：${label}`,
+      nums.length === 1 && nums[0] === String(routeCount),
+      !line ? '这个文件里找不到那一行（改了文案就要同步改这条断言）'
+        : nums.length === 0 ? '这一行里找不到"N 路由"（删掉数字等于让漂移无法检测）'
+          : nums.length > 1 ? `同一行里写了 ${nums.join('、')} 路由，自己就不一致`
+            : `${nums[0]} 路由 · ROUTES = ${routeCount}`)
+  }
+}
+
 // ============ J 演示数据工厂（规模与分布验收） ============
 {
   const dataset = fleet.buildDemoDataset({ size: 60 })

@@ -30,7 +30,7 @@ const BASE = process.env.E2E_BASE_URL || 'http://localhost:5173'
 const CDP_PORT = Number(process.env.E2E_CDP_PORT || 9223)
 const CDP = `http://127.0.0.1:${CDP_PORT}`
 
-/** 审计主题：light | dark（--dark 或 CONTRAST_THEME=dark 跑深色令牌下的 16 路由） */
+/** 审计主题：light | dark（--dark 或 CONTRAST_THEME=dark 跑深色令牌下的 15 路由） */
 const THEME = (process.argv.includes('--dark') || process.env.CONTRAST_THEME === 'dark') ? 'dark' : 'light'
 const isDark = THEME === 'dark'
 
