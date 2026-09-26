@@ -475,7 +475,14 @@ async function main() {
         overviewTotal,
         levels: cards.slice(0, 5).map(c => c.querySelector('.equip-level')?.textContent.replace(/\\s+/g, ' ').trim() || ''),
         reportButtons: cards.filter(c => Array.from(c.querySelectorAll('button')).some(b => /体检/.test(b.textContent))).length,
-        photos: cards.filter(c => /equipment-photos\\/.*\\.jpg/.test(c.querySelector('.equip-photo img')?.getAttribute('src') || '')).length
+        // 照片要**真的解码出来**（naturalWidth > 0），不是"有个 <img> 就算"：
+        // src 写错、文件不在、加载失败时 <img> 同样在 DOM 里，complete 也会是 true
+        // —— 只有 naturalWidth 会把碎图暴露出来（见 utils/equipmentPhoto.js 的路径说明）。
+        photos: cards.filter(c => {
+          const img = c.querySelector('.equip-photo img')
+          return !!img && /equipment-photos\\/.*\\.jpg/.test(img.getAttribute('src') || '') && img.naturalWidth > 0
+        }).length,
+        photoPaths: cards.map(c => c.querySelector('.equip-photo img')?.getAttribute('src') || '')
       }
     })()`)
     // 滚到底：虚拟滚动只该减少**同时存在**的卡片数，不该减少**够得着**的设备数。
@@ -584,8 +591,16 @@ async function main() {
     check('健康度按四级分档展示（验收 #2）', equipment.overview.length === 4, equipment.overview.join(' | '))
     check('设备台账共 60 台（四档合计）', equipment.overviewTotal === 60, `合计=${equipment.overviewTotal}`)
     check('每张卡片都带等级与健康分', equipment.levels.length === 5 && equipment.levels.every(t => /级.*分/.test(t)), equipment.levels.join(','))
-    check('每张卡片按类别渲染设备照片', equipment.photos === equipment.cards && equipment.cards > 0,
+    check('每张卡片按类别渲染设备照片，且图片真的解码出来了',
+      equipment.photos === equipment.cards && equipment.cards > 0,
       `照片=${equipment.photos}/${equipment.cards}`)
+    // 只查"有没有 <img>"是不够的：打包版是 `loadFile(dist/index.html)`，页面 URL 是 file://，
+    // 根绝对路径 `/equipment-photos/x.jpg` 会解析到**盘符根**（file:///D:/equipment-photos/x.jpg）
+    // —— 安装包里五处界面（台账卡/设备档案/告警中心/看板/设备记录）的照片全碎，而开发态与 e2e
+    // 走的都是 http://localhost:5173，一条断言都看不见。这里盯住路径写法本身。
+    check('设备照片的 src 是相对路径（打包版 file:// 下根绝对路径取不到文件）',
+      equipment.photoPaths.length > 0 && equipment.photoPaths.every(p => p && !p.startsWith('/')),
+      `src=${[...new Set(equipment.photoPaths)].slice(0, 3).join(' , ') || '（没有 src）'}`)
     check('卡片可直接发起体检', equipment.reportButtons >= equipment.cards && equipment.cards > 0,
       `按钮=${equipment.reportButtons}/${equipment.cards}`)
 

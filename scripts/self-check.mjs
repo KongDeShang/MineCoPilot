@@ -33,7 +33,7 @@ mkdirSync(mirrorDir, { recursive: true })
 // knowledgeBase / reportGenerator 开始 import 它之后，镜像里没有对应文件，
 // self-check 抛 ERR_MODULE_NOT_FOUND 整个中断（verify 的前置步骤，全链路失败）。
 // 以后再往 utils 加纯函数模块，记得同步加到这里。
-for (const name of ['dates', 'html', 'htmlIcons', 'appIcons', 'storage', 'database', 'excelParser', 'synonyms', 'knowledgeBase', 'health', 'equipmentCatalog', 'fleetData', 'healthReport', 'faultStats', 'alertRules', 'aliases', 'seedGate', 'nlCommand', 'llmClient', 'narrate', 'reportGenerator', 'dictionaries', 'bundledDocs', 'faultCaseDraft', 'demoTour']) {
+for (const name of ['dates', 'html', 'htmlIcons', 'appIcons', 'storage', 'database', 'excelParser', 'synonyms', 'knowledgeBase', 'health', 'equipmentCatalog', 'equipmentPhoto', 'fleetData', 'healthReport', 'faultStats', 'alertRules', 'aliases', 'seedGate', 'nlCommand', 'llmClient', 'narrate', 'reportGenerator', 'dictionaries', 'bundledDocs', 'faultCaseDraft', 'demoTour']) {
   const code = readFileSync(join(srcDir, `${name}.js`), 'utf8')
     .replace(/(from\s+['"]\.\/[a-zA-Z0-9_-]+)(['"])/g, '$1.mjs$2')
   writeFileSync(join(mirrorDir, `${name}.mjs`), code, 'utf8')
@@ -84,6 +84,7 @@ const llmC = await import(mirror('llmClient'))
 const narrate = await import(mirror('narrate'))
 const reportGen = await import(mirror('reportGenerator'))
 const caseDraft = await import(mirror('faultCaseDraft'))
+const photo = await import(mirror('equipmentPhoto'))
 
 const results = []
 function check(name, condition, detail = '') {
@@ -1085,6 +1086,39 @@ function check(name, condition, detail = '') {
   const titleMismatch = docs.filter(d => textOf[d.slug] && textOf[d.slug].title !== d.title)
   check('文字层里的标题与清单标题一致（不一致说明产物过期，需重跑生成脚本）',
     titleMismatch.length === 0, titleMismatch.map(d => d.slug).join('、') || '一致')
+}
+
+// ============ I3 设备卡片照片（随包静态资源，只在打包版现形的一类） ============
+{
+  /**
+   * 照片原来写的是根绝对路径 `/equipment-photos/x.jpg`：开发态页面是 http://localhost:5173/，
+   * 解析得到 5173 下的路径，一切正常；**打包版是 loadFile(dist/index.html)，页面 URL 是 file://**，
+   * 同一串按 URL 规范解析成 `file:///D:/equipment-photos/x.jpg` —— 盘符根目录，取不到文件。
+   * 于是安装包里五处界面（台账卡 / 设备档案 / 告警中心 / 看板 / 设备记录）的照片全碎，
+   * 而开发态与 e2e（都走 5173）一条断言都看不见。实测见 node_modules/.probe/url-form.mjs。
+   */
+  const categories = ['挖掘机', '矿卡', '钻机', '装载机', '破碎机', '压路机', '平地机', '推土机']
+  const cases = [
+    ...categories.map(c => [c, photo.equipmentPhoto(c)]),
+    ['未知类别（回退）', photo.equipmentPhoto('这个类别不存在')]
+  ]
+
+  const absolute = cases.filter(([, p]) => p.startsWith('/'))
+  check('设备照片的路径不是根绝对路径（file:// 下会解析到盘符根，装完包全是碎图）',
+    absolute.length === 0,
+    absolute.length ? absolute.map(([c, p]) => `${c}=${p}`).join('、') : cases[0][1])
+
+  const photoDir = join(root, 'src', 'renderer', 'public', 'equipment-photos')
+  const noFile = cases.filter(([, p]) => !existsSync(join(photoDir, p.split('/').pop())))
+  check('每个设备类别的照片文件都在仓库里（只写清单不生成产物，装完依旧空空如也）',
+    noFile.length === 0,
+    noFile.length ? noFile.map(([c, p]) => `${c}=${p}`).join('、') : `${cases.length} 个文件名都找得到`)
+
+  // "有照片"与"照片对得上类别"是两件事：八类都指向同一张图时，卡片看着有图、内容是错的
+  const distinct = new Set(categories.map(c => photo.equipmentPhoto(c)))
+  check('八个设备类别各有自己的照片（不是一张图顶上所有类别）',
+    distinct.size === categories.length,
+    `${distinct.size}/${categories.length} 张：${[...distinct].map(p => p.split('/').pop()).join(',')}`)
 }
 
 // ============ J 演示数据工厂（规模与分布验收） ============
