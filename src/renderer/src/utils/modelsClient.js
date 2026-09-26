@@ -46,6 +46,22 @@ export async function modelsDelete(id) {
   }
 }
 
+/**
+ * 打开下载模型的存放目录（系统文件管理器）
+ *
+ * 目录路径由主进程自己算（userData/models），渲染层不传路径 —— 也就没有路径穿越的入口。
+ */
+export async function modelsOpenDir() {
+  if (!modelsAvailable() || typeof window.electronAPI.models.openDir !== 'function') {
+    return { ok: false, error: '浏览器模式无分发引擎' }
+  }
+  try {
+    return await window.electronAPI.models.openDir()
+  } catch (err) {
+    return { ok: false, error: err && err.message || String(err) }
+  }
+}
+
 /** 订阅下载进度：返回取消订阅函数 */
 export function onModelsProgress(cb) {
   if (!modelsAvailable()) return () => {}

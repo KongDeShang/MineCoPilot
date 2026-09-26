@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
-const { registerLlmIpc, runSelfVerify, disposeSession } = require('./llmEngine')
+const { registerLlmIpc, runSelfVerify, disposeSession, releaseTierForRemoval } = require('./llmEngine')
 const { registerModelsIpc } = require('./modelManager')
 
 let mainWindow
@@ -66,8 +66,12 @@ function registerIpc() {
   // 本地模型引擎（node-llama-cpp，仅主进程）
   registerLlmIpc({ ipcMain })
 
-  // 模型云端分发（清单/下载/删除/进度）
-  registerModelsIpc({ ipcMain, assertTrusted })
+  // 模型云端分发（清单/下载/删除/进度/打开目录）
+  //
+  // release 钩子必须接：llama.cpp 把 GGUF 内存映射在进程里，删除前不释放会话，
+  // Windows 上 rmSync 必然 EPERM，删除功能等于永远失败（用户实测报错）。
+  // 传的是 llmEngine 的实现，两个模块都已在上面 require，不构成循环依赖。
+  registerModelsIpc({ ipcMain, assertTrusted, release: releaseTierForRemoval })
 
   // ── 路径边界工具（app:openPath / docs:* 共用）───────────────────────────────
   const DOCS_DIR = () => path.join(app.getPath('userData'), 'documents')

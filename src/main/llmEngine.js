@@ -18,6 +18,9 @@ const fs = require('fs')
 const { app } = require('electron')
 const ModelRegistry = require('./ModelRegistry')
 const ModelSession = require('./ModelSession')
+// 模型搜索根的唯一定义在 modelManager（见下方 modelRoots 委托说明）。
+// 只取函数，不构成循环依赖：modelManager 不 require 本文件。
+const { modelRoots } = require('./modelManager')
 
 const { scanTiers, autoSelectTier, getTierMeta } = ModelRegistry
 
@@ -28,15 +31,15 @@ const session = new ModelSession()
  * 模型搜索根（双源，Task 07 落地后 userData/models 为可下载落盘目录）：
  *   1. resources/models（dev 用项目根 resources，打包后用安装目录 resources）——只读随包
  *   2. userData/models（用户下载/自放的模型）——可写
+ *
+ * 这里原来是本文件自己的一份实现，与 modelManager 里那一份**在开发模式下给出不同答案**：
+ * 本文件走 `app.isPackaged ? process.resourcesPath : <项目根>/resources`，而 modelManager
+ * 走 `process.resourcesPath || ''` —— 开发模式下 process.resourcesPath 指向 electron 自带的
+ * resources 目录，裸 node 下是 undefined（`path.join('', 'models')` 退化成相对路径 'models'）。
+ * 净效果是"同一台机器上模型在哪"有两个答案：档位列表（本文件）看得见随包模型，
+ * 而安装状态 / 下载落点 / 删除（modelManager）看不见 —— 删除功能正是踩在这个分歧上。
+ * 现在只保留 modelManager 一处实现，这里委托过去：存档位置只有一个人说了算。
  */
-function modelRoots() {
-  const base = app.isPackaged
-    ? process.resourcesPath
-    : path.join(__dirname, '../../resources')
-  const roots = [path.join(base, 'models')]
-  try { roots.push(path.join(app.getPath('userData'), 'models')) } catch { /* userData 不可用时仅用随包目录 */ }
-  return roots
-}
 
 /** 档位偏好持久化（userData/model-pref.json） */
 function prefPath() {
@@ -471,4 +474,71 @@ async function disposeSession() {
   return r || { ok: true, errors: [] }
 }
 
-module.exports = { registerLlmIpc, getStatus, ensureLoaded, runSelfVerify, listModels, switchModel, disposeSession }
+/**
+ * 「删除下载副本」之前的释放钩子 —— 由 modelManager.deleteModel 在 rmSync **之前**调用。
+ *
+ * 为什么必须有这一步：llama.cpp 会把 GGUF 内存映射进进程，文件仍被映射时 Windows 上
+ * 删除必然失败，报 `EPERM, Permission denied`（这正是用户实测的报错，已逐字复现）。
+ * 只要会话不先释放，"删除模型"就永远失败，且失败发生在 fs 层，界面只能显示一句
+ * "删除失败"，看不出是模型还在内存里。
+ *
+ * 与 disposeSession 的分工：那个是**退出路径**（不碰档位指针，进程都要结束了）；
+ * 这个是**删除路径**，必须顺带把指针挪到"删完之后仍然存在的档位"上，
+ * 否则删除当前档位后 currentTierId 会指向一个不存在的档位。
+ *
+ * @param {string} id 即将被删除下载副本的档位
+ * @param {{willRemain?: boolean}} opts willRemain=true 表示删掉这份副本后该档位**依然可用**
+ *        （随包里还有一份只读副本）——此时只需卸载，指针不用动。
+ * @returns {Promise<{released:boolean, ok:boolean, current:string|null, wasCurrent:boolean}>}
+ */
+async function releaseTierForRemoval(id, { willRemain = false } = {}) {
+  const wasCurrent = currentTierId === id
+  let released = false
+  let ok = true
+
+  // 加载中的会话如果就是这一档，它映射的正是即将被删的那个文件 —— 必须先卸载。
+  if (session.loaded && session.tierId === id) {
+    const r = await session.dispose()
+    released = true
+    if (r && !r.ok) {
+      // 释放失败不再静默：文件可能仍被占用，调用方要靠这个结果如实告诉用户
+      ok = false
+      console.warn('[模型] 删除档位前释放会话部分失败（文件可能仍被占用）：', r.errors.join('；'))
+    }
+    state = 'idle'
+    modelInfo = null
+    loadError = ''
+  }
+
+  // 随包副本还在 → 档位没有消失，指针原地不动，下次生成会自动从只读那份重新加载。
+  if (willRemain) return { released, ok, current: currentTierId, wasCurrent }
+
+  let current = currentTierId
+  if (wasCurrent) {
+    // 重选档位必须按"删完之后仍然在的档位"来算，两处都不能省：
+    //   · 不能直接用 scanTiers(modelRoots()) 的结果 —— 此刻文件还在磁盘上，被删的档位仍报 installed；
+    //   · 不能把过滤后的数组原样交给 autoSelectTier —— 它在"一个都没装"时也会返回 'light'
+    //     （见 ModelRegistry 注释），于是指针又回到刚被删掉的档位上。
+    const remaining = scanTiers(modelRoots()).filter(t => t.installed && t.id !== id)
+    current = remaining.length ? autoSelectTier(remaining) : null
+    currentTierId = current
+    state = 'idle'
+    loadError = ''
+    modelInfo = null
+    // 指针变了就要落盘：偏好是"下次启动加载哪个档"的依据，留着旧值会让下次启动
+    // 直接去加载一个已经不存在的档位。
+    writePref()
+  }
+  return { released, ok, current, wasCurrent }
+}
+
+module.exports = {
+  registerLlmIpc,
+  getStatus,
+  ensureLoaded,
+  runSelfVerify,
+  listModels,
+  switchModel,
+  disposeSession,
+  releaseTierForRemoval
+}

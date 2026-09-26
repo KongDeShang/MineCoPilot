@@ -18,8 +18,8 @@ const fs = require('fs')
 const http = require('http')
 const https = require('https')
 const crypto = require('crypto')
-const { app } = require('electron')
-const { scanTiers } = require('./ModelRegistry')
+const { app, shell } = require('electron')
+const { scanTiers, locateTier, tierDirNames } = require('./ModelRegistry')
 
 const { TIERS } = require('./ModelRegistry')
 
@@ -28,13 +28,47 @@ const { TIERS } = require('./ModelRegistry')
 // ---------------------------------------------------------------------------
 
 function userModelsDir() {
-  // userData/models —— 用户可写，云端下载落点
+  // userData/models —— 用户可写，云端下载落点。
+  // ⚠️ 这个位置**与程序安装目录无关**：装机版在 D:\xxx、下载的模型仍在
+  // %APPDATA%\<app>\models 下。卸载程序不会删除它（用户下载的 1GB 模型不该被静默丢掉），
+  // 界面必须把这条路径显示出来，否则用户找不到自己下过的模型。
   return path.join(app.getPath('userData'), 'models')
 }
 
+/** 随包只读模型根：dev 用项目根 resources，打包后用安装目录 resources */
+function bundledModelsDir() {
+  const base = app.isPackaged
+    ? process.resourcesPath
+    : path.join(__dirname, '../../resources')
+  return path.join(base, 'models')
+}
+
 function modelRoots() {
-  // 双源：resources/models（随包只读，离线包）+ userData/models（用户下载）
-  return [path.join(process.resourcesPath || '', 'models'), userModelsDir()]
+  // 双源：resources/models（随包只读，离线包）+ userData/models（用户下载）。
+  // 这是全仓"模型在哪"的唯一定义，llmEngine 也委托到这里（此前两处各写一份且开发模式不一致）。
+  return [bundledModelsDir(), userModelsDir()]
+}
+
+/**
+ * 一个档位"在哪几份、能不能删"的完整回答。
+ *
+ * installed / installedPath（scanTiers）沿用短路语义 = "实际会被加载的那一份"；
+ * 这里额外区分随包副本与下载副本，因为它们是两件事的依据：
+ *   · 删除按钮该不该出现 —— 只有**下载副本**可删，随包的是只读资源；
+ *   · 删掉之后档位还能不能用 —— 随包副本还在就依然可用，只是回到只读那份。
+ */
+function installDetailFor(tier) {
+  const loc = locateTier(tier, modelRoots())
+  const bundled = loc.roots.find(r => r.dir === bundledModelsDir()) || { path: null }
+  const downloaded = loc.roots.find(r => r.dir === userModelsDir()) || { path: null }
+  return {
+    bundled: !!bundled.path,
+    bundledPath: bundled.path,
+    downloaded: !!downloaded.path,
+    downloadedPath: downloaded.path,
+    removable: !!downloaded.path,
+    effectivePath: loc.effective
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -331,6 +365,8 @@ async function listModels() {
 
   for (const m of manifest.models || []) {
     const local = scanned.find((s) => s.id === m.tier)
+    // 清单里可能有 TIERS 尚未定义的档位，此时没有档位元数据可定位，只能报"未安装"
+    const tier = TIERS.find((t) => t.id === m.tier)
     out.push({
       id: m.tier,
       name: m.name,
@@ -345,7 +381,8 @@ async function listModels() {
       available: true,
       installed: !!(local && local.installed),
       installedPath: (local && local.installedPath) || null,
-      installedSize: (local && local.installedSize) || 0
+      installedSize: (local && local.installedSize) || 0,
+      ...(tier ? installDetailFor(tier) : {})
     })
     seen.add(m.tier)
   }
@@ -368,11 +405,21 @@ async function listModels() {
       available: false,
       installed: !!(local && local.installed),
       installedPath: (local && local.installedPath) || null,
-      installedSize: (local && local.installedSize) || 0
+      installedSize: (local && local.installedSize) || 0,
+      ...installDetailFor(t)
     })
   }
 
-  return { ok: true, models: out, source: manifestSource, version: manifest.version, updatedAt: manifest.updatedAt }
+  return {
+    ok: true,
+    models: out,
+    // 界面要把"下载的模型放哪"如实显示出来（否则用户在下过 1GB 模型后找不到它）。
+    // 路径由主进程给出，不由渲染层猜。
+    dirs: { userData: userModelsDir(), bundled: bundledModelsDir() },
+    source: manifestSource,
+    version: manifest.version,
+    updatedAt: manifest.updatedAt
+  }
 }
 
 /** 下载模型档位到 userData/models/<tier>/；同一时间只允许一个下载 */
@@ -418,16 +465,139 @@ async function downloadModel(id, { onProgress } = {}) {
   }
 }
 
-/** 删除已下载模型（释放空间） */
-function deleteModel(id) {
-  const dir = path.join(userModelsDir(), id)
-  if (!fs.existsSync(dir)) return { ok: true, deleted: false }
-  fs.rmSync(dir, { recursive: true, force: true })
-  return { ok: true, deleted: true }
+/** 递归统计目录体积（只为如实报出"释放了多少空间"） */
+function dirSize(dir) {
+  let total = 0
+  let entries
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true })
+  } catch { return 0 }
+  for (const e of entries) {
+    const p = path.join(dir, e.name)
+    try {
+      if (e.isDirectory()) total += dirSize(p)
+      else total += fs.statSync(p).size
+    } catch { /* 单个条目读不到就跳过 */ }
+  }
+  return total
 }
 
-/** 注册 IPC（models:*），来源校验复用 index.js 的 assertTrusted */
-function registerModelsIpc({ ipcMain, assertTrusted }) {
+/**
+ * 删目录 + 退避重试。
+ *
+ * 卸载会话之后，文件句柄并不是立刻关掉的（Windows 上尤其如此），紧接着删仍可能
+ * EBUSY / EPERM —— 那就等于白卸载了。这里对"占用类"错误重试几次，把"刚释放就删"
+ * 的竞态吃掉；真删不掉时把最后一次错误原样返回，由调用方如实转述。
+ * 非占用类错误（如 ENOENT 之外的路径问题）不重试，直接返回。
+ */
+async function removeDirWithRetry(dir, rm, { attempts = 4, delayMs = 250 } = {}) {
+  let last = null
+  for (let i = 0; i < attempts; i++) {
+    try {
+      rm(dir, { recursive: true, force: true })
+      return null
+    } catch (err) {
+      last = err
+      const code = (err && err.code) || ''
+      if (!['EBUSY', 'EPERM', 'EACCES', 'ENOTEMPTY'].includes(code)) return err
+      if (i < attempts - 1) await sleep(delayMs * (i + 1))
+    }
+  }
+  return last
+}
+
+/** 把删除失败翻译成用户能照做的说法（原始报错保留在后面） */
+function rmFailureMessage(err, tier) {
+  const code = (err && err.code) || ''
+  const detail = (err && err.message) || String(err)
+  if (code === 'EPERM' || code === 'EACCES') {
+    return `${detail}。模型文件仍被占用（通常是本地模型正在使用中）：请先停用本地模型或关闭 AI 助手后重试；若仍失败，可手动删除 ${userModelsDir()} 下的「${tier.id}」目录`
+  }
+  if (code === 'EBUSY' || code === 'ENOTEMPTY') {
+    return `${detail}。文件仍被占用，请稍后重试`
+  }
+  return detail
+}
+
+/**
+ * 删除档位的**下载副本**（随包只读副本不动），释放空间。
+ *
+ * 修复前这个函数做三件事而只对了一件：
+ *   1. 不释放会话就 rmSync —— llama.cpp 把 GGUF 映射在进程里，Windows 上必然 EPERM。
+ *      用户实测报错：`删除失败：EPERM, Permission denied: ...\models\standard`，删除永远失败；
+ *   2. 目录不存在时返回 `{ ok:true, deleted:false }`，而界面只判断 `r.ok` ——
+ *      对随包内置、根本没有下载副本的档位照样弹"已删除"。一次彻底的假成功：
+ *      用户以为删了，磁盘上一个字节都没少；
+ *   3. 只删 `<userData>/models/<id>`，旧版按模型名命名的目录（qwen2.5-0.5b/）留在磁盘上，
+ *      界面显示"已删除"而档位依然 installed。
+ *
+ * @param {string} id 档位 id
+ * @param {{release?: Function, rm?: Function}} opts release 必须是**删除前**调用的释放钩子
+ *        （llmEngine.releaseTierForRemoval）；rm 仅供测试注入，默认 fs.rmSync
+ * @returns {Promise<{ok:boolean, deleted:boolean, freedBytes?:number, removedPaths?:string[],
+ *          released?:boolean, current?:string|null, bundled?:boolean, error?:string}>}
+ */
+async function deleteModel(id, { release, rm = fs.rmSync } = {}) {
+  const tier = TIERS.find((t) => t.id === id)
+  if (!tier) return { ok: false, deleted: false, error: `未知档位：${id}` }
+
+  // 旧版目录名一并算上：只删 <id> 会留下 qwen2.5-0.5b/ 这种历史目录，
+  // 表现为"删了但档位还在、空间也没释放"。
+  const dirs = tierDirNames(id).map((name) => path.join(userModelsDir(), name))
+  const present = dirs.filter((d) => fs.existsSync(d))
+  const bundled = !!locateTier(tier, [bundledModelsDir()]).effective
+
+  if (!present.length) {
+    // 没有可删的东西**不是成功**。以前这里返回 ok:true，界面就照着弹了"已删除"。
+    return {
+      ok: false,
+      deleted: false,
+      bundled,
+      error: bundled
+        ? `「${tier.name}」随程序安装提供只读副本，没有可删除的下载副本`
+        : `「${tier.name}」没有已下载的副本，无需删除`
+    }
+  }
+
+  const freedBytes = present.reduce((sum, d) => sum + dirSize(d), 0)
+
+  // ① 先卸载会话，再删文件 —— 顺序反了就是用户那个 EPERM。
+  let released = false
+  let current = null
+  if (typeof release === 'function') {
+    try {
+      const r = await release(id, { willRemain: bundled })
+      if (r && typeof r === 'object') {
+        released = !!r.released
+        current = 'current' in r ? r.current : null
+      }
+    } catch (err) {
+      // 钩子异常不能让删除半途而废：文件还在，继续往下走，
+      // 真删不掉会由 ② 如实报错（也可能钩子失败但文件没被占用，那就照样删掉）。
+      console.warn('[模型] 删除前释放会话异常：', (err && err.message) || err)
+    }
+  }
+
+  // ② 删文件
+  const removedPaths = []
+  for (const dir of present) {
+    const err = await removeDirWithRetry(dir, rm)
+    if (err) {
+      return { ok: false, deleted: false, freedBytes: 0, removedPaths, released, current, bundled, error: rmFailureMessage(err, tier) }
+    }
+    removedPaths.push(dir)
+  }
+
+  return { ok: true, deleted: true, freedBytes, removedPaths, released, current, bundled }
+}
+
+/**
+ * 注册 IPC（models:*），来源校验复用 index.js 的 assertTrusted
+ *
+ * @param {Function} release 删除前的会话释放钩子（index.js 传 llmEngine.releaseTierForRemoval）。
+ *        不传也能跑，但删除正在使用的档位会因文件被映射而失败 —— 缺了它这个功能就是坏的。
+ */
+function registerModelsIpc({ ipcMain, assertTrusted, release }) {
   ipcMain.handle('models:list', async (event) => {
     assertTrusted(event)
     try {
@@ -458,9 +628,28 @@ function registerModelsIpc({ ipcMain, assertTrusted }) {
     const id = payload && payload.id
     if (!id || typeof id !== 'string') return { ok: false, error: '缺少模型 id' }
     try {
-      return deleteModel(id)
+      return await deleteModel(id, { release })
     } catch (err) {
       return { ok: false, error: (err && err.message) || String(err) }
+    }
+  })
+
+  /**
+   * 打开"下载模型"的存放目录，供界面上的「打开目录」按钮使用。
+   *
+   * 刻意**不接受前端传路径**：目录由主进程自己算，没有路径穿越的入口。
+   * 也不复用 app:openPath —— 那个 handler 按设计只放行 documents/ 之内（见 index.js
+   * 的 resolveInDocs），模型目录在 userData/models，走它会被自己的边界挡下来。
+   */
+  ipcMain.handle('models:openDir', async (event) => {
+    assertTrusted(event)
+    const dir = userModelsDir()
+    try {
+      await fs.promises.mkdir(dir, { recursive: true }) // 还没下过任何模型时目录可能不存在
+      const err = await shell.openPath(dir)
+      return err ? { ok: false, error: err } : { ok: true, path: dir }
+    } catch (error) {
+      return { ok: false, error: (error && error.message) || String(error) }
     }
   })
 }

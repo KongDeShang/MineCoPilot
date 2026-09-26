@@ -103,7 +103,48 @@ function scanTiers(searchDirs) {
 }
 
 /**
+ * 逐根定位某档位（**不短路**），回答"这个档位在哪几份、哪一份会被真正加载"。
+ *
+ * 为什么不复用 scanTiers：它在第一个命中的根目录就 break。随包副本与下载副本同时存在时，
+ * 它只报靠前的那一份 —— 而"这个档位能不能删"问的恰恰是"用户下载的那份在不在"，
+ * 短路取值会把"有可删副本"误报成"没有"（删除按钮不出现，1GB 空间释放不掉）；
+ * 也会把"删掉下载副本后随包那份还在、档位依然可用"误判成"档位消失"（当前档位被错误改掉）。
+ * 删除功能的两类错误（删不掉 / 删了还在）都出在这个短路语义上。
+ *
+ * @param {Object} tier TIERS 中的档位定义
+ * @param {string[]} searchDirs 搜索根，顺序即优先级（靠前的先被加载）
+ * @returns {{ effective: string|null, roots: Array<{dir:string, path:string|null, sub:string|null}> }}
+ */
+function locateTier(tier, searchDirs) {
+  const subs = [tier.id, ...(LEGACY_DIRS[tier.id] || [])]
+  const roots = searchDirs.map((dir) => {
+    for (const sub of subs) {
+      const filePath = path.join(dir, sub, tier.file)
+      try {
+        if (fs.existsSync(filePath)) return { dir, path: filePath, sub }
+      } catch { /* 同 scanTiers：文件系统错误跳过 */ }
+    }
+    return { dir, path: null, sub: null }
+  })
+  const first = roots.find(r => r.path)
+  return { effective: first ? first.path : null, roots }
+}
+
+/**
+ * 档位在磁盘上可能用的目录名：`<tier.id>` 加上旧版按模型名命名的目录。
+ * 删除时要一并清理 —— 只删 `<tier.id>` 会把旧目录留在磁盘上，
+ * 界面显示"已删除"而档位仍然 installed（且空间没释放）。
+ */
+function tierDirNames(tierId) {
+  return [tierId, ...(LEGACY_DIRS[tierId] || [])]
+}
+
+/**
  * 自动选档：根据系统内存选择最高可用档位。
+ *
+ * ⚠️ 调用方注意：**一个档位都没装时它也会返回 'light'**（最后那行兜底）。因此它不适合
+ * 用来判断"还剩什么可用"，也不能拿它给"刚刚被删掉的档位"重新选档 —— 会把指针指到
+ * 一个不存在的档位上。调用方需自行过滤掉将被删除的档位，并处理"一个都不剩"的情况。
  *
  * @param {Object[]} scannedTiers scanTiers 的返回结果
  * @returns {string} 推荐档位 id
@@ -135,4 +176,4 @@ function getTierMeta(id) {
 // 这里曾有一个 getAllTiers()（返回 TIERS 的浅拷贝）。它没有任何调用方——
 // 需要全量档位的 modelManager 直接 `for (const t of TIERS)`，渲染层的档位列表
 // 走 models:list → modelManager，也不经过它。留着只会让人以为档位有两条出口。
-module.exports = { TIERS, scanTiers, autoSelectTier, getTierMeta }
+module.exports = { TIERS, scanTiers, locateTier, tierDirNames, autoSelectTier, getTierMeta }

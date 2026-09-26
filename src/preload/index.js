@@ -75,6 +75,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     list: () => ipcRenderer.invoke('models:list'),
     download: (id) => ipcRenderer.invoke('models:download', { id }),
     delete: (id) => ipcRenderer.invoke('models:delete', { id }),
+    // 打开下载模型的存放目录（路径由主进程自己算，渲染层不传路径）
+    openDir: () => ipcRenderer.invoke('models:openDir'),
     onProgress: (cb) => {
       const listener = (_event, payload) => cb(payload)
       ipcRenderer.on('models:progress', listener)

@@ -14,9 +14,9 @@
  *
  * 运行：npm run main-check
  */
-import { readFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, dirname } from 'node:path'
+import { join, dirname, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Module from 'node:module'
 
@@ -43,6 +43,7 @@ function check(name, condition, detail = '') {
 const userDataDir = mkdtempSync(join(tmpdir(), 'ks-main-check-'))
 const handlers = new Map()
 const openedExternal = []
+const openedPaths = []
 
 const fakeElectron = {
   app: {
@@ -58,7 +59,11 @@ const fakeElectron = {
     on: () => {}
   },
   BrowserWindow: function () {},
-  shell: { openExternal: (url) => { openedExternal.push(url); return Promise.resolve() } },
+  shell: {
+    openExternal: (url) => { openedExternal.push(url); return Promise.resolve() },
+    // openPath 返回空串表示成功（与 electron 一致）
+    openPath: (p) => { openedPaths.push(p); return Promise.resolve('') }
+  },
   dialog: {}
 }
 
@@ -184,6 +189,249 @@ const untrustedEvent = { senderFrame: { url: 'https://evil.example/attack.html' 
   const files = pkg.build.files || []
   check('package.json 的 files 白名单仍放行 src/main 与 src/preload',
     files.includes('src/main/**/*') && files.includes('src/preload/**/*'), files.join(','))
+}
+
+// ============ 6. 删除下载模型的行为契约（这一节对应用户实测的"删除失败 EPERM"） ============
+//
+// 为什么必须在主进程这一层验：e2e 跑在无头浏览器里，浏览器模式根本没有 models 桥
+// （modelsClient 直接返回"浏览器模式无分发引擎"），"删除按钮点了会怎样"它在结构上够不着。
+{
+  const modelManager = require(join(root, 'src', 'main', 'modelManager.js'))
+  const modelsDir = join(userDataDir, 'models')
+  mkdirSync(modelsDir, { recursive: true })
+
+  /**
+   * 与 index.js registerIpc 里那一个同语义的来源校验。
+   * 注意它是**桩**：真正的 assertTrusted 定义在 index.js 的 registerIpc 内部、不导出
+   * （它读 app.isPackaged 决定可信前缀）。这里能验的是"每个 models:* handler 确实调用了
+   * 传进来的校验函数"，校验函数本身的行为已由第 1 节对 llm:* 验过。
+   */
+  const assertTrustedStub = (event) => {
+    const url = event.senderFrame?.url || event.sender.getURL()
+    const ok = url.startsWith('http://localhost:5173')
+    if (!ok) throw new Error('拒绝来自不可信来源的 IPC 调用')
+  }
+
+  // 记录"释放钩子"与"删文件"的调用顺序 —— 顺序反了就是用户那个 EPERM
+  const order = []
+  const releaseArgs = []
+  const makeRelease = () => async (id, opts) => {
+    order.push('release')
+    releaseArgs.push({ id, opts })
+    return llmEngine.releaseTierForRemoval(id, opts) // 真实实现，不是替身
+  }
+  const makeRm = (inner) => (dir, opts) => { order.push('rm'); return inner(dir, opts) }
+
+  const liveRelease = makeRelease()
+  modelManager.registerModelsIpc({ ipcMain: fakeElectron.ipcMain, assertTrusted: assertTrustedStub, release: liveRelease })
+
+  const listH = handlers.get('models:list')
+  const deleteH = handlers.get('models:delete')
+  const openDirH = handlers.get('models:openDir')
+  check('models:list / models:delete / models:openDir 均已注册',
+    typeof listH === 'function' && typeof deleteH === 'function' && typeof openDirH === 'function')
+
+  for (const [name, fn] of [['models:delete', deleteH], ['models:openDir', openDirH]]) {
+    let threw = null
+    try { await fn(untrustedEvent, { id: 'light' }) } catch (e) { threw = e }
+    check(`${name} 不放过不可信来源（首行确实调用了来源校验）`,
+      !!threw && /不可信/.test(threw.message), threw ? threw.message : '没有抛错')
+  }
+
+  // ---------- 清单：说清"哪几份、能不能删" ----------
+  const list = await listH(trustedEvent)
+  check('models:list 带出下载目录与随包目录（用户下过 1GB 模型后要能找到它）',
+    !!list.dirs && !!list.dirs.userData && !!list.dirs.bundled, JSON.stringify(list.dirs))
+  /**
+   * dev 模式（isPackaged=false）随包目录必须是**项目根下的 resources/models**。
+   * 这条是专门钉住那个已修缺陷的：modelManager 原写成 `process.resourcesPath || ''`，
+   * 裸 node 下 process.resourcesPath 是 undefined → path.join('', 'models') = 相对路径 'models'，
+   * 于是"模型在哪"在开发/测试环境下退化成相对当前工作目录，与 llmEngine 的答案不一致。
+   */
+  check('随包目录解析为项目 resources/models（不能再退化成相对路径）',
+    list.dirs.bundled === join(root, 'resources', 'models'), list.dirs.bundled)
+  check('removable 只由"下载副本在不在"决定，且两份副本的路径各自落在自己的目录内',
+    list.models.every(m => m.removable === m.downloaded
+      && (!m.downloaded || String(m.downloadedPath).startsWith(list.dirs.userData + sep))
+      && (!m.bundled || String(m.bundledPath).startsWith(list.dirs.bundled + sep))),
+    list.models.map(m => `${m.id}:${m.bundled ? 'B' : '-'}${m.downloaded ? 'D' : '-'}`).join(' '))
+
+  const bundledOf = (id) => !!(list.models.find(x => x.id === id) || {}).bundled
+
+  // ---------- 打开模型目录 ----------
+  rmSync(join(modelsDir), { recursive: true, force: true })
+  openedPaths.length = 0
+  const opened = await openDirH(trustedEvent)
+  check('models:openDir 打开的是 userData 下的 models 目录，并在目录不存在时先建出来',
+    opened.ok === true && openedPaths.length === 1 && openedPaths[0] === modelsDir && existsSync(modelsDir),
+    JSON.stringify({ opened, openedPaths }))
+  /**
+   * 刻意不接受前端传路径：目录由主进程自己算，没有路径穿越的入口。
+   * 传一个越界路径过去，被打开的仍必须是模型目录（而不像 app:openPath 那样去解析入参）。
+   */
+  openedPaths.length = 0
+  await openDirH(trustedEvent, { path: 'C:\\Windows\\System32' })
+  check('models:openDir 忽略前端传来的路径（不接受入参，杜绝路径穿越）',
+    openedPaths.length === 1 && openedPaths[0] === modelsDir, openedPaths.join(' | '))
+
+  // ---------- 造一份"下载来的"标准档 ----------
+  const lightFile = llmEngine.listModels().tiers.find(t => t.id === 'light').file
+  const stdFile = 'qwen2.5-1.5b-instruct-q4_k_m.gguf'
+  const mkTierDir = (dirName, file, bytes = 2048) => {
+    const d = join(modelsDir, dirName)
+    mkdirSync(d, { recursive: true })
+    writeFileSync(join(d, file), Buffer.alloc(bytes, 7))
+    return d
+  }
+
+  const stdDir = mkTierDir('standard', stdFile)
+  const list2 = await listH(trustedEvent)
+  const std = list2.models.find(m => m.id === 'standard')
+  check('下载副本装好后：standard 报 downloaded / removable 且路径指向 userData 下那份',
+    std.downloaded === true && std.removable === true && std.downloadedPath === join(stdDir, stdFile),
+    JSON.stringify({ downloaded: std.downloaded, removable: std.removable, path: std.downloadedPath }))
+  check('随包只读的档位（light）不可删，且此时 removable 与 downloaded 一致（没有下载副本就没有删除入口）',
+    list2.models.find(m => m.id === 'light').removable === false
+      && list2.models.find(m => m.id === 'light').downloaded === false,
+    `light bundled=${bundledOf('light')} downloaded=false → removable=${list2.models.find(m => m.id === 'light').removable}`)
+
+  // ---------- 删除成功路径：先释放会话、再删文件 ----------
+  //
+  // 顺序只能在直调 deleteModel 时验（handler 不暴露 rm 注入）；handler 那条路径
+  // 由下面"走 IPC 时确实把 release 传下去了"补上。两段合起来才覆盖完整链路。
+  order.length = 0
+  releaseArgs.length = 0
+  const delOk = await modelManager.deleteModel('standard', { release: makeRelease(), rm: makeRm(rmSync) })
+  check('删除前先调用释放钩子、之后才删文件（顺序反了就是 EPERM 那个缺陷）',
+    order[0] === 'release' && order[1] === 'rm', order.join(' → '))
+  check('释放钩子拿到的是被删档位 id（不能传错档位）',
+    releaseArgs.length === 1 && releaseArgs[0].id === 'standard', JSON.stringify(releaseArgs))
+  check('删除成功：deleted=true、目录真的消失、释放体积大于 0',
+    delOk.ok === true && delOk.deleted === true && !existsSync(stdDir) && delOk.freedBytes > 0,
+    JSON.stringify({ ok: delOk.ok, deleted: delOk.deleted, gone: !existsSync(stdDir), freed: delOk.freedBytes }))
+  check('只删 userData 下的下载副本（removedPaths 全部落在下载目录内）',
+    Array.isArray(delOk.removedPaths) && delOk.removedPaths.length === 1
+      && delOk.removedPaths[0] === stdDir,
+    JSON.stringify(delOk.removedPaths))
+  /**
+   * willRemain 必须与清单里的 bundled 一致：它决定"删掉这份之后档位还活着吗"，
+   * 传错会让当前档位指针被错误地挪走（或反过来留在已消失的档位上）。
+   */
+  // 注意这里全部走可选链：钩子没被调用时这一条必须**如实变红**，
+  // 而不是让脚本在 TypeError 上崩掉（崩掉会把后面的断言一起吞掉，诊断只剩半截）。
+  const ra0 = releaseArgs[0]
+  check('传给释放钩子的 willRemain 与清单报的"随包副本在不在"一致',
+    !!(ra0 && ra0.opts) && ra0.opts.willRemain === bundledOf('standard'),
+    `willRemain=${ra0 && ra0.opts ? ra0.opts.willRemain : '（释放钩子根本没被调用）'} bundled=${bundledOf('standard')}`)
+
+  // 走 IPC 的那条路径：注册时给的释放钩子必须被真的传下去，否则界面上删除依旧 EPERM
+  const stdDir3 = mkTierDir('standard', stdFile)
+  releaseArgs.length = 0
+  const delViaIpc = await deleteH(trustedEvent, { id: 'standard' })
+  check('经由 models:delete 调用时同样把注册时的释放钩子传给了 deleteModel',
+    delViaIpc.ok === true && delViaIpc.deleted === true && !existsSync(stdDir3)
+      && releaseArgs.length === 1 && releaseArgs[0].id === 'standard',
+    JSON.stringify({ ok: delViaIpc.ok, deleted: delViaIpc.deleted, releaseArgs }))
+
+  // ---------- 没有可删的东西时不许假成功 ----------
+  const delAgain = await deleteH(trustedEvent, { id: 'standard' })
+  check('没有下载副本时如实返回 ok:false + deleted:false（原实现返回 ok:true，界面据此弹"已删除"）',
+    delAgain.ok === false && delAgain.deleted === false && /没有已下载的副本/.test(delAgain.error || ''),
+    JSON.stringify(delAgain))
+  const delEnhanced = await deleteH(trustedEvent, { id: 'enhanced' })
+  check('对从未安装、也没有下载源的档位同样如实报"没有已下载的副本"',
+    delEnhanced.ok === false && delEnhanced.deleted === false, JSON.stringify(delEnhanced.error))
+  const delUnknown = await deleteH(trustedEvent, { id: 'no-such-tier' })
+  check('未知档位报"未知档位"而不是静默成功',
+    delUnknown.ok === false && /未知档位/.test(delUnknown.error || ''), String(delUnknown.error))
+
+  // ---------- 删不掉时（文件被占用）要给出可照做的提示 ----------
+  const stdDir2 = mkTierDir('standard', stdFile)
+  order.length = 0
+  const eperm = Object.assign(new Error('EPERM, Permission denied: \\\\?\\' + stdDir2), { code: 'EPERM' })
+  const delEperm = await modelManager.deleteModel('standard', {
+    release: makeRelease(),
+    rm: makeRm(() => { throw eperm })
+  })
+  check('文件被占用（EPERM）时如实失败，并给出可照做的处理办法',
+    delEperm.ok === false && delEperm.deleted === false
+      && /EPERM/.test(delEperm.error || '') && /占用/.test(delEperm.error || '')
+      && /手动删除/.test(delEperm.error || ''),
+    String(delEperm.error))
+  check('占用类错误会重试（卸载后句柄不是立刻关掉的，删一次就放弃等于白卸载）',
+    order.filter(x => x === 'rm').length >= 2, order.join(' → '))
+  check('删失败时释放钩子**仍然**先被调用过（先卸载再尝试删，不是跳过卸载）',
+    order[0] === 'release', order.join(' → '))
+  check('删失败不谎报：文件仍在磁盘上，且不在 removedPaths 里',
+    existsSync(join(stdDir2, stdFile)) && !(delEperm.removedPaths || []).includes(stdDir2),
+    JSON.stringify(delEperm.removedPaths))
+
+  // ---------- 旧版按模型名命名的目录也要清掉 ----------
+  const legacyDir = mkTierDir('qwen2.5-0.5b', lightFile, 1024)
+  releaseArgs.length = 0
+  const delLegacy = await deleteH(trustedEvent, { id: 'light' })
+  check('删除 light 时连同旧版目录 qwen2.5-0.5b/ 一并清理（只删 <id> 会留下"已删除但还装着"的假象）',
+    delLegacy.ok === true && delLegacy.deleted === true && !existsSync(legacyDir),
+    JSON.stringify({ ok: delLegacy.ok, gone: !existsSync(legacyDir) }))
+  check('light 的 willRemain 同样与清单一致',
+    releaseArgs.length === 1 && releaseArgs[0].id === 'light'
+      && releaseArgs[0].opts.willRemain === bundledOf('light'),
+    JSON.stringify(releaseArgs))
+
+  // ---------- 删除档位后的档位指针 ----------
+  const before = llmEngine.listModels().current
+  // light 此刻既有随包只读副本、下载副本刚被删 —— 正是 willRemain=true 的真实场景
+  const relKeep = await llmEngine.releaseTierForRemoval('light', { willRemain: true })
+  check('档位在随包副本上还活着（willRemain）时，释放钩子不动当前档位指针',
+    relKeep.current === before, `current ${before} → ${relKeep.current}（删除的档位是 light，willRemain=true）`)
+
+  /**
+   * 把下载副本清空，让"已安装"只剩随包那一份 —— 这样下一步删除当前档位时
+   * remaining 恰好为空集。这不是为了好看：空集分支既是要验的行为本身，
+   * 也是"重选时忘了把被删档位过滤掉"这类变异唯一会暴露出来的状态
+   * （只要还有别的档位可选，被删的低档位本来就不会被 autoSelectTier 选中）。
+   */
+  await modelManager.deleteModel('standard', { release: makeRelease() })
+  const currentNow = llmEngine.listModels().current
+  const remaining = llmEngine.listModels().tiers.filter(t => t.installed && t.id !== currentNow).map(t => t.id)
+  const relGone = await llmEngine.releaseTierForRemoval(currentNow, { willRemain: false })
+  check('档位彻底消失时，当前档位指针不会再指向它',
+    relGone.current !== currentNow, `删除的是当前档位 ${currentNow} → 指针变成 ${relGone.current}`)
+  check('重选后的当前档位必须是真实已安装的档位；一个都不剩时为 null（不能直接采信 autoSelectTier）',
+    relGone.current === null ? remaining.length === 0 : remaining.includes(relGone.current),
+    JSON.stringify({ current: relGone.current, remaining }))
+  /**
+   * 上面那条断言里 `remaining.length ? ... : null` 的空集分支在本机**走不到**
+   * （随包 light 恒在，删掉下载副本后 remaining 总非空）。所以这里改为把那个守卫
+   * 赖以存在的**前提**钉死：autoSelectTier 在"一个都没装"时照样返回 'light'。
+   * 前提为真 + 守卫写成三目，就是"删完最后一个档位后指针不会指回已删除档位"的完整依据。
+   */
+  const ModelRegistry = require(join(root, 'src', 'main', 'ModelRegistry.js'))
+  check('autoSelectTier 在一个档位都没装时仍返回 light（这正是重选档位必须加空集守卫的原因）',
+    ModelRegistry.autoSelectTier(ModelRegistry.TIERS.map(t => ({ ...t, installed: false }))) === 'light')
+}
+
+// ============ 7. 接线：上面那套能力必须真的被挂到应用上 ============
+{
+  /**
+   * 第 6 节验的是"modelManager 支持这么做"，这一节验"应用真的这么接了"。
+   * 两条都只能是源码断言（index.js 的 registerIpc 在 app.whenReady 里跑，桩掉整个
+   * BrowserWindow 去加载它得不偿失）；因此断言有意写成"必须出现这个接线"，
+   * 改错/漏接会立刻变红。
+   */
+  const idx = readFileSync(join(root, 'src', 'main', 'index.js'), 'utf8')
+  check('index.js 把 llmEngine.releaseTierForRemoval 接进了 registerModelsIpc（漏接则删除必然 EPERM）',
+    /registerModelsIpc\(\{[\s\S]{0,200}?release\s*:\s*releaseTierForRemoval/.test(idx),
+    (idx.match(/registerModelsIpc\(\{[^}]*\}/) || ['未找到调用'])[0])
+  check('index.js 从 llmEngine 解构出了 releaseTierForRemoval（否则上面那行会拿到 undefined）',
+    /require\('\.\/llmEngine'\)[\s\S]{0,200}?releaseTierForRemoval|releaseTierForRemoval[\s\S]{0,200}?require\('\.\/llmEngine'\)/.test(idx),
+    (idx.match(/const \{[^}]*\} = require\('\.\/llmEngine'\)/) || ['未找到解构'])[0])
+
+  const hub = readFileSync(join(root, 'src', 'renderer', 'src', 'views', 'ModelHub.vue'), 'utf8')
+  check('ModelHub 的删除按钮受 t.removable 约束（否则对随包只读档位也会给出"删除"并谎报成功）',
+    /v-if="t\.removable"/.test(hub) && /modelsDelete\(t\.id\)/.test(hub))
+  check('ModelHub 删除结果看 deleted 而不是只看 ok（ok:true + deleted:false 曾是"假成功"）',
+    /r\.ok\s*&&\s*r\.deleted/.test(hub), (hub.match(/if \(r && r\.ok && r\.deleted\)/) || ['未找到判断'])[0])
 }
 
 // ---------------------------------------------------------------------------

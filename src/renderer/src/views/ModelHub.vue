@@ -126,13 +126,28 @@
                 @click="switchTo(t.id)"
               >切换到该档</el-button>
               <span v-else class="tier-current-tip"><el-icon><CircleCheck /></el-icon> 使用中</span>
+              <!-- 只有"下载来的那份副本"才谈得上删除：随包内置的是安装目录里的只读资源。
+                   以前这里对所有已安装档位都渲染删除按钮，对随包副本点下去会返回
+                   "没有可删的（ok:true）"而界面照样弹"已删除" —— 假成功。 -->
               <el-button
+                v-if="t.removable"
                 size="small"
                 type="danger"
                 plain
                 :disabled="!!downloadState"
                 @click="removeModel(t)"
               >删除</el-button>
+              <span v-else class="tier-readonly">
+                <el-icon><Lock /></el-icon>{{ t.bundled ? '随包内置·只读' : '下载副本不可用' }}
+                <el-tooltip
+                  placement="top"
+                  :content="t.bundled
+                    ? '这是随程序安装的只读副本，位于安装目录 resources\\models 下，不会被删除；卸载程序时一并移除。'
+                    : '当前拿不到下载目录的信息（模型分发引擎不可用），为避免误删暂不提供删除操作。'"
+                >
+                  <el-icon class="tier-readonly-help"><QuestionFilled /></el-icon>
+                </el-tooltip>
+              </span>
             </template>
             <!-- 未安装 -->
             <template v-else>
@@ -148,6 +163,19 @@
             </template>
           </div>
         </div>
+      </div>
+      <!-- 下载模型的存放位置：用户下过 1GB 模型后必须能找到它。
+           位置**与程序安装目录无关**（装机版装在 D:\xxx，模型仍在 %APPDATA% 下），
+           卸载程序也不会删它 —— 这一行就是把这个事实说出来。 -->
+      <div class="tier-dirs">
+        <el-icon><FolderOpened /></el-icon>
+        <span class="tier-dir-label">下载模型存放位置</span>
+        <span class="tier-dir-path">{{ modelsDir || '（未获取到，模型分发引擎不可用）' }}</span>
+        <el-button v-if="modelsDir" link size="small" @click="openModelsDir">打开目录</el-button>
+      </div>
+      <div class="tier-dir-note">
+        随程序安装的模型在<strong>安装目录</strong>的 resources\models 下，只读、随卸载移除；
+        这里下载的模型固定放在<strong>用户数据目录</strong>（上面这个路径），与程序装在哪个盘无关，卸载也不会删除。
       </div>
     </el-card>
 
@@ -251,12 +279,13 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import {
   Cpu, Connection, Lock, MagicStick, Share, DataAnalysis, Reading,
-  ChatDotRound, Odometer, InfoFilled, CircleCheck, WarningFilled, List, Box, CircleClose
+  ChatDotRound, Odometer, InfoFilled, CircleCheck, WarningFilled, List, Box, CircleClose,
+  FolderOpened, QuestionFilled
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAppStore } from '../stores/appStore'
 import { llmAvailable, llmStatus, llmLoad, llmGenerate, llmCancel, llmListModels, llmSwitchModel, buildNarratePrompt, extractNumbers, normalizeNarrated } from '../utils/llmClient'
-import { modelsList, modelsDownload, modelsDelete, onModelsProgress } from '../utils/modelsClient'
+import { modelsList, modelsDownload, modelsDelete, modelsOpenDir, onModelsProgress } from '../utils/modelsClient'
 
 const store = useAppStore()
 
@@ -265,6 +294,8 @@ const enabled = ref(true)
 
 // ---------- 模型档位 ----------
 const tiers = ref([])
+/** 下载模型的存放目录（由主进程 models:list 给出；拿不到就不显示） */
+const modelsDir = ref('')
 const currentTierId = ref(null)
 const switching = ref('')
 const downloadState = ref(null)
@@ -291,10 +322,13 @@ async function listTiers() {
   // "云端待扩展" —— modelManager 里那套多源下载器在模型中心页永远够不着，
   // 只有首启向导能触发。这里按档位 id 合并，把下载能力接回该页。
   const [r, dist] = await Promise.all([llmListModels(), modelsList()])
+  modelsDir.value = (dist && dist.dirs && dist.dirs.userData) || ''
   if (r && r.ok) {
     const distById = new Map((((dist && dist.ok && dist.models) || [])).map(m => [m.id, m]))
     tiers.value = (r.tiers || []).map((t) => {
       const d = distById.get(t.id)
+      // 拿不到分发侧信息时**不补默认值**：removable 保持 undefined，
+      // 删除按钮就不会出现（宁可少一个按钮，也不给一个点了必然假成功的按钮）。
       if (!d) return t
       return {
         ...t,
@@ -303,7 +337,14 @@ async function listTiers() {
         sha256: d.sha256 || null,
         version: d.version || null,
         license: d.license || '',
-        sizeBytes: d.sizeBytes || t.sizeBytes
+        sizeBytes: d.sizeBytes || t.sizeBytes,
+        bundled: !!d.bundled,
+        downloadable: !!d.available,
+        // 「能不能删」问的是"下载副本在不在"，不是"档位装没装"：
+        // 随包内置的档位 installed 为真但不可删，全部档位都没下载时一个都不该出现删除按钮。
+        removable: !!d.removable,
+        downloadedPath: d.downloadedPath || null,
+        bundledPath: d.bundledPath || null
       }
     })
     currentTierId.value = r.current || null
@@ -311,6 +352,12 @@ async function listTiers() {
     tiers.value = []
     currentTierId.value = null
   }
+}
+
+/** 打开下载模型的存放目录（路径由主进程给出，渲染层不拼路径） */
+async function openModelsDir() {
+  const r = await modelsOpenDir()
+  if (!r || !r.ok) ElMessage.warning('打开模型目录失败：' + ((r && r.error) || '未知原因'))
 }
 
 async function switchTo(id) {
@@ -355,26 +402,61 @@ function startDownload(t) {
   })
 }
 
-/** 删除已下载模型（释放空间） */
+/**
+ * 删除已下载模型（释放空间）
+ *
+ * 三条如实：
+ *   · 删的是**下载副本**，随包只读副本不动（文案里说清楚，别让用户以为把内置模型删了）；
+ *   · 删的如果是当前档位，主进程会先卸载它再删（不卸载必然 EPERM），并自动改指针，
+ *     文案要预告这件事，结果里也要如实转述改到了哪一档；
+ *   · 结果只看 `deleted`，不看 `ok` —— 主进程对"没有可删副本"返回 ok:false，
+ *     对"删掉了一些"才返回 ok:true + deleted:true。
+ */
 async function removeModel(t) {
+  const isCurrent = t.id === currentTierId.value
+  const confirmText = `将删除「${t.name}」的下载副本，释放约 ${formatSize(t.installedSize)} 空间，删除后如需再用要重新下载。`
+    + (isCurrent ? '该档位正在使用中：会先卸载它（立即释放内存），再自动切到其它已安装的档位。' : '')
+    + (t.bundled ? '随程序安装的只读副本不受影响。' : '')
+    + (modelsDir.value ? ` 存放位置：${modelsDir.value}` : '')
   try {
-    await ElMessageBox.confirm(
-      `将删除「${t.name}」并释放约 ${formatSize(t.installedSize)} 空间。如需再用可重新下载。`,
-      '删除模型',
-      { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }
-    )
+    await ElMessageBox.confirm(confirmText, '删除模型', {
+      type: 'warning',
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消'
+    })
   } catch {
     return
   }
   const r = await modelsDelete(t.id)
-  if (r && r.ok) {
-    ElMessage.success(`${t.name} 已删除`)
-    store.addLog({ content: `已删除模型：${t.name}`, source: 'AI', type: 'llm', tagType: 'info' })
+  if (r && r.ok && r.deleted) {
+    // 删掉当前档位后引擎会换一个档位（或一个都不剩），这两件事都要说出来，
+    // 否则用户看到的只是"已删除"，不知道 AI 叙述层现在用的是哪个模型。
+    let tail = ''
+    if (r.current === null) tail = '；本地已无可用档位，需要重新下载后才能使用本地模型'
+    else if (r.released && r.current) tail = `；已卸载并自动切到「${tierName(r.current)}」`
+    ElMessage.success(`${t.name} 已删除（释放 ${formatSize(r.freedBytes)}）${tail}`)
+    store.addLog({
+      content: `已删除模型：${t.name}（释放 ${formatSize(r.freedBytes)}）${tail}`,
+      source: 'AI',
+      type: 'llm',
+      tagType: r.current === null ? 'warning' : 'info'
+    })
+  } else if (r && r.ok && !r.deleted) {
+    // 理论上主进程不再返回这个组合；真出现就如实说"什么都没删"，不弹成功
+    ElMessage.warning(`${t.name}：没有可删除的下载副本`)
+    store.addLog({ content: `删除模型未生效（无可删副本）：${t.name}`, source: 'AI', type: 'llm', tagType: 'warning' })
   } else {
     ElMessage.error('删除失败：' + ((r && r.error) || '未知原因'))
+    store.addLog({ content: `删除模型失败：${t.name} —— ${(r && r.error) || '未知原因'}`, source: 'AI', type: 'llm', tagType: 'danger' })
   }
   await refresh()
   await listTiers()
+}
+
+/** 档位 id → 界面名（结果文案里说"切到了哪一档"用） */
+function tierName(id) {
+  const t = tiers.value.find(x => x.id === id)
+  return (t && t.displayName) || id
 }
 
 const statusLabel = computed(() => ({
@@ -881,6 +963,55 @@ onBeforeUnmount(() => unsubProgress())
 .tier-pending {
   font-size: 12px;
   color: var(--text-3);
+}
+/* 随包只读档位：说清"删不了"以及为什么，而不是干脆不给按钮也不解释 */
+.tier-readonly {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.tier-readonly-help {
+  cursor: help;
+  color: var(--text-3);
+}
+/* 下载模型的存放位置：一整行，路径可选中复制 */
+.tier-dirs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--accent-line);
+  font-size: 12px;
+  color: var(--text-2);
+}
+.tier-dir-label {
+  font-weight: 600;
+  color: var(--text-1);
+}
+.tier-dir-path {
+  /* 与 healthReport.css 的 .hr-mono 同款等宽栈：路径要能一眼看出层级 */
+  font-family: Consolas, Monaco, monospace;
+  font-size: 11.5px;
+  color: var(--text-2);
+  background: var(--card-2);
+  border: 1px solid var(--accent-line);
+  border-radius: 6px;
+  padding: 3px 8px;
+  word-break: break-all;
+}
+.tier-dir-note {
+  margin-top: 8px;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--text-3);
+}
+.tier-dir-note strong {
+  color: var(--text-2);
+  font-weight: 600;
 }
 /* 下载中：独占整卡宽的一块进度区，不与操作按钮挤一行 */
 .tier-dl {
