@@ -178,7 +178,7 @@ npm run verify       # 以上全部 + 生产构建
 | `store-check` | Node，**真正装配 store** | 字段白名单、播种判据、落盘失败、持久化往返 | DOM |
 | `main-check` | Node，桩掉 electron 加载主进程 | IPC 契约、来源校验、切档回滚、删除前先释放会话的顺序、清单兜底 | 真实模型推理、真实文件句柄（模型删除的 `EPERM` 只能靠真 Electron 探针实测，见测试报告 #28） |
 | `pack-check` | Node，读构建配置 + 真实 `node_modules` | 装机后才暴露的缺模块（依赖闭包被 `files` 排掉）、原生库没解包 | 装机后的实际运行 |
-| `e2e` / `e2e:nl` | 无头 Chromium | 交互、跨路由、刷新后仍在 | 主进程、视觉 |
+| `e2e` / `e2e:nl` | 无头 Chromium | 交互、跨路由、刷新后仍在、**照片真的解码出来**（`naturalWidth > 0`，不是"有个 `<img>`"） | 主进程、视觉、**打包版 `file://` 下的资源解析**（它们跑在 `http://localhost:5173`，同一个根绝对路径在 `file://` 下会解析到盘符根，见测试报告 #34 与 `utils/equipmentPhoto.js` 的注释） |
 
 > **为什么补了 store-check 与 main-check**：这两个脚本落地前，`stores/appStore.js`（1200+ 行）与 `stores/persistence.js`（550+ 行）**从未被任何测试执行过**，对它们的"验证"是把源码读成字符串看有没有出现某个列名；而 `src/main/**` 与 `src/preload/**` 只有一条正则检查。代价是实测过的两个缺陷：`addEquipment` 字段白名单漏了 `aliases`（四条源码字符串断言全绿）、以及档位切换因为 preload 与主进程参数形状不一致而 **100% 失败**却全绿。
 > 现在这两处都有行为断言，并且**每条新断言都做过"能失败"的验证**：把 `aliases` 从白名单里删掉，`store-check` 立刻报 `aliases: 期望 ["小白","一号探针机"]，实际 undefined` 并以非 0 退出。
