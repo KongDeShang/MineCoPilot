@@ -1121,6 +1121,57 @@ function check(name, condition, detail = '') {
     `${distinct.size}/${categories.length} 张：${[...distinct].map(p => p.split('/').pop()).join(',')}`)
 }
 
+// ============ I3b sql.js wasm 的四处路径必须指同一个文件（只在"兜底"时才现形的一类） ============
+{
+  /**
+   * wasm 二进制在四个地方被提到，此前**四处各写各的**：
+   *   ① vite 插件 emitFile（构建产物落在哪）      assets/sql-wasm.wasm
+   *   ② vite define __SQLJS_WASM_URL__（运行时怎么找）  './assets/sql-wasm.wasm'  ← 错
+   *   ③ database.js 的兜底字面量                  './assets/sql-wasm.wasm'       ← 跟着错
+   *   ④ main/index.js app:readWasm（fs 读哪份）    ../../dist/assets/sql-wasm.wasm
+   * ②③ 相对的是 **dist/assets/（运行时代码 index-*.js 所在目录）**，不是 dist/，
+   * 于是解析成 dist/assets/assets/sql-wasm.wasm —— 双 assets，文件不在那儿。
+   *
+   * 为什么八个门禁都没抓到：打包版正常路径是主进程 IPC 注入 wasmBinary，
+   * locateFile 根本不会被调用 —— 兜底坏了没有任何界面症状（同类：照片碎图 #34）。
+   * 实测见 node_modules/.probe/wasm-fallback.mjs（旧写法 ❌ / 新写法 ✅）。
+   *
+   * 这里守的是**关系**而不是某个字符串：谁要改 emit 的位置，这几条会一起要求改。
+   */
+  const viteCfg = readFileSync(join(root, 'vite.config.mjs'), 'utf8')
+  const dbSrc = readFileSync(join(root, 'src', 'renderer', 'src', 'utils', 'database.js'), 'utf8')
+  const mainSrc = readFileSync(join(root, 'src', 'main', 'index.js'), 'utf8')
+  const norm = (p) => p.replace(/\\/g, '/').replace(/^\.\//, '')
+
+  const emit = viteCfg.match(/fileName:\s*'([^']*sql-wasm\.wasm)'/)
+  const defined = viteCfg.match(/__SQLJS_WASM_URL__:\s*JSON\.stringify\('([^']+)'\)/)
+  const devServed = viteCfg.match(/req\.url\.startsWith\('([^']+)'\)/)
+  const fallback = dbSrc.match(/__SQLJS_WASM_URL__ !== 'undefined'\s*\?\s*__SQLJS_WASM_URL__\s*:\s*'([^']+)'/)
+  const devReturned = dbSrc.match(/if \(isDev\) return '([^']+)'/)
+  const mainRead = mainSrc.match(/app:readWasm[\s\S]{0,240}?path\.join\(__dirname,\s*'([^']+)'\)/)
+
+  check('sql.js wasm：vite 的 emitFile 与 app:readWasm 读的是同一个产物路径',
+    !!emit && !!mainRead && norm(mainRead[1]).replace(/^\.\.\/\.\.\//, '') === norm(join('dist', emit[1])),
+    !emit ? '没找到 emitFile 的 fileName'
+      : !mainRead ? '没找到 app:readWasm 里的 path.join'
+        : `${mainRead[1]} vs ${norm(join('dist', emit[1]))}`)
+
+  check('sql.js wasm：define 的值相对 dist/assets 解析后，必须落在 emitFile 的那个路径上',
+    !!emit && !!defined && norm(join('assets', defined[1])) === norm(emit[1]),
+    !emit || !defined ? `没找到 ${!emit ? 'emitFile' : '__SQLJS_WASM_URL__ 的 define'}`
+      : `${defined[1]}（相对 dist/assets 解析 → dist/${norm(join('assets', defined[1]))}）vs dist/${norm(emit[1])}`)
+
+  check('sql.js wasm：database.js 的兜底字面量与 vite define 的值一致（两处各写各的就会再漂一次）',
+    !!defined && !!fallback && fallback[1] === defined[1],
+    !defined || !fallback ? `没找到 ${!fallback ? 'database.js 的兜底字面量' : 'define'}`
+      : `兜底=${fallback[1]} · define=${defined[1]}`)
+
+  check('sql.js wasm：开发态返回的路径与 vite 开发中间件服务的路径一致',
+    !!devServed && !!devReturned && devReturned[1] === devServed[1],
+    !devServed || !devReturned ? `没找到 ${!devServed ? '中间件路径' : 'database.js 的 isDev 返回值'}`
+      : `isDev 返回=${devReturned[1]} · 中间件服务=${devServed[1]}`)
+}
+
 // ============ I4 版本号只有一个来源（界面与安装包各说各版本的那类不一致） ============
 {
   /**

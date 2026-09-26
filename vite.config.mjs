@@ -68,7 +68,14 @@ export default defineConfig({
   base: './',
   // 把包内实际路径与版本号暴露给运行时代码（database.js 定位 wasm；App.vue 显示版本号）
   define: {
-    __SQLJS_WASM_URL__: JSON.stringify('./assets/sql-wasm.wasm'),
+    /**
+     * 相对 **dist/assets/**（运行时代码 `index-*.js` 所在目录），不是相对 dist/。
+     * 曾写成 './assets/sql-wasm.wasm' → 解析出 dist/assets/assets/…（双 assets），
+     * 兜底直接失败（详见 database.js 的注释与 node_modules/.probe/wasm-fallback.mjs）。
+     * 这里必须与上面 sqlJsWasm() 里 emitFile 的 fileName（assets/sql-wasm.wasm）对齐，
+     * 由 self-check 的一条断言盯着这层关系，别再各写各的。
+     */
+    __SQLJS_WASM_URL__: JSON.stringify('./sql-wasm.wasm'),
     __APP_VERSION__: JSON.stringify(pkg.version)
   },
   build: {

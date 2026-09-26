@@ -30,18 +30,29 @@ function getSqlJsInitializer() {
 /**
  * 定位 sql.js 的 wasm 二进制。
  *   - 开发模式：vite 插件把它挂在 /sql-wasm.wasm
- *   - 生产构建：它被复制到 assets/sql-wasm.wasm
+ *   - 生产构建：它被复制到 dist/assets/sql-wasm.wasm
  * 两者都基于当前模块的 URL 解析，保证 Electron file:// 与浏览器 http 下都能找到。
+ *
+ * ⚠️ 解析基准是 **dist/assets/**，不是 dist/（2026-09-26 修）：
+ * 这段代码打包后位于 `dist/assets/index-*.js`，`import.meta.url` 就是它，
+ * 所以 define 的值必须是相对 assets/ 的 `./sql-wasm.wasm`。
+ * 此前写的是 `./assets/sql-wasm.wasm`，解析出来是 `dist/assets/assets/sql-wasm.wasm`
+ * ——双 assets，文件不在那儿（探针 node_modules/.probe/wasm-fallback.mjs 实测：
+ * 旧写法 ❌ 文件不存在 / 新写法 ✅ 落到 app.asar.unpacked/dist/assets/sql-wasm.wasm）。
+ * 之所以一直没暴露：打包版正常路径是主进程 IPC（app:readWasm 用 fs 读
+ * dist/assets/sql-wasm.wasm），wasmBinary 一注入 locateFile 就不再被调用 ——
+ * 于是"兜底"失效这件事没有任何界面症状，直到真的需要它时才全线崩。
  *
  * Electron 打包细节（2026-09-16 修复，真机白屏根因）：
  * Chromium 网络栈禁止 file:// 页面用 fetch() 读 file:// 资源，sql.js 的
  * wasm 永远加载不出来。因此打包版优先走 getWasmBinary()（主进程 fs 读
  * asar 内文件经 IPC 传入 wasmBinary，见 preload app.readWasm / main app:readWasm）；
- * fetch locateFile 仅作浏览器模式兜底。asarUnpack 配置同时保留，主进程读
- * asar 内外路径均兼容。
+ * fetch locateFile 仅作浏览器模式兜底。asarUnpack 配置同时保留（`**\/*.wasm`），
+ * 主进程读 asar 内外路径均兼容。
  */
 function locateSqlWasm() {
-  const bundled = typeof __SQLJS_WASM_URL__ !== 'undefined' ? __SQLJS_WASM_URL__ : './assets/sql-wasm.wasm'
+  // 兜底字面量必须与 vite.config.mjs 里 define 的值一致（self-check 有一条断言盯着）
+  const bundled = typeof __SQLJS_WASM_URL__ !== 'undefined' ? __SQLJS_WASM_URL__ : './sql-wasm.wasm'
   const isDev = typeof import.meta !== 'undefined' && import.meta.url && import.meta.url.includes('/src/')
   if (isDev) return '/sql-wasm.wasm'
   return new URL(bundled, import.meta.url).href.replace('/app.asar/', '/app.asar.unpacked/')
