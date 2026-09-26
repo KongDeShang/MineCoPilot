@@ -183,7 +183,18 @@ const QUERY_PATTERNS = [
   /是什么(原因|问题)/, /什么原因/,
   /(怎么样|如何)$/, /状态如何/,
   /^查(一下|询)/, /^看(一下|看)/, /^统计/, /^列出/, /^列一下/,
-  /(谁|哪台)负责/
+  /(谁|哪台)负责/,
+  // ---- 2026-09-26 补：口语里的疑问尾巴 ----
+  // 上面那批句式偏书面。一线问的是「履带松了怎么回事」「水温高咋回事」——
+  // 一个都不命中，于是掉进"提到故障关键词就报修"的兜底：用户只是想知道怎么回事，
+  // 界面上递过来的却是一张「新建维修工单」理解卡。这就是"老师傅模式无法对话"。
+  // 只**新增**句式，上面一条都没动；写库口令仍然优先（见 EXPLICIT_WRITE_VERBS），
+  // 所以「…怎么回事，帮我报修」这种"边问边报"照旧走写库。
+  /(怎么回事|咋回事|什么事)/,
+  /(什么|啥)(情况|毛病|问题|故障)/,
+  /(怎么|咋)了/,
+  /(是不是|有没有|能不能|会不会)/,
+  /咋(办|整|弄|搞)/, /(怎么|如何)(弄|搞|整)/
 ]
 
 /** 疑问句但按报修处理是安全的场景：明确带"报/记录/登记"等动作词时不算查询 */
@@ -191,8 +202,14 @@ const EXPLICIT_WRITE_VERBS = /(报|记录一下|登记|帮我记|建单|安排|�
 
 export function detectQuery(text) {
   const form = matchFormForIntent(text)
-  if (EXPLICIT_WRITE_VERBS.test(form)) return false
-  return QUERY_PATTERNS.some(p => p.test(form)) || /[?？]$/.test(String(text).trim())
+  // 写库口令要按**原话**判，不能只按清洗后的形式判：matchFormForIntent 会先吃掉 NOISE
+  // （"帮我"、"一下"、"麻烦"…），于是 EXPLICIT_WRITE_VERBS 里的「帮我记」「记录一下」
+  // 两个分支永远不可能命中 —— "帮我记一条" 洗完是 "记一条"，"记录一下" 洗完是 "记录"。
+  // 用户明说的口令不该被语气词清洗掉，否则「帮我记一条：3号挖掘机履带松了怎么回事」
+  // 会静默丢成一次纯提问，用户以为记上了，其实什么也没发生。
+  const raw = String(text || '').trim()
+  if (EXPLICIT_WRITE_VERBS.test(form) || EXPLICIT_WRITE_VERBS.test(raw)) return false
+  return QUERY_PATTERNS.some(p => p.test(form)) || /[?？]$/.test(raw)
 }
 
 /**

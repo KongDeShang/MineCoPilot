@@ -1600,6 +1600,49 @@ function check(name, condition, detail = '') {
   check('纯查询语句不产生任何写入动作（防误写）',
     writesFromQuery.length === 0, writesFromQuery.join('、') || '无')
 
+  // ---- 故障现象 + 疑问词：用户是在**问**，不是在**报** ----
+  // 2026-09-26 用户报障「老师傅模式开启后…无法交互对话」，根因就在这一层：
+  // 「3号挖掘机履带松了怎么回事」既没有问号，也不命中上面那批查询句式，于是掉进
+  // 「提到故障关键词就按报故障处理」的兜底 —— 用户只想问怎么回事，界面上递过来的
+  // 却是一张「新建维修工单」理解卡。这就是"无法对话"：问什么都变成让你确认写库。
+  // 下面的语料是**疑问词**（怎么回事/咋回事/什么情况/什么问题/是不是/咋办/怎么弄），
+  // 不是动作词。判据两条：① 判为提问；② 一个写库项都不许产生。
+  const SYMPTOM_QUESTIONS = [
+    '回转马达异响怎么回事',
+    '3号挖掘机履带松了怎么回事',
+    '1号装载机水温高咋回事',
+    '6号钻机振动大什么情况',
+    '1号装载机液压油压力偏低是什么毛病',
+    '卡特320D水温高是不是要换水泵',
+    '3号挖掘机履带松了咋办',
+    '回转马达异响怎么弄'
+  ]
+  const notQuery = []
+  const hijackedAsWrite = []
+  for (const q of SYMPTOM_QUESTIONS) {
+    if (!nl.detectQuery(q)) notQuery.push(q)
+    const plan = nl.parseCommand(store, q, { now: new Date('2026-09-12') })
+    if (plan.ok && plan.items.some(i => i.intent !== nl.INTENTS.QUERY)) {
+      hijackedAsWrite.push(`「${q}」被当成「${plan.items[0].intentLabel || plan.items[0].intent}」`)
+    }
+  }
+  check(`故障现象 + 疑问词 → 判为提问而不是报修（${SYMPTOM_QUESTIONS.length} 条）`,
+    notQuery.length === 0, notQuery.map(q => `「${q}」`).join('、') || '全部判为提问')
+  check('疑问句不得生成任何写库计划（防误写）',
+    hijackedAsWrite.length === 0, hijackedAsWrite.slice(0, 3).join('；') || '无')
+
+  // 反向保险：疑问词不能把**明确的写库口令**吃掉 —— 该报的还是要报
+  const WRITE_STILL_WINS = [
+    '3号挖掘机履带松了怎么回事，帮我报修',
+    '帮我记一条：1号装载机水温高怎么回事'
+  ]
+  const lostWrite = WRITE_STILL_WINS.filter(t => {
+    const plan = nl.parseCommand(store, t, { now: new Date('2026-09-12') })
+    return nl.detectQuery(t) || !(plan.ok && plan.items.some(i => i.intent !== nl.INTENTS.QUERY))
+  })
+  check('明确写库口令优先于疑问词（疑问词不能吞掉写库指令）',
+    lostWrite.length === 0, lostWrite.map(t => `「${t}」`).join('、') || '写库口令仍然生效')
+
   // ---- 日期抽取 ----
   check('日期默认今天', (() => {
     const plan = nl.parseCommand(store, '1号挖掘机今天液压油压力偏低', { now: new Date('2026-09-12T10:00:00') })
