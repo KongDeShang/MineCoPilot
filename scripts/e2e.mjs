@@ -34,6 +34,10 @@ const CHROME_CANDIDATES = [
 const checks = []
 const check = (name, ok, detail = '') => {
   checks.push({ name, ok: !!ok, detail: String(detail).slice(0, 240) })
+  // 边跑边报（E2E_TRACE=1）：断言结果平时在末尾统一打印，
+  // 中途一旦卡在传输超时上，整轮结果就全丢了、连"卡在哪一条"都不知道。
+  // 跟踪模式只多打一行，不改任何判定。
+  if (process.env.E2E_TRACE) console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name}`)
 }
 
 /**
@@ -1016,6 +1020,79 @@ async function main() {
       !kbLive.error && (kbLive.refs || []).some(r => r.includes('现场案例')),
       kbLive.error || (kbLive.refs || []).join(' | '))
 
+    // ---------- 8.2 用户报障的复现与回归（2026-09-26）· 一：维修规程库点不动 ----------
+    // 每条都按**用户真实路径**走（真的点行、真点卡片），不抄近路调内部 API ——
+    // 否则"用户点不动"这种缺陷照样能全绿。
+    // —— 报障 2：维修规程库无法点击打开 ——
+    // 规程的症状/原因/步骤此前**只存在于编辑对话框里**，AI 草稿行更是连看都看不到。
+    // 断言三条：行内有只读的「查看」入口、点开有详情面板、面板真的不提供输入框。
+    await session.goto(`${BASE}/#/knowledge-base`, 2600)
+    const kbRowDetail = await session.eval(`(async () => {
+      const row = document.querySelector('.kb-table-card .el-table__row')
+      if (!row) return { ok: false, reason: '没有规程行' }
+      const title = (row.querySelector('.kb-item-title') || {}).textContent || ''
+      const viewBtn = Array.from(row.querySelectorAll('button')).find(b => /查看/.test(b.textContent))
+      if (viewBtn) viewBtn.click()
+      else row.click()
+      await new Promise(r => setTimeout(r, 800))
+      const panel = document.querySelector('.kb-detail')
+      return {
+        ok: true,
+        title: title.trim(),
+        hasViewBtn: !!viewBtn,
+        opened: !!panel,
+        inputs: panel ? panel.querySelectorAll('input, textarea').length : -1,
+        lis: panel ? panel.querySelectorAll('.kb-detail-list li').length : -1,
+        body: panel ? panel.textContent.replace(/\\s+/g, ' ').trim().slice(0, 600) : ''
+      }
+    })()`)
+    check('维修规程库：每一行都有「查看」入口（不必先点编辑才能看内容）',
+      kbRowDetail.hasViewBtn === true, JSON.stringify(kbRowDetail).slice(0, 200))
+    check('维修规程库：点一条规程能打开详情面板',
+      kbRowDetail.opened === true,
+      kbRowDetail.reason || JSON.stringify(kbRowDetail).slice(0, 200))
+    check('规程详情：分类/来源/典型现象/可能原因/处置步骤都在，且是只读的',
+      ['典型现象', '可能原因', '处置步骤', '来源'].every(k => (kbRowDetail.body || '').includes(k)) &&
+      kbRowDetail.inputs === 0,
+      `inputs=${kbRowDetail.inputs} body=${(kbRowDetail.body || '').slice(0, 160)}`)
+    // 光有标签不算"看得见内容"：原因/步骤要真的有条目摆出来，否则空标签也全绿。
+    check('规程详情：原因与处置步骤真的列了出来（不只是几个空标题）',
+      (kbRowDetail.lis || 0) >= 2, `列表条目=${kbRowDetail.lis}`)
+
+    // 整行可点：上面那条优先点按钮，`else row.click()` 的兜底从来没被执行过 ——
+    // 于是"@row-click 压根没绑上"这种缺陷能一路全绿。这里单独把点行验一遍。
+    const kbRowClick = await session.eval(`(async () => {
+      const close = Array.from(document.querySelectorAll('.el-drawer__footer button')).find(b => /关闭/.test(b.textContent))
+      if (close) close.click()
+      await new Promise(r => setTimeout(r, 700))
+      const closed = !document.querySelector('.kb-detail')
+      const row = document.querySelector('.kb-table-card .el-table__row')
+      if (!row) return { closed, reason: '没有规程行' }
+      row.click()
+      await new Promise(r => setTimeout(r, 900))
+      return { closed, reopened: !!document.querySelector('.kb-detail') }
+    })()`)
+    check('维修规程库：点整行也能打开详情（一线是习惯性点行的）',
+      kbRowClick.closed === true && kbRowClick.reopened === true,
+      kbRowClick.reason || JSON.stringify(kbRowClick))
+    // 但点行内按钮不能连带开详情（两层的 .stop 保险得真的生效）
+    const kbBtnNotHijack = await session.eval(`(async () => {
+      const close = Array.from(document.querySelectorAll('.el-drawer__footer button')).find(b => /关闭/.test(b.textContent))
+      if (close) close.click()
+      await new Promise(r => setTimeout(r, 700))
+      const edit = Array.from(document.querySelectorAll('.kb-table-card .el-table__row button')).find(b => /编辑/.test(b.textContent))
+      if (!edit) return { reason: '没有编辑按钮' }
+      edit.click()
+      await new Promise(r => setTimeout(r, 800))
+      const r = { dialog: !!document.querySelector('.el-dialog__body .el-form'), drawer: !!document.querySelector('.kb-detail') }
+      const cancel = Array.from(document.querySelectorAll('.el-dialog__footer button')).find(b => /取消/.test(b.textContent))
+      if (cancel) cancel.click()
+      await new Promise(r => setTimeout(r, 600))
+      return r
+    })()`)
+    check('维修规程库：点「编辑」只开编辑框，不会连带弹出详情',
+      kbBtnNotHijack.dialog === true && kbBtnNotHijack.drawer === false,
+      kbBtnNotHijack.reason || JSON.stringify(kbBtnNotHijack))
 
     // ---------- 8.5 随包示例手册：装完就有真手册可看、可问答 ----------
     // 断言重点不是"数据库里有三行"，而是**资源真的随包发出来了**：

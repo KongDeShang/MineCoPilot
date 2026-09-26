@@ -37,7 +37,9 @@
 
     <!-- 条目表格 -->
     <el-card shadow="never" class="kb-table-card">
-      <el-table :data="filteredItems" stripe style="width: 100%" height="520">
+      <!-- 整行可点开详情：光有行内「查看」还不够 —— 一线是习惯性点行的，
+           点不动就会被当成"这页坏了"。按钮的 .stop 与 openDetail 里的按钮判断两级保险。 -->
+      <el-table :data="filteredItems" stripe style="width: 100%" height="520" @row-click="openDetail">
         <el-table-column prop="title" label="条目标题" min-width="240" show-overflow-tooltip>
           <template #default="{ row }">
             <div style="display:flex;align-items:center;gap:8px">
@@ -64,20 +66,72 @@
             <span v-else style="color:var(--text-mute)">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
+            <!-- 「查看」对 AI 草稿同样开放：草稿也要先能读，才能判断该不该采纳。
+                 按钮一律 .stop —— 否则点编辑/删除会连带触发整行的"查看"。 -->
+            <el-button size="small" link type="primary" @click.stop="openDetail(row)">查看</el-button>
             <template v-if="row.status === 'ai_draft'">
-              <el-button size="small" link type="success" @click="confirmDraft(row)">确认采纳</el-button>
-              <el-button size="small" link type="danger" @click="remove(row)">删除</el-button>
+              <el-button size="small" link type="success" @click.stop="confirmDraft(row)">确认采纳</el-button>
+              <el-button size="small" link type="danger" @click.stop="remove(row)">删除</el-button>
             </template>
             <template v-else>
-              <el-button size="small" link type="primary" @click="openEdit(row)">编辑</el-button>
-              <el-button size="small" link type="danger" @click="remove(row)">删除</el-button>
+              <el-button size="small" link type="primary" @click.stop="openEdit(row)">编辑</el-button>
+              <el-button size="small" link type="danger" @click.stop="remove(row)">删除</el-button>
             </template>
           </template>
         </el-table-column>
       </el-table>
     </el-card>
+
+    <!-- 规程详情（只读）：症状 → 原因 → 步骤，与 AI 检索用的字段一致 -->
+    <el-drawer v-model="detailVisible" size="520px" destroy-on-close>
+      <template #header>
+        <span style="font-weight:600">{{ detail?.title || '规程详情' }}</span>
+      </template>
+      <div v-if="detail" class="kb-detail">
+        <div class="kb-detail-meta">
+          <el-tag size="small" effect="plain">{{ detail.category || '其他' }}</el-tag>
+          <el-tag v-if="detail.status === 'ai_draft'" type="primary" size="small" effect="dark">AI 草稿（未采纳）</el-tag>
+          <el-tag v-else type="success" size="small" effect="plain">已确认</el-tag>
+          <span class="kb-detail-freq">被命中 {{ detail.frequency || 0 }} 次</span>
+        </div>
+        <div class="kb-detail-block">
+          <div class="kb-detail-label">关键词</div>
+          <div class="kb-detail-text">{{ (detail.keywords || []).join('、') || '（未设置，AI 只能按标题/正文命中）' }}</div>
+        </div>
+        <div class="kb-detail-block">
+          <div class="kb-detail-label">来源</div>
+          <div class="kb-detail-text">{{ detail.source || '（未填写来源）' }}</div>
+        </div>
+        <div class="kb-detail-block">
+          <div class="kb-detail-label">典型现象</div>
+          <div class="kb-detail-text">{{ detail.symptoms || '（未填写）' }}</div>
+        </div>
+        <div class="kb-detail-block">
+          <div class="kb-detail-label">可能原因</div>
+          <ol v-if="(detail.causes || []).length" class="kb-detail-list">
+            <li v-for="(c, i) in detail.causes" :key="'c' + i">{{ c }}</li>
+          </ol>
+          <div v-else class="kb-detail-text">（未填写）</div>
+        </div>
+        <div class="kb-detail-block">
+          <div class="kb-detail-label">处置步骤</div>
+          <ol v-if="(detail.steps || []).length" class="kb-detail-list">
+            <li v-for="(s, i) in detail.steps" :key="'s' + i">{{ s }}</li>
+          </ol>
+          <div v-else class="kb-detail-text">（未填写）</div>
+        </div>
+        <div class="kb-detail-note">
+          本页只是把条目读出来，不改任何字段。要改请用行内的「编辑」。
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="detailVisible = false">关闭</el-button>
+        <el-button v-if="detail && detail.status !== 'ai_draft'" type="primary" @click="editFromDetail">编辑</el-button>
+        <el-button v-else-if="detail" type="success" @click="adoptFromDetail">确认采纳</el-button>
+      </template>
+    </el-drawer>
 
     <!-- 新增 / 编辑对话框 -->
     <el-dialog
@@ -157,6 +211,38 @@ const filteredItems = computed(() => {
 const dialogVisible = ref(false)
 const editingId = ref(null)
 const form = ref(blankForm())
+
+// 只读详情（抽屉）。之前没有任何"看"的入口：症状/原因/步骤只能从编辑对话框里看，
+// AI 草稿行连编辑都没有 —— 规程库因此变成"点不动"的列表。
+const detailVisible = ref(false)
+const detail = ref(null)
+
+/**
+ * 打开详情。
+ * el-table 的 row-click 在点按钮时也会触发（按钮的点击冒泡到行），
+ * 所以这里再挡一道：命中行内按钮/链接的事件一律不当成"点行"。
+ * 行内按钮本身也都写了 .stop，两层保险。
+ */
+function openDetail(row, column, event) {
+  const target = event && event.target
+  if (target && typeof target.closest === 'function' && target.closest('button, a, .el-button, .el-link')) return
+  detail.value = row
+  detailVisible.value = true
+}
+
+/** 从详情里跳去编辑：先关抽屉，避免两层浮层叠着 */
+function editFromDetail() {
+  const row = detail.value
+  detailVisible.value = false
+  if (row) openEdit(row)
+}
+
+/** 从详情里采纳 AI 草稿 */
+function adoptFromDetail() {
+  const row = detail.value
+  detailVisible.value = false
+  if (row) confirmDraft(row)
+}
 
 function blankForm() {
   return { title: '', category: '液压系统', keywords: '', symptoms: '', causes: '', steps: '', source: '' }
@@ -294,5 +380,59 @@ async function resetKnowledge() {
 .kb-keywords {
   font-size: 12px;
   color: var(--text-2);
+}
+
+/* 规程详情（只读抽屉） */
+.kb-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.kb-detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.kb-detail-freq {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.kb-detail-block {
+  border-left: 3px solid var(--line);
+  padding-left: 10px;
+}
+
+.kb-detail-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+  margin-bottom: 4px;
+}
+
+.kb-detail-text {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-1);
+  white-space: pre-wrap;
+}
+
+.kb-detail-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.9;
+  color: var(--text-1);
+}
+
+.kb-detail-note {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+  font-size: 12px;
+  color: var(--text-3);
 }
 </style>
