@@ -1020,7 +1020,14 @@ async function main() {
       !kbLive.error && (kbLive.refs || []).some(r => r.includes('现场案例')),
       kbLive.error || (kbLive.refs || []).join(' | '))
 
-    // ---------- 8.2 用户报障的复现与回归 · 二：故障案例库点不动 ----------
+    // ---------- 8.2 四条用户报障的复现与回归（2026-09-26） ----------
+    // 报障原文：维修规章库无法点击打开 / 故障案例库无法点击查看详情 /
+    //           老师傅模式开启后没有启动以及无法交互对话 / 聊天记录总是回滚到最前面。
+    // 每条都按**用户真实路径**走（真的点行、真点卡片、真的切页离开再回来），
+    // 不抄近路调内部 API —— 否则"用户点不动"这种缺陷照样能全绿。
+    // 注意：此时知识库里已经有上一段刚新增的「XE215C 回转马达异响排查」，
+    // 所以下面问"回转马达异响"必须有实质回答，不能用"查不到"糊过去。
+
     // —— 报障 2：维修规程库无法点击打开 ——
     // 规程的症状/原因/步骤此前**只存在于编辑对话框里**，AI 草稿行更是连看都看不到。
     // 断言三条：行内有只读的「查看」入口、点开有详情面板、面板真的不提供输入框。
@@ -1091,6 +1098,7 @@ async function main() {
     check('维修规程库：点「编辑」只开编辑框，不会连带弹出详情',
       kbBtnNotHijack.dialog === true && kbBtnNotHijack.drawer === false,
       kbBtnNotHijack.reason || JSON.stringify(kbBtnNotHijack))
+
     // —— 报障 3：故障案例库无法点击查看详情 ——
     // 案例卡此前只有 hover 抬升，整张卡没有 click；展开的原文行也只是表格行。
     await session.goto(`${BASE}/#/fault-cases`, 2600)
@@ -1137,6 +1145,105 @@ async function main() {
     check('原文详情给出完整的故障描述正文（表格里被截断的那段）',
       sampleDetail.shown === true,
       `行内原文「${(sampleDetail.rowText || '').slice(0, 60)}」→ 详情里${sampleDetail.shown ? '有' : '没有'}`)
+
+    // —— 报障 5：聊天记录总是回滚到最前面 ——
+    // 先自己造一段存档再"离开再回来"。不自己造的话，前面某段用例（比如 v1 旧备份
+    // 兼容导入那条会重置 chatHistory）清过聊天记录，下面两条断言就会在"只显示欢迎语"
+    // 的短列表上空过 —— 空过的断言比没有断言更糟，它会假装这层被验证过了。
+    await session.goto(`${BASE}/#/ai-assistant`, 3000)
+    await session.eval(ASK_HELPER)
+    const seedChat = await session.eval(`window.__ask('哪些设备维保超期了')`)
+    check('（前置）对话页留下了一段可恢复的存档', !seedChat.error && (seedChat.count || 0) >= 3,
+      seedChat.error || `消息数=${seedChat.count}`)
+
+    // 切走再切回来：这就是用户"去别的页面看一眼又回来"的真实路径
+    await session.goto(`${BASE}/#/dashboard`, 1600)
+    await session.goto(`${BASE}/#/ai-assistant`, 3200)
+    const chatRestore = await session.eval(`(async () => {
+      const el = document.querySelector('.chat-messages')
+      if (!el) return { err: '没有 .chat-messages' }
+      let last = null
+      for (let i = 0; i < 20; i++) {
+        last = { 消息数: document.querySelectorAll('.message').length,
+          scrollTop: Math.round(el.scrollTop),
+          gap: Math.round(el.scrollHeight - el.scrollTop - el.clientHeight) }
+        if (last.gap < 40) break
+        await new Promise(r => setTimeout(r, 150))
+      }
+      return last
+    })()`)
+    check('返回 AI 助手时确实沿用了存档（否则下面那条会空过）',
+      (chatRestore.消息数 || 0) >= 3, JSON.stringify(chatRestore))
+    check('返回 AI 助手时聊天记录停在最新一条（不再回滚到最前面）',
+      (chatRestore.gap ?? 9999) < 40, JSON.stringify(chatRestore))
+
+    // —— 报障 4：老师傅模式"开了没有启动、无法交互对话" ——
+    // 用户路径：系统设置里打开 → 回到 AI 助手。此前页面上没有任何标识，
+    // 开场白又被历史记录盖着，看起来就是"没启动"。下面两条断言钉住"看得见 + 真的换了口吻"。
+    await session.goto(`${BASE}/#/settings`, 2400)
+    const masterOn = await session.eval(`(async () => {
+      const { setMasterEnabled, masterEnabled } = await import('/src/utils/masterPersona.js')
+      setMasterEnabled(true)
+      return masterEnabled()
+    })()`)
+    await session.goto(`${BASE}/#/ai-assistant`, 3200)
+    const masterBadgeOn = await session.eval(`(() => {
+      const header = document.querySelector('.chat-card .card-header')
+      const badge = header
+        ? Array.from(header.querySelectorAll('.el-tag')).map(t => t.textContent.replace(/\\s+/g, '').trim()).find(t => /老师傅/.test(t))
+        : null
+      const first = document.querySelector('.message')
+      return {
+        mode: localStorage.getItem('ks:master-mode'),
+        badge: badge || null,
+        hasArchive: document.querySelectorAll('.message').length >= 3,
+        firstText: first ? first.textContent.replace(/\\s+/g, ' ').trim().slice(0, 120) : ''
+      }
+    })()`)
+    check('老师傅模式开关确实写进了本地（前置条件）',
+      masterOn === true && masterBadgeOn.mode === '1', JSON.stringify({ masterOn, mode: masterBadgeOn.mode }))
+    check('老师傅模式开启后 AI 页面有可见标识（不再是"开了看不出来"）',
+      !!masterBadgeOn.badge, JSON.stringify(masterBadgeOn).slice(0, 200))
+    check('老师傅模式开启后开场白立即换成老机修口吻（历史记录不能把它盖住）',
+      masterBadgeOn.hasArchive === true && /我在这儿盯了|设备维修老手/.test(masterBadgeOn.firstText),
+      `hasArchive=${masterBadgeOn.hasArchive} ${masterBadgeOn.firstText}`)
+
+    await session.eval(ASK_HELPER)
+    const masterAsk = await session.eval(`window.__ask('回转马达异响怎么回事')`)
+    check('老师傅模式下问故障现象是在"对话"：得到解答，而不是一张写库确认卡',
+      !masterAsk.error && !/我识别到你要/.test(masterAsk.full || '') && (masterAsk.full || '').length > 30,
+      masterAsk.error || (masterAsk.text || '').slice(0, 200))
+    check('老师傅模式下问故障现象能命中本地规程/排查思路（不是一句"查不到"）',
+      !masterAsk.error && (masterAsk.refs || []).length > 0 && !/查不到|没有检索到/.test(masterAsk.full || ''),
+      masterAsk.error || `refs=${(masterAsk.refs || []).join(' | ')} text=${(masterAsk.text || '').slice(0, 120)}`)
+
+    // 关掉也要立刻可见（防止"只能开不能关"），顺带把状态还原给后面的用例
+    await session.goto(`${BASE}/#/settings`, 2400)
+    await session.eval(`(async () => {
+      const { setMasterEnabled } = await import('/src/utils/masterPersona.js')
+      setMasterEnabled(false)
+      return true
+    })()`)
+    await session.goto(`${BASE}/#/ai-assistant`, 3200)
+    const masterOff = await session.eval(`(() => {
+      const header = document.querySelector('.chat-card .card-header')
+      const badge = header
+        ? Array.from(header.querySelectorAll('.el-tag')).map(t => t.textContent.replace(/\\s+/g, '').trim()).find(t => /老师傅/.test(t))
+        : null
+      const first = document.querySelector('.message')
+      const el = document.querySelector('.chat-messages')
+      return {
+        badge: badge || null,
+        firstText: first ? first.textContent.replace(/\\s+/g, ' ').trim().slice(0, 120) : '',
+        gap: el ? Math.round(el.scrollHeight - el.scrollTop - el.clientHeight) : null
+      }
+    })()`)
+    check('老师傅模式关闭后标识消失、开场白换回常规口吻（开关两个方向都可见）',
+      !masterOff.badge && /我帮你盯了/.test(masterOff.firstText),
+      JSON.stringify({ badge: masterOff.badge, firstText: masterOff.firstText }).slice(0, 200))
+    check('再回来一次仍然停在最新一条（回滚缺陷不是偶发）',
+      (masterOff.gap ?? 9999) < 40, `gap=${masterOff.gap}`)
+
 
     // ---------- 8.5 随包示例手册：装完就有真手册可看、可问答 ----------
     // 断言重点不是"数据库里有三行"，而是**资源真的随包发出来了**：

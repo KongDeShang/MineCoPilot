@@ -120,6 +120,17 @@
                         <el-icon><Lock /></el-icon> 纯离线模式
                       </el-tag>
                     </el-tooltip>
+                    <!-- 老师傅模式必须有可见标识：开关在系统设置里，开着却在对话页看不到，
+                         用户会以为"开了没启动"。点一下就能去开关它的地方。 -->
+                    <el-tooltip
+                      v-if="masterOn"
+                      content="老师傅模式已开启：开场白、解答口吻与行动提醒都按老机修的风格来。开关在「系统设置 → AI 助手」。"
+                      placement="bottom"
+                    >
+                      <el-tag type="warning" effect="dark" size="small" style="cursor:pointer" @click="router.push('/settings')">
+                        <el-icon><Star /></el-icon> 老师傅模式
+                      </el-tag>
+                    </el-tooltip>
                   </div>
                 </div>
               </template>
@@ -179,6 +190,7 @@
 
 <script setup>
 import { ref, reactive, computed, nextTick, watch, onMounted, onBeforeUnmount, defineAsyncComponent } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ChatMessage from '../components/ChatMessage.vue'
 import QuickQuestions from '../components/QuickQuestions.vue'
@@ -224,6 +236,7 @@ const ExcelImportPanel = defineAsyncComponent({
 })
 
 const store = useAppStore()
+const router = useRouter()
 
 const activeTab = ref('chat')
 // 本地模型润色开关：关闭后跳过叙述层，直接展示规则引擎结论（慢机器上避免等待感）
@@ -231,6 +244,16 @@ const narrationOn = computed({
   get: () => isNarrationEnabled(),
   set: (v) => setNarrationEnabled(v)
 })
+/**
+ * 老师傅模式是否开启（**响应式副本**）。
+ *
+ * masterEnabled() 每次读的是 localStorage，本身不是响应式的。页面头部要挂一个
+ * "老师傅模式"标识，如果直接写 `v-if="masterEnabled()"`，开关在别处（系统设置）
+ * 改过之后本页不会重渲染 —— 用户在设置里打开了老师傅模式、回到这一页，
+ * 界面上一点变化都没有，看起来就是"开了没启动"。
+ * 挂载时读一次真实值，页内所有判断都走这个 ref，"标识"与"实际行为"同源。
+ */
+const masterOn = ref(masterEnabled())
 const fillingSample = ref(false)
 const voiceText = ref('')
 const ocrText = ref('')
@@ -302,7 +325,7 @@ const CHAT_MAX_AGE_MS = 30 * 60 * 1000
 
 function welcomeMessage() {
   // 老师傅模式开启时，开场白换成"老机修"口吻（数字同样实时，不新增事实）
-  if (masterEnabled()) {
+  if (masterOn.value) {
     return {
       role: 'assistant',
       content: masterGreeting(store),
@@ -317,11 +340,29 @@ function welcomeMessage() {
 }
 
 /**
+ * 开场白跟着老师傅开关走。
+ *
+ * 存档里的第一条助手消息是**上一次的开场白** —— 它不是用户说过的话，
+ * 而是"按当时的开关生成的"派生内容。开关改了还沿用旧的，用户就会看到
+ * "在设置里开了老师傅模式，回到对话页开场白还是老样子"，看起来就是没启动。
+ * 这里只替换这一条（且只在这条确实是开场白时才替换），不动用户真正的对话。
+ */
+function syncGreetingWithMaster(list) {
+  const first = list[0]
+  if (!first || first.role !== 'assistant') return
+  const wanted = welcomeMessage().content
+  const isGreeting = first.content === buildWelcomeMessage() || first.content === masterGreeting(store)
+  if (isGreeting && first.content !== wanted) first.content = wanted
+}
+
+/**
  * 恢复聊天记录（本地保留，需要时可调出；没有可用历史则显示欢迎语）
  *
  * 为什么要设保鲜期：欢迎语是"我帮你盯了 N 台设备，今天发现…"的主动播报，
  * 是首屏的爆点。若无条件沿用存档，第二次演示看到的会是上一场的旧对话，
  * 且旧对话里的数字与当前台账可能已经对不上（中途导过 Excel），被追问时对不上号。
+ *
+ * @returns {boolean} 是否真的沿用了存档（调用方据此决定要不要滚到底）
  */
 function restoreChatHistory() {
   try {
@@ -338,11 +379,12 @@ function restoreChatHistory() {
         // 存档里的理解卡只留了设备/工单的 id+name 快照（活对象存不下），
         // 打上标记，确认写入前先按 id 换回台账里的活对象（见 rehydratePlan）
         for (const m of list) if (m.plan) m.planRestored = true
+        syncGreetingWithMaster(list)
         messages.value = list
         // 追问解析（"它""这台"）靠这份上下文，和 messages 不是一回事，必须单独恢复
         const conv = Array.isArray(saved) ? [] : saved?.conversation
         conversation.value = Array.isArray(conv) ? conv : []
-        return
+        return true
       }
     }
   } catch {
@@ -350,6 +392,7 @@ function restoreChatHistory() {
   }
   messages.value = [welcomeMessage()]
   conversation.value = []
+  return false
 }
 
 /** 防抖保存聊天记录（最多 40 条，单条超长截断，控制 localStorage 体积） */
@@ -774,7 +817,7 @@ async function sendMessage() {
     if (triplets.length) {
       tripletHit = triplets[0]
       finalHtml = renderTripletCard(tripletHit.triplet,
-        masterEnabled() ? '按经验，先对现象、再查原因、后动手。这种情况多数是油路/气路或磨损的事，按下面的顺序走一遍。' : '已根据您描述的现象匹配到以下经验条目（来自本地知识库）：')
+        masterOn.value ? '按经验，先对现象、再查原因、后动手。这种情况多数是油路/气路或磨损的事，按下面的顺序走一遍。' : '已根据您描述的现象匹配到以下经验条目（来自本地知识库）：')
       msg.refs = tripletRefs(tripletHit.triplet)
     } else {
       const tmap = matchTroubleshootMap(question)
@@ -796,7 +839,7 @@ async function sendMessage() {
   })
 
   // 本地模型叙述层：把已核实的结论"说成人话"（流式；未就绪/失败自动回退，不阻塞主答案）
-  narrateStream(msg, finalHtml, { persona: masterEnabled() ? MASTER_NARRATE_PERSONA : null })
+  narrateStream(msg, finalHtml, { persona: masterOn.value ? MASTER_NARRATE_PERSONA : null })
 
   // 查询意图 + 提到了设备 → 给一个直达体检报告的入口
   if (plan.notFound && plan.notFound.length) {
@@ -804,7 +847,7 @@ async function sendMessage() {
   }
 
   // 追加行动提示：老师傅模式开 → 老师傅口吻；关 → 原"智工小提示"
-  msg.content += masterEnabled() ? masterTip(question, result, store) : buildTip(question, result)
+  msg.content += masterOn.value ? masterTip(question, result, store) : buildTip(question, result)
 
   store.addLog({
     content: `AI 助手回答：${rawQuestion}`,
@@ -1207,8 +1250,18 @@ function exportConversation() {
 
 // 挂载时恢复本地聊天记录，并预热本地模型（幂等）
 // 预热的意义：直接进 AI 助手页提问时，"本地模型解读"不会因为引擎还没加载而缺席
-onMounted(() => {
-  restoreChatHistory()
+onMounted(async () => {
+  // 开关可能在别处（系统设置）改过：进页面时同步一次，标识才不会滞后
+  masterOn.value = masterEnabled()
+  const fromArchive = restoreChatHistory()
+  // 沿用了存档就必须自己滚到底：恢复只是把消息塞回列表，DOM 是新建的、
+  // scrollTop 从 0 开始，页面就会停在几十条之前的最前面 —— 用户看到的
+  // 是"聊天记录总是回滚到最前面"，得一路往下翻才找得回刚说过的话。
+  // 首屏只显示欢迎语时没有这一层，所以只在真正沿用存档时滚。
+  if (fromArchive) {
+    await nextTick()
+    scrollToBottom(true)
+  }
   if (llmAvailable()) llmLoad().catch(() => { /* 预热失败不打扰，叙述层会明示降级 */ })
 })
 
