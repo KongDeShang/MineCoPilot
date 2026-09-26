@@ -524,6 +524,63 @@ async function main() {
     check('设备台账：滚到底后最后一张卡片还在视口内（占位与真实行高对齐）',
       vgridReach.ok === true && vgridReach.末卡超出视口 !== null && vgridReach.末卡超出视口 <= 4,
       `末卡超出容器下沿 ${vgridReach.末卡超出视口}px`)
+
+    // 滚到深处 → 搜索（列表变短，虚拟滚动关掉）→ 清空搜索（虚拟滚动重开）→ 网格是不是白的。
+    // 这条对应的是用户报的「设备台账界面还是会出现白屏」（此前八轮探针没复现，因为都没做这个序列）。
+    //
+    // 复现是什么样（探针 node_modules/.probe/stale-scroll2.mjs 带插桩实测）：清空搜索之后
+    // 浏览器把容器 DOM 的滚动位置恢复成 5659px，但**清空之后一条 scroll 事件都没有**
+    // （事件流水里只有我们自己滚下去时那两条）—— 组件里的 scrollTop 还停在 reset() 写的 0，
+    // 于是只渲染最前 6 行、占位 padding 全在下方，18 张卡全在视口**上方** 5393px 处。
+    //
+    // 断言的落点选"回到顶部"（dom滚动位置 === 0）而不是只看"视口内有卡片"：
+    // 探针环境里清空后是**空白**（视口内 0 张），而本机 e2e 环境里浏览器把偏移恢复之后
+    // 补了一次 scroll 事件，卡片看得见 —— 只查"不空白"的话这条在本机 e2e 里修前就是绿的（假过）。
+    // "搜索条件变了就回到顶部"是 reset() 写明的意图（Equipment.vue 的 searchText watcher），
+    // 两处修前都停在 5659px 上，这条在哪个环境里都能判红。
+    const gridBlank = await session.eval(`(async () => {
+      const grid = document.querySelector('.equip-grid')
+      const input = document.querySelector('.card-header input')
+      if (!grid || !input) return { ok: false, reason: '没有 .equip-grid 或搜索框' }
+      const setSearch = (v) => {
+        input.value = v
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+      }
+      const wait = (ms) => new Promise(r => setTimeout(r, ms))
+      // 先滚到深处
+      grid.scrollTop = grid.scrollHeight
+      grid.dispatchEvent(new Event('scroll'))
+      await wait(900)
+      const deep = { scrollTop: Math.round(grid.scrollTop), 卡片: document.querySelectorAll('.equip-card').length }
+      // 搜索到 ≤50 台（虚拟滚动关闭）再清空（重开）
+      setSearch('钻机'); await wait(1200)
+      const filtered = { virtual: grid.className.includes('virtual-scroll'), 卡片: document.querySelectorAll('.equip-card').length }
+      setSearch(''); await wait(1600)
+      const box = grid.getBoundingClientRect()
+      const cards = [...document.querySelectorAll('.equip-card')]
+      const inView = cards.filter(el => {
+        const b = el.getBoundingClientRect()
+        return b.bottom > box.top && b.top < box.bottom
+      })
+      // 先量后还原：这个对象必须在把容器写回 0 之前算出来（上一版把读取写在还原之后，
+      // 读到的永远是刚写进去的那个 0 —— 断言因此看不到真实位置）
+      const after = {
+        virtual: grid.className.includes('virtual-scroll'),
+        dom滚动位置: Math.round(grid.scrollTop),
+        容器内卡片: cards.length,
+        视口内可见卡片: inView.length,
+        占位: getComputedStyle(document.querySelector('.equip-grid-inner')).paddingTop
+      }
+      grid.scrollTop = 0 // 量完把页面还原，不给后面的断言留一个滚在深处的列表
+      grid.dispatchEvent(new Event('scroll'))
+      return { ok: true, 深处: deep, 筛选后: filtered, 重开后: after }
+    })()`)
+    check('设备台账：深处搜索再清空后，列表回到顶部（不留在深处、不空白）',
+      gridBlank.ok === true && gridBlank.重开后?.virtual === true &&
+        gridBlank.重开后?.dom滚动位置 === 0 && gridBlank.重开后?.视口内可见卡片 > 0,
+      gridBlank.ok
+        ? `DOM 滚动位置 ${gridBlank.重开后.dom滚动位置}px · 占位 ${gridBlank.重开后.占位} · 视口内 ${gridBlank.重开后.视口内可见卡片} 张 / DOM 里 ${gridBlank.重开后.容器内卡片} 张（深处原为 ${gridBlank.深处.scrollTop}px / 筛选后虚拟=${gridBlank.筛选后.virtual}）`
+        : gridBlank.reason)
     check('健康度按四级分档展示（验收 #2）', equipment.overview.length === 4, equipment.overview.join(' | '))
     check('设备台账共 60 台（四档合计）', equipment.overviewTotal === 60, `合计=${equipment.overviewTotal}`)
     check('每张卡片都带等级与健康分', equipment.levels.length === 5 && equipment.levels.every(t => /级.*分/.test(t)), equipment.levels.join(','))
