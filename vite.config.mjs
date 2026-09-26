@@ -12,6 +12,17 @@ const projectRoot = fileURLToPath(new URL('.', import.meta.url))
 const SQLJS_WASM = resolve(projectRoot, 'node_modules/sql.js/dist/sql-wasm.wasm')
 
 /**
+ * 版本号只有一个来源：package.json。
+ *
+ * 界面左下角曾写死 `v1.0.0`，而 `package.json` 与安装包名早已是 1.1.0 ——
+ * 安装包写着 1.1.0、界面写着 v1.0.0，是"当场看得见"的不一致。
+ * 这里把它注入运行时代码（App.vue 的 appVersion），界面不再手写字面量。
+ * 两条断言盯着这件事：self-check 静态查"define 真的来自 pkg.version + 模板里没有字面量"，
+ * e2e 动态查"屏幕上渲染出来的那串字符等于 package.json 里的 version"。
+ */
+const pkg = JSON.parse(readFileSync(resolve(projectRoot, 'package.json'), 'utf-8'))
+
+/**
  * sql.js 的 wasm 二进制不会被 Vite 自动打包/服务：
  *   - 开发模式：需要把它作为一个静态资源提供出来
  *   - 生产构建：需要把它复制到 dist/assets 下，并让运行时按实际文件名定位
@@ -55,9 +66,10 @@ export default defineConfig({
   ],
   root: 'src/renderer',
   base: './',
-  // 把包内实际路径暴露给运行时代码（database.js 用它定位 wasm 与元数据文件）
+  // 把包内实际路径与版本号暴露给运行时代码（database.js 定位 wasm；App.vue 显示版本号）
   define: {
-    __SQLJS_WASM_URL__: JSON.stringify('./assets/sql-wasm.wasm')
+    __SQLJS_WASM_URL__: JSON.stringify('./assets/sql-wasm.wasm'),
+    __APP_VERSION__: JSON.stringify(pkg.version)
   },
   build: {
     outDir: '../../dist',

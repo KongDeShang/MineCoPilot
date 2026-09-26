@@ -78,7 +78,7 @@
         <el-button link size="small" class="reset-btn" :loading="resetting" @click="resetDemo">
           重置演示数据
         </el-button>
-        <div class="version">v1.0.0</div>
+        <div class="version">v{{ appVersion }}</div>
       </div>
     </el-aside>
 
@@ -230,6 +230,17 @@ const tourStarting = ref(false)
 const navQuery = ref('')
 const pinned = ref(loadPinned())
 const wizardOpen = ref(false)
+
+/**
+ * 版本号：**只从 package.json 来**（vite define 注入，见 vite.config.mjs）。
+ *
+ * 这里曾经写死 `v1.0.0`，而 package.json 与安装包名是 1.1.0 —— 界面与安装包
+ * 各说各的版本，是答辩现场一眼能看见的不一致。禁止再手写字面量：
+ * self-check 查"模板里没有版本字面量 + define 真的来自 pkg.version"，
+ * e2e 查"屏幕上渲染出来的这串字符等于 package.json 的 version"。
+ * 非构建环境（如被单文件引用）退回 'dev'，不假装知道版本。
+ */
+const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev'
 
 // 演示路线与工具条状态（任务 14）
 const demoRoutes = DEMO_ROUTES

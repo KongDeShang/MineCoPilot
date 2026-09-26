@@ -1121,6 +1121,45 @@ function check(name, condition, detail = '') {
     `${distinct.size}/${categories.length} 张：${[...distinct].map(p => p.split('/').pop()).join(',')}`)
 }
 
+// ============ I4 版本号只有一个来源（界面与安装包各说各版本的那类不一致） ============
+{
+  /**
+   * 界面左下角曾写死 `v1.0.0`，而 package.json 与安装包名早已是 1.1.0：
+   * 评委点开 `矿山智工-1.1.0-setup.exe` 装完，界面写着 v1.0.0 —— 当场看得见的不一致。
+   *
+   * 现在版本号只有一个来源（package.json），vite 构建期注入（`__APP_VERSION__`）。
+   * 这里管"来源与写法"（静态），**"屏幕上真的渲染出这个值"由 e2e 管**（动态）——
+   * 静态检查看得见 `pkg.version`，看不见 `<div class="version">` 里到底写了什么。
+   */
+  const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+  const viteCfg = readFileSync(join(root, 'vite.config.mjs'), 'utf8')
+  const appVue = readFileSync(join(root, 'src', 'renderer', 'src', 'App.vue'), 'utf8')
+
+  check('package.json 的版本号是 x.y.z（后面两条的前提）',
+    /^\d+\.\d+\.\d+$/.test(pkg.version), pkg.version)
+
+  // 注入源必须是 pkg.version：改成字符串字面量就等于又埋了一个手写版本号
+  const injectedFromPkg = /__APP_VERSION__:\s*JSON\.stringify\(pkg\.version\)/.test(viteCfg)
+  check('vite 注入的 __APP_VERSION__ 来自 package.json（不是又一个手写字面量）',
+    injectedFromPkg,
+    injectedFromPkg ? `__APP_VERSION__ ← pkg.version = ${pkg.version}` : '没找到 __APP_VERSION__: JSON.stringify(pkg.version)')
+
+  // 模板里不能再出现版本字面量（"v1.0.0"这种），必须是绑定。
+  // 先剥掉注释再扫：这个项目的注释里会写明"这里曾写死 v1.0.0"（历史留在代码旁），
+  // 注释里的历史值不是缺陷，扫代码才是。
+  const appVueCode = appVue
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|\s)\/\/[^\n]*/g, ' ')
+  const literal = appVueCode.match(/v\d+\.\d+\.\d+/g)
+  check('App.vue 里没有手写的版本号字面量（写了就一定和 package.json 漂移）',
+    !literal, literal ? literal.join('、') : '无字面量')
+
+  const bound = /class="version"[^>]*>\s*v\{\{\s*appVersion\s*\}\}/.test(appVue)
+  check('界面左下角的版本号绑定的是 appVersion（注入值），不是别的常量',
+    bound, bound ? 'class="version">v{{ appVersion }}' : '没找到该绑定写法')
+}
+
 // ============ J 演示数据工厂（规模与分布验收） ============
 {
   const dataset = fleet.buildDemoDataset({ size: 60 })

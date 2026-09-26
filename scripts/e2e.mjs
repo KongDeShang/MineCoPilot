@@ -10,7 +10,7 @@
  * 可选环境变量：E2E_BASE_URL（默认 http://localhost:5173）、E2E_CDP_PORT（默认 9222）
  */
 import { spawn } from 'node:child_process'
-import { existsSync, rmSync, mkdtempSync } from 'node:fs'
+import { existsSync, rmSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ensureServer, stopServer, seedTourSeen, unseedTourSeen } from './devServer.mjs'
@@ -335,6 +335,23 @@ async function main() {
     check('首屏信息条反映真实台账（处置台数/超期台数/停机损失）',
       boot.stripValues.some(v => /台需立即处置/.test(v)) && boot.stripValues.some(v => /台维保超期/.test(v)),
       boot.stripValues.join(' | '))
+
+    // ---------- 1a. 界面上的版本号必须等于 package.json 里的版本号 ----------
+    /**
+     * 背景：左下角曾写死 `v1.0.0`，而 package.json 与安装包名是 1.1.0 ——
+     * 评委装完 `矿山智工-1.1.0-setup.exe`，界面写着 v1.0.0。
+     *
+     * 为什么这条必须放在 e2e（而不是只靠 self-check）：self-check 查的是
+     * "define 来自 pkg.version + 模板里没有字面量"（静态，读源码字符串），
+     * 它**看不见浏览器里最终渲染出的那串字符**；`appVersion` 绑定写错名字、
+     * define 没生效、注入值被别处覆盖，这三种都只有真渲染一次才知道。
+     */
+    const pkgVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
+    const shownVersion = await session.eval(
+      `(() => { const el = document.querySelector('.version'); return el ? el.textContent.trim() : null })()`)
+    check('界面左下角的版本号与 package.json 一致（不是手写的旧版本）',
+      shownVersion === `v${pkgVersion}`,
+      `界面=${shownVersion || '(没找到 .version)'} · package.json=v${pkgVersion}`)
 
     // ---------- 1b. 洞察卡的大数字必须停在真值上 ----------
     // 这里刻意不看"数字长什么样"，而是拿它跟**同一张卡自己带的算式**对账：

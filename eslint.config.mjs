@@ -45,8 +45,10 @@ export default [
       globals: {
         ...globals.browser,
         ...globals.node,
-        // vite.config.mjs 里 define 注入的构建期常量（database.js 用它定位 sql-wasm）
-        __SQLJS_WASM_URL__: 'readonly'
+        // vite.config.mjs 里 define 注入的构建期常量
+        // （__SQLJS_WASM_URL__ 供 database.js 定位 sql-wasm；__APP_VERSION__ 供 App.vue 显示版本号）
+        __SQLJS_WASM_URL__: 'readonly',
+        __APP_VERSION__: 'readonly'
       }
     },
     rules: {
