@@ -16,18 +16,6 @@ import { escapeHtml } from './html'
 
 /** 停机损失的演示参数说明（必须随报告一起展示） */
 const LOSS_NOTE = '估算口径：风险系数 × 日产出假设 × 预估停时。日产出为演示参数，非真实财务数据，可在系统设置中调整。'
-const ACTION_LABELS = {
-  repair: '维修',
-  maintenance: '保养',
-  inspection: '巡检'
-}
-
-const TYPE_LABELS = {
-  定期保养: '定期保养',
-  故障维修: '故障维修',
-  部件更换: '部件更换',
-  巡检: '巡检'
-}
 
 /**
  * 生成风险清单（每条都带知识库出处，供"结论有出处"的溯源要求）
@@ -466,4 +454,5 @@ function renderReportHtml(report) {
 </div>`
 }
 
-export { LOSS_NOTE, ACTION_LABELS, TYPE_LABELS }
+// ACTION_LABELS / TYPE_LABELS 曾在这里一并导出，但文件内部与全仓库都没有消费方（占位导出），已删除
+export { LOSS_NOTE }

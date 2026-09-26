@@ -31,14 +31,10 @@ import { createSettingsDomain } from './settingsDomain'
 
 // 界面文案字典（设备/工单状态、优先级、类型、维保类型样式）统一放在 utils/dictionaries.js。
 // 这里只做转发，不保留第二份实现 —— 之前那份躺在这里，一个页面都没用上。
-export {
-  MAINTENANCE_TYPES,
-  MAINTENANCE_TYPE_STYLE,
-  maintenanceStyle,
-  WORK_ORDER_STATUS,
-  statusLabel as orderStatusLabel,
-  statusTagType as orderStatusTagType
-} from '../utils/dictionaries'
+// 只转发**有消费方**的：MAINTENANCE_TYPES / maintenanceStyle（Equipment.vue、WorkOrder.vue）、
+// WORK_ORDER_STATUS（self-check）。曾经的 orderStatusLabel / orderStatusTagType /
+// MAINTENANCE_TYPE_STYLE 三个别名零消费方，是"转发块里顺手多写一行"留下的占位，已删除。
+export { MAINTENANCE_TYPES, maintenanceStyle, WORK_ORDER_STATUS } from '../utils/dictionaries'
 
 const SEED_VERSION = '3'
 const FLEET_SIZE = DEFAULT_FLEET_SIZE

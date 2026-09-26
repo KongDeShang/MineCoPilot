@@ -50,5 +50,7 @@ export const BUNDLED_DOCS = [
   }
 ]
 
-/** 随包文件的静态目录（相对站点根，base: './' 下两种环境都可用） */
-export const MANUALS_DIR = 'manuals'
+// 随包文件的静态目录名叫 'manuals'，但它不在这里声明 —— 真正读盘的两处各自硬编码了
+// 这个字面量：renderer 侧 utils/docFileStore.js:22、主进程 main/index.js:377-378。
+// 这里原本导出一个 MANUALS_DIR 常量，一个消费方都没有（占位导出），已删除。
+// 真要统一，统一到「谁读盘谁定义」，不要在这里再留第三份没人用的声明。

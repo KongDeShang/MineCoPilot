@@ -117,7 +117,8 @@ export function orderSourceLabel(source) {
 
 export const MAINTENANCE_TYPES = ['定期保养', '故障维修', '部件更换', '巡检']
 
-export const MAINTENANCE_TYPE_STYLE = {
+// 只服务于下面的 maintenanceStyle()，全仓库没有别的消费方，故不导出
+const MAINTENANCE_TYPE_STYLE = {
   定期保养: { tagType: 'success', timelineType: 'success' },
   故障维修: { tagType: 'danger', timelineType: 'warning' },
   部件更换: { tagType: 'warning', timelineType: 'primary' },

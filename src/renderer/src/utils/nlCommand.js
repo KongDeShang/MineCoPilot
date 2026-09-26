@@ -1168,7 +1168,8 @@ export function hasWriteActions(plan) {
 }
 
 /**
- * 仅供自检/调试使用：暴露内部匹配函数。
- * 生产代码不要依赖这些下划线导出。
+ * 对外只暴露真实消费方要用的两个：nlActions.js 用 restoreEquipment 回滚、用 pickFields 挑字段。
+ * 三个下划线别名（_matchForm / _matchFormForIntent / _buildPlanItems）原本打着"仅供自检/调试"
+ * 的名义导出，实际自检脚本也没有引用，属于占位导出，已删除。
  */
-export { matchForm as _matchForm, matchFormForIntent as _matchFormForIntent, buildPlanItems as _buildPlanItems, restoreEquipment, pickFields }
+export { restoreEquipment, pickFields }
