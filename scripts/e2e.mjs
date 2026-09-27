@@ -10,7 +10,7 @@
  * 可选环境变量：E2E_BASE_URL（默认 http://localhost:5173）、E2E_CDP_PORT（默认 9222）
  */
 import { spawn } from 'node:child_process'
-import { existsSync, rmSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, rmSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ensureServer, stopServer, seedTourSeen, unseedTourSeen } from './devServer.mjs'
@@ -352,6 +352,46 @@ async function main() {
     check('界面左下角的版本号与 package.json 一致（不是手写的旧版本）',
       shownVersion === `v${pkgVersion}`,
       `界面=${shownVersion || '(没找到 .version)'} · package.json=v${pkgVersion}`)
+
+    // ---------- 1a2. 生产产物（dist/assets）里三处"只在打包版才成立"的写法 ----------
+    /**
+     * 这一条盯的是**构建产物**，既不是源码，也不是浏览器模式下的运行结果。
+     * 三处都是 2026-09-26 修过的、且都属于"开发态/正常路径永远看不见"的类型：
+     *   · 照片路径写成 `/equipment-photos/…`（根绝对）在打包版 `file://` 下解析到**盘符根**，
+     *     照片全碎；而浏览器模式跑在 http://localhost:5173 下完全正常（P2-17）；
+     *   · wasm 兜底写 `./assets/sql-wasm.wasm` 以 `dist/assets/` 为基准会解析成**双 assets**，
+     *     而正常路径走主进程 IPC，兜底错了也没症状；
+     *   · 版本号：`__APP_VERSION__` 必须在构建期被替换成 package.json 的值（define 写错了会漏出占位符）。
+     *
+     * 为什么放在 e2e 而不是新起一个脚本：链上 `build` 就在 `e2e` 前面，产物一定是最新的。
+     * 而单独跑 `npm run e2e` 时 dist 可能是旧的或不存在 —— 那种情况只提示、不判失败
+     * （判失败会把"只改了源码还没构建"误报成缺陷），全量 verify 里不会走到这个分支。
+     */
+    const distDir = new URL('../dist/assets/', import.meta.url)
+    const distJs = existsSync(distDir)
+      ? readdirSync(distDir).filter(f => f.endsWith('.js'))
+      : []
+    if (distJs.length === 0) {
+      console.log('  （跳过产物断言：dist/assets 里没有产物 JS —— 单独跑 e2e 时正常，全量 verify 里不会发生）')
+    } else {
+      // 扫**全部**产物 chunk，不是只看入口：照片路径在 equipmentPhoto 那个 chunk、
+      // 版本号在入口 chunk，谁被分到哪儿是打包器的自由，断言不该假设
+      const js = distJs.map(f => readFileSync(new URL(f, distDir), 'utf8')).join('\n')
+      const absPhoto = (js.match(/["'`]\/equipment-photos\//g) || []).length
+      const relPhoto = (js.match(/["'`]\.\/equipment-photos\//g) || []).length
+      check('产物里照片是相对路径（根绝对路径在 file:// 下会碎图，P2-17）',
+        absPhoto === 0 && relPhoto > 0, `相对 ${relPhoto} 处 / 根绝对 ${absPhoto} 处`)
+      const badWasm = (js.match(/["'`]\.\/assets\/sql-wasm\.wasm/g) || []).length
+      const goodWasm = (js.match(/["'`]\.\/sql-wasm\.wasm/g) || []).length
+      check('产物里 wasm 兜底不是双 assets（基准是 dist/assets/）',
+        badWasm === 0 && goodWasm > 0, `对 ${goodWasm} 处 / 错 ${badWasm} 处`)
+      // 压缩器会把字符串统一成反引号，三种引号都要认（只找双引号会假红）
+      const verHit = new RegExp(`[\`"']${pkgVersion.replace(/\./g, '\\.')}[\`"']`).test(js)
+      const placeholder = (js.match(/__APP_VERSION__|__SQLJS_WASM_URL__/g) || []).length
+      check('产物里版本号已注入、define 占位符没有漏出来',
+        verHit && placeholder === 0,
+        `版本号 ${verHit ? '命中' : '没找到'} · 占位符 ${placeholder} 处`)
+    }
 
     // ---------- 1b. 洞察卡的大数字必须停在真值上 ----------
     // 这里刻意不看"数字长什么样"，而是拿它跟**同一张卡自己带的算式**对账：
