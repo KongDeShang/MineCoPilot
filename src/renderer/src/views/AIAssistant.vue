@@ -883,7 +883,12 @@ function narrateBlockHtml(boxId, bodyHtml) {
 function narrateFallbackHtml(reason) {
   const detail = reason === 'number-mismatch'
     ? '本次叙述未通过数字一致性校验，已回退'
-    : '本地模型暂不可用，本次由内置规则叙述'
+    // 形状守卫拦下来的（模型这次没在复述结论，而是在反问 / 复读提示词）。
+    // 文案要说得准：不是"模型不可用"（引擎好好的），也不是"数字错了"（数字全对）——
+    // 如实说明比一句含糊的"暂不可用"更有用。
+    : String(reason || '').startsWith('shape-')
+      ? '本次叙述未通过形状检查（模型没有复述结论），已回退为内置结论'
+      : '本地模型暂不可用，本次由内置规则叙述'
   return [
     '<div class="llm-narrate" style="margin-bottom:10px;padding:8px 12px;background:var(--accent-glass);border:1px dashed var(--accent-glass-strong);border-radius:8px;">',
     `<span style="font-size:12px;color:var(--text-3);">${detail} · 数据未出本机</span>`,

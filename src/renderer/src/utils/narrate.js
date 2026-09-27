@@ -6,7 +6,9 @@
  *   · 模型不参与任何数字计算，只润色表达；
  *   · 任何环节失败（浏览器模式 / 引擎未就绪 / 生成失败 / 输出为空）
  *     都静默回退 —— 主答案照常展示，演示永不露怯；
- *   · 生成文本中的数字必须 ⊆ 原结论数字（verifyNumbersSubset 兜底）。
+ *   · 生成文本中的数字必须 ⊆ 原结论数字（verifyNumbersSubset 兜底）；
+ *   · 生成文本必须**真的在复述结论**，反问/复读 prompt 的一律回退（verifyNarrationShape）——
+ *     数字校验管内容、这条管形状，两件事互不替代（见 llmClient.js 上那段注释）。
  */
 import {
   llmAvailable,
@@ -14,6 +16,7 @@ import {
   llmGenerate,
   buildNarratePrompt,
   verifyNumbersSubset,
+  verifyNarrationShape,
   normalizeNarrated
 } from './llmClient'
 
@@ -124,6 +127,13 @@ export async function narrateConclusionStream(html, { maxChars = 1200, onChunk, 
   const check = verifyNumbersSubset(plain, text)
   if (!check.ok) {
     return { mode: 'fallback', reason: 'number-mismatch', violated: check.violated }
+  }
+  // 形状兜底：数字全对但整段在反问/复读 prompt 时同样回退（0.5B 在老师傅模式下的实测形态）。
+  // 放在数字之后：数字校验是硬不变量，形状是"这段话到底有没有用"，先报哪一条都回退，
+  // 但把硬不变量排在前面，报告里看到的原因才是那个更严重的。
+  const shape = verifyNarrationShape(text)
+  if (!shape.ok) {
+    return { mode: 'fallback', reason: shape.reason, hit: shape.hit }
   }
   cacheSet(key, text)
   return { mode: 'local', text }

@@ -2094,6 +2094,51 @@ function check(name, condition, detail = '') {
   check('verifyNumbersSubset 数字全部来自原结论', llmC.verifyNumbersSubset('超期5天，分数78', '超期5天，分数78，请尽快处理').ok)
   check('verifyNumbersSubset 模型新造数字被拦截', !llmC.verifyNumbersSubset('超期5天', '超期5天，损失9000元').ok)
 
+  /**
+   * 形状守卫（verifyNarrationShape）：数字校验管"内容有没有新造"，
+   * 这条管"这段话到底是不是在复述结论"。0.5B 在老师傅模式下**数字全对、
+   * 整段答非所问**（反问 / 复读 prompt），数字校验结构上拦不住 —— 所以这是两件事。
+   *
+   * 下面前三条是**正例**，防的是"特征表收得太宽，把正常叙述一起打掉"
+   * （误判的代价是锦上添花没了，虽不致命，但那是把功能做废）。
+   */
+  check('verifyNarrationShape 放行正常叙述（含数字与型号）',
+    llmC.verifyNarrationShape('3 号挖掘机健康分 62 分，维保已超期 50 天，建议本周安排保养。').ok,
+    `reason=${llmC.verifyNarrationShape('3 号挖掘机健康分 62 分，维保已超期 50 天，建议本周安排保养。').reason}`)
+  check('verifyNarrationShape 放行带「以上」的正常措辞（特征表刻意收窄：「根据以上」不在表里）',
+    llmC.verifyNarrationShape('以上两条都指向油路问题，先查滤芯再试机。').ok)
+  check('verifyNarrationShape 放行「复述了带问号的原文、但自己不是问句」（问号只看结尾）',
+    llmC.verifyNarrationShape('手册里写着「油温是否过高？」这一类判断，先看散热器。').ok)
+
+  // 反例：老师傅模式下实测那两句（都是数字全对、却答非所问）
+  const shapeQ1 = llmC.verifyNarrationShape('根据上述文档内容，以下哪些是徐工设计、制造的起重机的配置和特点？')
+  check('verifyNarrationShape 拦下实测反问句（复读 prompt + 结尾问号）',
+    !shapeQ1.ok && shapeQ1.reason === 'shape-question', `${shapeQ1.reason} / ${shapeQ1.hit}`)
+  const shapeQ2 = llmC.verifyNarrationShape('请告知维保到期后，是否需要进行维保或更换设备')
+  check('verifyNarrationShape 拦下「把问题推回给用户」那类（没有问号也要拦）',
+    !shapeQ2.ok && shapeQ2.reason === 'shape-ask-back', `${shapeQ2.reason} / ${shapeQ2.hit}`)
+  const shapeEcho = llmC.verifyNarrationShape('根据上述文档内容，以下哪些是徐工设计制造的起重机配置。')
+  check('verifyNarrationShape 拦下「指的是 prompt 本身」的复读（上述文档 / 以下哪些）',
+    !shapeEcho.ok && shapeEcho.reason === 'shape-echo', `${shapeEcho.reason} / ${shapeEcho.hit}`)
+  const shapeEmpty = llmC.verifyNarrationShape('好的')
+  check('verifyNarrationShape 拦下空壳输出（0.5B 偶尔只吐一句「好的」）',
+    !shapeEmpty.ok && shapeEmpty.reason === 'shape-empty', `${shapeEmpty.reason} / ${shapeEmpty.hit}`)
+
+  /**
+   * 接线断言（源码级，不是行为级）：守卫写好了不接线 = 占位。
+   * 顺序那句也是有意义的判据 —— 形状检查必须**排在入缓存之前**，
+   * 否则一段坏叙述会被缓存固化、以后同一个问题反复回放它（缓存命中时不再复查）。
+   */
+  const narrateSrc = readFileSync(join(root, 'src/renderer/src/utils/narrate.js'), 'utf8')
+  const iShapeCall = narrateSrc.indexOf('verifyNarrationShape(text)')
+  const iCacheSet = narrateSrc.indexOf('cacheSet(key, text)')
+  check('叙述层接线：形状检查真的被调用（写好了不接线只算占位）', iShapeCall >= 0)
+  check('叙述层接线：形状检查排在入缓存之前（否则坏叙述会被缓存固化、反复回放）',
+    iShapeCall >= 0 && iCacheSet > iShapeCall, `形状检查@${iShapeCall} / cacheSet@${iCacheSet}`)
+  const aiSrc = readFileSync(join(root, 'src/renderer/src/views/AIAssistant.vue'), 'utf8')
+  check('降级文案：形状拦截与「模型不可用」分开写（不拿糊话盖过去）',
+    aiSrc.includes("startsWith('shape-')") && aiSrc.includes('形状检查'))
+
   check('htmlToText 去标签压缩空白',
     narrate.htmlToText('<div>1号挖掘机</div><p>健康分 <b>78</b> 分</p>') === '1号挖掘机 健康分 78 分')
 
