@@ -1055,7 +1055,10 @@ async function main() {
       writeFileSync(badPath, JSON.stringify({ app: 'some-other-app', dbBase64: 'AAAA' }), 'utf8')
 
       const equipBefore = await session.eval(
-        `(async () => { const d = await import('/src/utils/database.js'); return d.count('equipment') })()`
+        `(async () => {
+          const d = await import('/src/utils/database.js')
+          return d.count('equipment')
+        })()`
       )
 
       // ① 点「一键导入备份」→ 确认 → 应拉起一个隐藏的文件选择框
@@ -1134,7 +1137,10 @@ async function main() {
         })()`)
       }
       const equipAfter = await session.eval(
-        `(async () => { const d = await import('/src/utils/database.js'); return d.count('equipment') })()`
+        `(async () => {
+          const d = await import('/src/utils/database.js')
+          return d.count('equipment')
+        })()`
       )
       check('浏览器模式真选文件能把备份导进来（不再静默失败）',
         !feedErr && imported.title === '导入完成' && imported.boxGone && imported.pickerRemoved,
@@ -2335,6 +2341,78 @@ async function main() {
     check('应用锁：解锁后业务功能恢复正常（设备台账能正常渲染）',
       afterUnlock.cards > 0, `${afterUnlock.cards} 张设备卡片`)
 
+    // ---------- 14b) 身份进审计 + 界面显示（P4-3）----------
+    /**
+     * 这一段只证"真实浏览器里看得见的那两层"：
+     *   ① 侧边栏底部那行身份真的渲染出来了，文案与解锁的身份一致；
+     *   ② 日志页把**这一趟**（解锁之后）产生的日志标上了操作人，而且**每一行**都有
+     *      操作人这一栏（不是有的有有的没有）。
+     *
+     * 「同一页上『带身份的』与『未署名』两种都渲染得出来」这一条放在 14c：
+     * 那里对照的两条都是**本趟自己造的**（一条解锁后写、一条没身份时写）。
+     * 第一版是在这里翻第 10 节那条老日志来当"未署名"的样本，实测红了 ——
+     * 它会被中间那段「清空自救」连数据一起清掉（自救要清库，日志当然也清）。
+     * 拿几节之前写下的东西当基准，本来就不是这一节能担保的事。
+     *
+     * "账户 A ⇒ actor 是 A、切到 B ⇒ actor 是 B、重启后仍读得回"由 store-check 覆盖
+     * （那边能把 store 真的重启一遍），这里不重复造。
+     */
+    const sideIdentity = await session.eval(`(() => {
+      const line = document.querySelector('.aside-footer .actor-line')
+      return {
+        shown: !!line,
+        text: line ? line.textContent.trim() : '(没有身份行)',
+        tip: line ? (line.getAttribute('title') || '') : ''
+      }
+    })()`)
+    check('身份显示：解锁后侧边栏底部显示当前身份（谁在操作、以谁的名义留痕）',
+      sideIdentity.shown === true && sideIdentity.text === '王建国 · 维修工程师' &&
+        /记入操作日志/.test(sideIdentity.tip),
+      sideIdentity.shown ? `「${sideIdentity.text}」/ ${sideIdentity.tip}` : sideIdentity.text)
+
+    /**
+     * 造一条本趟的日志：看板的「AI 一键周报」。挑它是因为**同步、一次点击**，
+     * 比备件入库那类要走弹窗表单的路径省得多，留痕文案也固定（好断言）。
+     *
+     * 抽成函数，是因为这一段与 14c 要各造一条**身份不同**的日志（解锁后写的 / 没身份时写的）。
+     * 两处必须走完全同一条真实路径：各写一份的话，"没身份那条"很容易因为少点了一步
+     * 而压根没产生，对照断言却照样绿 —— 那就成了拿空集证明空集。
+     */
+    const weeklyLogOnce = async () => session.eval(`(async () => {
+      location.hash = '#/dashboard'
+      await new Promise(r => setTimeout(r, 1800))
+      const btn = Array.from(document.querySelectorAll('button')).find(b => /AI 一键周报/.test(b.textContent))
+      if (!btn) return { clicked: false }
+      btn.click()
+      await new Promise(r => setTimeout(r, 900))
+      const store = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('app')
+      const first = store.recentLogs[0] || {}
+      // 关掉周报弹窗，别让它盖住后面几次跳转
+      const close = Array.from(document.querySelectorAll('.el-message-box button'))
+        .find(b => b.textContent.trim() === '关闭')
+      if (close) close.click()
+      await new Promise(r => setTimeout(r, 500))
+      return { clicked: true, content: first.content || '', actor: first.actor }
+    })()`)
+
+    const madeLog = await weeklyLogOnce()
+    check('前置条件：本趟真的产生了一条日志（否则下面"日志页标了操作人"是在空集上做）',
+      madeLog.clicked === true && /周报/.test(madeLog.content),
+      madeLog.clicked ? `最新一条「${madeLog.content}」` : '看板上没找到「AI 一键周报」按钮')
+    check('身份进审计：解锁之后产生的日志带上了操作人',
+      madeLog.actor === '王建国 · 维修工程师', JSON.stringify(madeLog.actor))
+
+    const logRows = await session.eval(`(async () => {
+      location.hash = '#/logs'
+      await new Promise(r => setTimeout(r, 2000))
+      const contents = Array.from(document.querySelectorAll('.log-content')).map(e => e.textContent.trim())
+      const actors = Array.from(document.querySelectorAll('.log-actor')).map(e => e.textContent.trim())
+      return { rows: contents.length, actorCells: actors.length, firstActor: actors[0] || '' }
+    })()`)
+    check('前置条件：日志页每行都有操作人一栏（行数与身份栏数相等，不是有的有有的没有）',
+      logRows.rows > 0 && logRows.actorCells === logRows.rows,
+      `${logRows.rows} 行 / ${logRows.actorCells} 个身份栏（最新一条「${logRows.firstActor}」）`)
+
     // 停用这条路径只验"确认框接上了"：点取消、状态不变。
     // 真正的停用在 self-check 里对 disableLock() 断言过（清空账户 + 退出解锁态）。
     const disableWiring = await session.eval(`(async () => {
@@ -2417,6 +2495,188 @@ async function main() {
       rescued.equipCount > 0 && rescued.firstStat === String(rescued.equipCount),
       `台账 ${rescued.equipCount} 台 / 看板显示「${rescued.firstStat}」`)
 
+    // 顺手一条（P4-3）：没有账户 = 没有身份 ⇒ 侧边栏那行整行不渲染。
+    // 「编不出身份就不要占位」是这一行的设计口径，v-if 那条分支得有消费方验它。
+    const noAccountSide = await session.eval(`(() => {
+      const line = document.querySelector('.aside-footer .actor-line')
+      return {
+        aside: !!document.querySelector('.app-aside'),
+        shown: !!line,
+        text: line ? line.textContent.trim() : ''
+      }
+    })()`)
+    check('身份显示：本机没配账户时侧边栏不出现身份行（没有身份就不占位，而不是显示「未知用户」）',
+      noAccountSide.aside === true && noAccountSide.shown === false,
+      `侧栏在=${noAccountSide.aside} 身份行=${noAccountSide.shown ? `在（「${noAccountSide.text}」）` : '没有'}`)
+
+    /**
+     * 先造一条**没有身份**的日志（此刻本机确实一个账户都没配），
+     * 一会儿和赵工那条同页对照 —— 两种状态摆在一页上，"这行字是当前身份"才立得住。
+     *
+     * 为什么不用小节 10 那条老日志当样本：它在上面的「清空自救」里连库一起被清了
+     * （自救要清数据，日志当然也在其中）。第一版正是这么红的，报的是"没找到那条老日志" ——
+     * 一条断言若依赖几小节之前某次写下的东西还在，它红的概率就与"那段多久没动过"成正比。
+     */
+    const anonLog = await weeklyLogOnce()
+    check('前置条件：没身份的时候写日志，actor 落的是空串（下面"界面标未署名"才有东西可对）',
+      anonLog.clicked === true && anonLog.actor === '',
+      anonLog.clicked ? `actor=${JSON.stringify(anonLog.actor)}` : '看板上没找到「AI 一键周报」按钮')
+
+    // ---------- 14c) 停用应用锁：确认之后必须整页重算身份（P4-3）----------
+    /**
+     * 为什么补这一段：上面那条只验了确认框接上了（点取消、状态不变），
+     * **"确认停用"这条路一次都没跑过** —— 而它正是会把身份弄脏的那条路。
+     *
+     * 要防的具体缺陷：侧边栏那行身份是**启动时读一次**的（App.vue），
+     * 停用之后账户清空、此后每条日志的 actor 都变成空串，而侧边栏会继续显示
+     * 一个已经不存在的身份 —— 界面上的操作人与日志里的操作人对不上。
+     * 修法是"身份真的变了就整页重载"（Settings.vue 的 reloadIfIdentityChanged）。
+     *
+     * 判据分三下，缺一不可：① 点击前身份行**在**（否则"点完没了"恒真）；
+     * ② 页面真的重载了（靠重载前埋的 window 标记消失来判，不靠 sleep 猜）；
+     * ③ 重载后身份行不在、账户已清空、锁已关掉、不再要求 PIN。
+     *
+     * 这一段顺带把「同一页上两种身份状态都渲染得出来」证掉（本趟造的两条日志：
+     * 没账户时写的一条标「未署名」、解锁成赵工后写的一条标「赵工」）—— 见下面 bothStates。
+     */
+    await session.goto(`${BASE}/#/settings`, 2400)
+    await session.eval(LOCK_HELPER)
+    const disableSetup = await session.eval(`(async () => {
+      const filled = {}
+      filled.name = await window.__setInput('input[placeholder^="姓名"]', '赵工')
+      filled.pin = await window.__setInput('input[placeholder^="PIN"]', '8642')
+      filled.pin2 = await window.__setInput('input[placeholder^="再输一次"]', '8642')
+      const clicked = window.__clickText('启用应用锁')
+      await new Promise(r => setTimeout(r, 1600))
+      return { filled, clicked, enabled: !!localStorage.getItem('ks:app-lock') }
+    })()`)
+    check('前置条件：为停用这条路径重新建了一个账户（否则下面没有可停用的东西）',
+      disableSetup.filled.name && disableSetup.filled.pin && disableSetup.filled.pin2 &&
+        disableSetup.clicked === true && disableSetup.enabled === true,
+      JSON.stringify(disableSetup.filled))
+
+    // 新建账户是在**本次运行**里生效的，可侧边栏那行是启动时读的 ⇒ 必须刷新一次才会出现。
+    // 这一步同时把"刷新 ⇒ 回锁屏 ⇒ 解锁 ⇒ 身份行出现"整条路再走一遍（用的是新账户）。
+    await session.send('Page.reload', { ignoreCache: true })
+    await sleep(3400)
+    await session.eval(LOCK_HELPER)
+    const disableUnlocked = await session.eval(`(async () => {
+      const tried = await window.__unlock('8642')
+      const deadline = Date.now() + 15000
+      while (Date.now() < deadline && !document.querySelector('.app-main')) {
+        await new Promise(r => setTimeout(r, 300))
+      }
+      const line = document.querySelector('.aside-footer .actor-line')
+      return {
+        tried: tried.ok === true, why: tried.why || '',
+        text: line ? line.textContent.trim() : '(没有身份行)'
+      }
+    })()`)
+    check('前置条件：刷新后回锁屏、用新账户的 PIN 能进，侧边栏显示新身份（点击停用前身份行必须在）',
+      disableUnlocked.tried === true && disableUnlocked.text === '赵工',
+      disableUnlocked.why || `身份行「${disableUnlocked.text}」`)
+
+    // 再用赵工写一条：与上面那条"没身份"的日志同页对照。
+    // 换个人再证一次，是为了堵住"这行字是第一次解锁那一刻写死的"这种可能。
+    const zhaoLog = await weeklyLogOnce()
+    check('身份进审计：换了个账户解锁后，新日志标的是**当前**这个身份（不是留着上一个）',
+      zhaoLog.actor === '赵工', JSON.stringify(zhaoLog.actor))
+
+    const bothStates = await session.eval(`(async () => {
+      location.hash = '#/logs'
+      await new Promise(r => setTimeout(r, 2000))
+      const contents = Array.from(document.querySelectorAll('.log-content')).map(e => e.textContent.trim())
+      const actors = Array.from(document.querySelectorAll('.log-actor')).map(e => e.textContent.trim())
+      return {
+        rows: contents.length,
+        actorCells: actors.length,
+        firstActor: actors[0] || '',
+        anonCount: actors.filter(a => a === '未署名').length
+      }
+    })()`)
+    check('身份进审计：日志页上「解锁后那条标着操作人」与「没身份那条标着未署名」同页可见',
+      bothStates.actorCells === bothStates.rows && bothStates.firstActor === '赵工' &&
+        bothStates.anonCount > 0,
+      `${bothStates.rows} 行（各一行身份栏）：最新「${bothStates.firstActor}」/ 未署名 ${bothStates.anonCount} 条`)
+
+    const disableClicked = await session.eval(`(async () => {
+      location.hash = '#/settings'
+      await new Promise(r => setTimeout(r, 1800))
+      // 埋一个只活在这份文档里的标记：重载之后它必须消失。
+      // 用"睡够几秒就当它重载了"来判是不行的 —— 慢机器上会误判，
+      // "根本没重载"时又会因为页面看着正常而假绿。
+      window.__p43ReloadMark = 1
+      const clicked = window.__clickText('停用应用锁')
+      await new Promise(r => setTimeout(r, 800))
+      const box = document.querySelector('.el-message-box')
+      const confirm = box && Array.from(box.querySelectorAll('button'))
+        .find(b => b.textContent.trim() === '确认停用')
+      if (!confirm) return { clicked, confirmFound: false }
+      confirm.click()
+      // 点完就返回，**不要在这里等**：重载会把整个 JS 上下文换掉，
+      // 页面里的 await 活不过重载（换目录重来一次这个坑，见第 15 节那段说明）。
+      return { clicked, confirmFound: true }
+    })()`)
+    check('前置条件：确认框里有「确认停用」按钮（上面那条只验过点取消）',
+      disableClicked.clicked === true && disableClicked.confirmFound === true,
+      `点到停用按钮=${disableClicked.clicked} 确认框里有确认键=${disableClicked.confirmFound}`)
+
+    // 停用是页面自己重载的（Settings.vue 的 reloadIfIdentityChanged 里 800ms 后 location.reload()），
+    // 所以只能从 Node 侧轮询 —— 每次 eval 都可能撞上"上下文刚被销毁"，撞了就下一轮再来。
+    let disableConfirmed = null
+    const disableDeadline = Date.now() + 25000
+    while (Date.now() < disableDeadline) {
+      await sleep(600)
+      try {
+        disableConfirmed = await session.eval(`({
+          reloaded: !window.__p43ReloadMark,
+          lockScreen: !!document.querySelector('.lock-screen'),
+          appMain: !!document.querySelector('.app-main'),
+          lineShown: !!document.querySelector('.aside-footer .actor-line'),
+          lineText: (document.querySelector('.aside-footer .actor-line') || {}).textContent || ''
+        })`)
+      } catch {
+        continue // 正好卡在重载那一刻：这一轮的上下文已经没了，下一轮读新的
+      }
+      if (disableConfirmed.reloaded && disableConfirmed.appMain) break
+    }
+    disableConfirmed = disableConfirmed || {}
+    check('停用应用锁：确认后整页重算 ⇒ 侧边栏不再留一个已经不作数的身份行',
+      disableConfirmed.reloaded === true &&
+        disableConfirmed.appMain === true && disableConfirmed.lockScreen === false &&
+        disableConfirmed.lineShown === false,
+      `已重载=${disableConfirmed.reloaded} 内容区=${disableConfirmed.appMain} 锁屏=${disableConfirmed.lockScreen} ` +
+      `身份行=${disableConfirmed.lineShown ? `还在（「${String(disableConfirmed.lineText).trim()}」）` : '已消失'}`)
+    /**
+     * 停用之后要断的是**语义**（账户清空、锁关掉、不再要 PIN），不是"键还在不在"。
+     *
+     * disableLock() 是刻意保留空闲档位的：writeConfig(emptyConfig) 里带上 idleMinutes，
+     * 下次启用不用重挑。所以 ks:app-lock 这个键**本来就还在** —— 第一版把它写成
+     * `localStorage.getItem(...) === null`，红的是断言，不是产品。断言挑错了观测点，
+     * 就会把"按设计保留"报成"没清干净"。
+     *
+     * "还保不保留档位"这一条**故意不在这里断言**：本趟此刻压根没设过档位（默认就是 10，
+     * 没写进配置），`undefined` 是正常的；而真去设一档再验它保住，会把下一节 15a
+     * 要的"默认 10 分钟"前提改掉。这条交给 self-check 对着 disableLock() 直接测。
+     *
+     * 判"还在不在锁屏"也不能只看 PIN 输入框：设置页的**新增账户表单**里同样有
+     * `input[placeholder^="PIN"]` —— 第一版就是这么红的（要求 PIN=true，其实锁早关了）。
+     * 锁屏自己的东西才算数：.lock-screen 与它里面的解锁键。
+     */
+    const disabledState = await session.eval(`(async () => {
+      const m = await import('/src/utils/appLock.js')
+      return {
+        lockOn: m.lockEnabled(),
+        accounts: m.listAccounts().length,
+        lockUi: !!document.querySelector('.lock-screen .lock-btn')
+      }
+    })()`)
+    check('停用应用锁：确认后账户清空、锁关掉、不再要 PIN',
+      disabledState.lockOn === false && disabledState.accounts === 0 &&
+        disabledState.lockUi === false && disableConfirmed.lockScreen === false,
+      `锁开着=${disabledState.lockOn} 账户 ${disabledState.accounts} 个 ` +
+      `锁屏解锁键=${disabledState.lockUi}`)
+
     // ---------- 15) 空闲自动锁（P4-2）----------
     /**
      * 这一段要证的是**接上了没有**，不是算术。
@@ -2477,6 +2737,22 @@ async function main() {
     const idleArm = await session.eval(`(async () => {
       const m = await import('/src/utils/appLock.js')
       const created = await m.createAccount({ name: '李巡检', role: '巡检工', pin: '1357' })
+      /**
+       * 绕一下看板再回设置页 —— 这一绕是**必须的**，不是保险。
+       *
+       * 账户是在模块层建的（没走界面上那个表单），而设置页的 lockOn / accounts 是
+       * onMounted 里读一次的快照，配置变了它不会自己知道。靠"设一下 hash"来触发重挂，
+       * 前提是那一跳**真的是个路由变化**。
+       *
+       * 上一段（14c）的收尾是"停用后整页重载"，重载落回来的正是 #/settings，
+       * 于是原来那句「设 hash 成 #/settings」成了原地不动：设置页还是重载时
+       * 那份"没启用"的样子，.lock-idle 整块不渲染 ⇒ 下面三条一起红（实测）。
+       *
+       * （这段注释在模板字符串里，不能出现反引号 —— 会把模板提前收掉，eslint 报的
+       *  "Unexpected token location" 就是这个，调一次就知道。）
+       */
+      location.hash = '#/dashboard'
+      await new Promise(r => setTimeout(r, 900))
       location.hash = '#/settings'
       await new Promise(r => setTimeout(r, 1800))
       const sel = document.querySelector('.lock-idle .el-select')

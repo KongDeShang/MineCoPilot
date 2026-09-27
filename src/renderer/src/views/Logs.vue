@@ -24,6 +24,20 @@
           <div class="log-row">
             <el-tag :type="log.tagType" size="small" effect="plain">{{ log.source }}</el-tag>
             <span class="log-content">{{ log.content }}</span>
+            <!-- 操作人（P4-3）。空的时候显示「未署名」而不是干脆不显示：
+                 两种写法看着都不刺眼，但意思完全不同 —— 不显示等于这条图省事、
+                 看的人根本不知道还有"谁操作"这一栏；显示「未署名」才是如实的
+                 "这条没记到人"（老库里的历史日志、以及随包演示数据都是这一种）。 -->
+            <el-tooltip
+              :content="log.actor
+                ? `这条记录是以「${log.actor}」的身份操作产生的`
+                : '这条记录产生时没有解锁身份（当时未启用应用锁，或是随包自带的演示数据）'"
+              placement="top"
+            >
+              <span class="log-actor">
+                <el-icon><User /></el-icon>{{ log.actor || '未署名' }}
+              </span>
+            </el-tooltip>
           </div>
         </el-timeline-item>
       </el-timeline>
@@ -86,6 +100,24 @@ const filteredLogs = computed(() => {
   font-size: 13px;
   color: var(--text-2);
 }
+
+/* 操作人靠右，和左边"来源标签 + 内容"分开：一条时间线上扫下来，
+   左边看"发生了什么"、右边看"谁干的"，不用从左往右读到底。
+   margin-left:auto 在 .log-row 的 flex 里生效，内容长时会被挤到右边换行。 */
+.log-actor {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  flex: none;
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+/* 「未署名」刻意**不再调暗**：本项目没有 --text-4 这档令牌，靠 opacity 压暗会让
+   对比度掉到 4.5:1 边缘（白底上是变浅，不是变深），为一句"没有值"的文案冒这个险不值。
+   「未署名」三个字本身已经说清了，不靠颜色区分。 */
 
 .logs-note {
   margin-top: 14px;

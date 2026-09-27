@@ -22,6 +22,9 @@ import { parseAliases } from '../utils/aliases'
 import { decideBootSeed } from '../utils/seedGate'
 import { bootStep } from '../utils/bootSplash'
 import { buildDefaultKnowledge, extractKnowledgeFromOrders } from '../utils/knowledgeBase'
+// 操作日志的操作人（P4-3）。只取这一个格式化函数：appLock 不反向依赖 store，
+// 没有循环导入；identity 的"谁在用、什么身份"口径也只在 appLock 里定义一份。
+import { currentActorLabel } from '../utils/appLock'
 import { draftFaultCase, buildFaultCasesFromOrders } from '../utils/faultCaseDraft'
 import { createNlActions } from './nlActions'
 import { createPersistence, LOG_WINDOW } from './persistence'
@@ -1273,7 +1276,12 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function addLog(entry, { silent = false } = {}) {
-    recentLogs.value.unshift({ time: now(), ...entry })
+    // 操作人由这里**统一盖章**，而且刻意写在 `...entry` **之后**：
+    // 20 多个调用点谁都不许自带 actor（带了也被覆盖），否则就会出现
+    // "日志上写着张三、其实是李四在操作" —— 审计记录里最坏的一种错法。
+    // 未启用应用锁 / 尚未解锁时 currentActorLabel() 返回空串，那就是如实的
+    // "本次没有身份"，不是漏记（界面照实显示「未署名」）。
+    recentLogs.value.unshift({ time: now(), ...entry, actor: currentActorLabel() })
     // 内存里只留最近 LOG_WINDOW 条。原先各写各的数（内存 500 / 落库 500 / 口述 50）：
     // 一次 Excel 导入会刷出几百条备件联动日志，当天早些时候的操作就被挤出窗口 ——
     // 演示时想翻回上一步的操作反而找不到，而这页正是"可审计 AI"的证据链。

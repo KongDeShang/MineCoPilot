@@ -1085,6 +1085,117 @@ check('schema_version 已写入 meta', db.getMeta('schema_version') === '1', Str
     (store.recentLogs.find(l => 'silent' in l) || {}).content || '全部条目都干净')
 }
 
+// 14) 身份进审计（docs/完善计划.md P4-3 的回归守卫）
+/**
+ * 「谁是操作人」这条链有四段，**缺一段就断**：
+ *   ① appLock 算出身份文案（currentActorLabel）
+ *   ② addLog 把它盖进内存日志
+ *   ③ logsToRows 把它落到 operation_logs.actor
+ *   ④ 回读映射把它送回 recentLogs（重启后仍在，日志页才显示得出）
+ * 所以这里真的建账户、真的解锁、真的落盘、真的重启 —— 而不是查源码里有没有
+ * `actor` 这个字符串。**本项目在这一点上吃过亏**：addEquipment 少了 aliases 字段时，
+ * 四条源码字符串断言全绿（落库接了、回读接了、表单有输入框、导入器有切分），
+ * 漏的正是中间那一环。字符串检查对"漏一段"天生无感。
+ *
+ * 变异验证（能失败验证）：把 appStore 里 addLog 的 `currentActorLabel()` 换成常量
+ * `'张三'`，下面第 4/5 条与重启后两条必须变红并打印出实际值。
+ * 只把 actor 从 logsToRows 里删掉，则"重启后"两条变红、前面几条仍绿 —— 这正是
+ * 分四段断言的意义：红的位置直接指出断在哪一段。
+ */
+{
+  const appLock = await import(mirror('utils/appLock.mjs'))
+
+  // 这里刻意**另起一个刚启动的 store**（`s`），不用顶层那个 `store`：
+  // 第 5 节与第 13 节各自重启过，顶层 `store` 指的是最早那个实例 ——
+  // 它的内存状态与当前库早已不是一回事，拿它写盘会把整库换成一份旧快照。
+  // 身份探针要验的是"落盘 → 重启 → 读回"，必须在一个与当前库一致的实例上写。
+  const s = (await restartStore()).store
+
+  // ---- 1. 没身份 = 空串（前置条件，也是"不许编假身份"的守卫）----
+  // 不先确认这一条，后面"能记到人"就可能是恒真的（actor 被写死成某个常量时这里也会"对"）。
+  appLock.disableLock()
+  s.addLog({ content: '身份探针：未启用应用锁', source: '自检', type: 'info', tagType: 'info' }, { silent: true })
+  check('没启用应用锁时日志 actor 是空串（"没身份"要如实记为没身份，不许编一个「未知用户」）',
+    s.recentLogs[0].actor === '', JSON.stringify(s.recentLogs[0].actor))
+
+  // ---- 2. 建 A（带角色）并就位 ----
+  const accA = await appLock.createAccount({ name: '王建国', role: '维修工程师', pin: '2468' })
+  check('前置条件：账户 A 建成功', accA.ok === true, String(accA.error || ''))
+  check('前置条件：A 就位成为本次运行的身份（未就位的话下面"记到人"无从谈起）',
+    appLock.currentActorLabel() === '王建国 · 维修工程师', appLock.currentActorLabel())
+
+  // ---- 3. 调用方自带的 actor 必须被覆盖 ----
+  // 20 多个调用点谁都不许自带 actor，否则就会出现"日志上写着张三、其实是李四在操作"。
+  // 关键是**此刻身份非空**：若身份是空串，这条断言与第 1 条同形，看不出覆盖有没有生效。
+  s.addLog(
+    { content: '身份探针：试图伪造操作人', source: '自检', type: 'info', tagType: 'info', actor: '伪造的操作人' },
+    { silent: true })
+  check('调用方传入的 actor 会被 addLog 覆盖掉（否则任何一处调用点都能伪造操作人）',
+    s.recentLogs[0].actor === '王建国 · 维修工程师', JSON.stringify(s.recentLogs[0].actor))
+
+  // ---- 4. A 的操作 ----
+  // 这一条与下一条**不标 silent**：silent 只进内存不落盘（那是日志窗口那一节的行为），
+  // 这里走的是界面上的真实路径 —— 用户每操作一次都会 persistAll。
+  s.addLog({ content: '身份探针：A 的操作', source: '自检', type: 'info', tagType: 'info' })
+  check('账户 A 写一条 ⇒ 日志 actor 是 A（「姓名 · 角色」）',
+    s.recentLogs[0].actor === '王建国 · 维修工程师', JSON.stringify(s.recentLogs[0].actor))
+
+  // ---- 5. 切到 B（不带角色）----
+  // 刻意建一个**没有角色**的账户：'李梅' 与 '王建国 · 维修工程师' 形状不同，
+  // 拼串时多一个分隔符 / 少一个空格这类错法在这里才暴露得出来。
+  const accB = await appLock.createAccount({ name: '李梅', pin: '1357' })
+  check('前置条件：账户 B 建成功', accB.ok === true, String(accB.error || ''))
+  const switched = await appLock.unlock('1357', accB.account.id)
+  check('前置条件：切到 B 成功（多账户时 unlock 必须指明是谁）',
+    switched.ok === true && appLock.currentActorLabel() === '李梅',
+    switched.ok ? appLock.currentActorLabel() : String(switched.error || ''))
+  s.addLog({ content: '身份探针：B 的操作', source: '自检', type: 'info', tagType: 'info' })
+  check('切到 B 再写一条 ⇒ actor 是 B，不是 A（两个账户的身份没有串）',
+    s.recentLogs[0].actor === '李梅', JSON.stringify(s.recentLogs[0].actor))
+
+  // ---- 6. 表结构：迁移真的把 actor 列加上了 ----
+  // 独立于数据的一条：老库升级靠的正是 runMigrations 的 ALTER TABLE，
+  // 只改 CREATE TABLE 的话新库没事、**老库永远读不出 actor**。
+  const cols = db.query('PRAGMA table_info(operation_logs)').map(r => r.name)
+  check('operation_logs 表里有 actor 列（新建库与老库迁移两条路都要有）',
+    cols.includes('actor'), cols.join('/'))
+
+  // ---- 7. 落盘 → 重启 → 仍读得回 ----
+  await s.saveNow()
+  {
+    const restarted = await restartStore()
+    const logs = restarted.store.recentLogs
+    const rowA = logs.find(l => l.content === '身份探针：A 的操作')
+    const rowB = logs.find(l => l.content === '身份探针：B 的操作')
+    check('前置条件：重启后两条探针日志都读得回（否则下面的 actor 断言是在空集上做，恒真）',
+      !!rowA && !!rowB, `A=${rowA ? '有' : '无'} B=${rowB ? '有' : '无'}`)
+    check('重启后 A 那条仍是 A（落库映射 + 回读映射两段都接上了）',
+      rowA && rowA.actor === '王建国 · 维修工程师', rowA ? JSON.stringify(rowA.actor) : '该条不存在')
+    check('重启后 B 那条仍是 B（两个账户各留各的，没有串成同一个）',
+      rowB && rowB.actor === '李梅', rowB ? JSON.stringify(rowB.actor) : '该条不存在')
+  }
+
+  // ---- 8. 老库兼容：P4-3 之前的历史日志 actor 为 NULL ----
+  // 直接往表里塞一行 NULL（模拟"上一次运行还是 1.1.0 时写下的记录"），
+  // 再重启读回。要求：空串、不抛异常、**不编一个身份回填**。
+  db.execute(
+    'INSERT INTO operation_logs (time, content, source, type, tag_type, actor) VALUES (?, ?, ?, ?, ?, NULL)',
+    ['2026-01-01 08:00', '老库探针：P4-3 之前的历史日志', '自检', 'info', 'info'])
+  await db.persist(true)
+  {
+    const restarted = await restartStore()
+    const legacy = restarted.store.recentLogs.find(l => l.content === '老库探针：P4-3 之前的历史日志')
+    check('老库里 actor 为 NULL 的历史日志读回是空串（不编身份回填，也不在回读时抛错）',
+      !!legacy && legacy.actor === '',
+      legacy ? JSON.stringify(legacy.actor) : '重启后找不到这条老日志')
+  }
+
+  // 收尾：把账户清掉，不留一个"已启用应用锁"的状态给后面的手工调试
+  appLock.disableLock()
+  check('收尾：清掉账户后锁不再启用，身份回到空串',
+    appLock.lockEnabled() === false && appLock.currentActorLabel() === '')
+}
+
 // ---------------------------------------------------------------------------
 rmSync(mirrorDir, { recursive: true, force: true })
 console.log(`\n合计 ${pass + fail} 项，通过 ${pass} 项，失败 ${fail} 项`)

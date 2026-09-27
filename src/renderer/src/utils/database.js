@@ -236,7 +236,8 @@ const TABLES = {
       content TEXT NOT NULL,
       source TEXT,
       type TEXT,
-      tag_type TEXT
+      tag_type TEXT,
+      actor TEXT
     )`
 }
 
@@ -275,6 +276,13 @@ function runMigrations() {
       // "这本手册本来就这么多页" 与 "被上限截掉了后半本" —— 而这两件事
       // 对用户的意义完全不同（后者意味着后半本问不到）。存下总数才能如实标注。
       ['chunk_total', 'INTEGER']
+    ],
+    operation_logs: [
+      // 这条日志是"谁"产生的（形如「王建国 · 维修工程师」，P4-3）。
+      // 老库里的历史日志一律是 NULL —— 它们产生时还没有应用锁这回事，
+      // **不编一个身份回填**：读回时空串，界面照实显示「未署名」。
+      // 审计记录里最不能做的就是"给历史补一个猜出来的操作人"。
+      ['actor', 'TEXT']
     ]
   }
 

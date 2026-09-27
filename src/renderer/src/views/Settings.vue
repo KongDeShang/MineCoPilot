@@ -310,7 +310,7 @@ import { masterEnabled, setMasterEnabled } from '../utils/masterPersona'
 import { getTroubleshootMaps, saveTroubleshootMap, resetTroubleshootMaps } from '../utils/troubleshootMaps'
 import { applyPref, readMirror, readColorMirror, applyColor, saveColorMirror, watchSystem, THEME_PREF_META_KEY, COLOR_THEMES } from '../utils/theme'
 import {
-  currentAccount, createAccount, disableLock, getIdleMinutes, listAccounts, lockEnabled,
+  createAccount, currentActorLabel, disableLock, getIdleMinutes, listAccounts, lockEnabled,
   removeAccount, setIdleMinutes
 } from '../utils/appLock'
 import * as db from '../utils/database'
@@ -608,19 +608,14 @@ async function doImport() {
  */
 const lockOn = ref(lockEnabled())
 const accounts = ref(listAccounts())
-const actorLabel = ref(actorText())
+// 身份文案直接取共享实现（appLock.currentActorLabel）——侧边栏那行与
+// 每条操作日志的 actor 用的是同一个函数，三处不会各写各的。
+const actorLabel = ref(currentActorLabel())
 const adding = ref(false)
 const lockBusy = ref(false)
 const lockForm = reactive({ name: '', role: '', pin: '', pin2: '' })
 // 未启用时表单就是"启用"的入口；已启用时默认收起，点「再加一个账户」才展开
 const showForm = computed(() => !lockOn.value || adding.value)
-
-/** 当前身份文案（形如「王建国 · 维修工程师」）；没身份就返回空串 */
-function actorText() {
-  const a = currentAccount()
-  if (!a) return ''
-  return a.role ? `${a.name} · ${a.role}` : a.name
-}
 
 /**
  * 空闲自动锁（P4-2）。这里选的时长**当次就生效**：main.js 的计时器每 15 秒
@@ -658,7 +653,7 @@ async function doSetIdle(value) {
 function refreshLock() {
   lockOn.value = lockEnabled()
   accounts.value = listAccounts()
-  actorLabel.value = actorText()
+  actorLabel.value = currentActorLabel()
   idleMinutes.value = getIdleMinutes()
 }
 
@@ -719,6 +714,7 @@ async function doRemoveAccount(a) {
   } catch {
     return
   }
+  const before = currentActorLabel()
   removeAccount(a.id)
   refreshLock()
   ElMessage.success(last ? '应用锁已停用' : `已删除账户「${a.name}」`)
@@ -728,6 +724,27 @@ async function doRemoveAccount(a) {
     type: 'warning',
     tagType: 'warning'
   })
+  reloadIfIdentityChanged(before)
+}
+
+/**
+ * 删掉/停用之后，**身份真的变了**（停用，或删掉的正是当前这条身份）就得整页重载一次。
+ *
+ * 为什么非重载不可：侧边栏底部那行身份是**启动时读一次**的（App.vue 里读
+ * currentActorLabel()）。不重载它会继续显示一个已经不存在的身份，而此后每条操作
+ * 日志的 actor 已经变成空串 —— "界面上写着王建国、日志里却是未署名"，
+ * 这正是 P4-3 要防的那件事。设置页卡片会当场刷新，侧边栏不会，两者还会互相矛盾。
+ *
+ * 为什么选重载而不是把身份做成响应式：整个应用锁走的都是"重载即重算"这一条路
+ * （空闲自动锁到点也是 lockNow() + location.reload()，见 main.js），
+ * 多引一套订阅机制只为同步一行文字不划算，而且重载不会漏掉任何一处副本。
+ *
+ * 删的是**别人**时身份没变，这里什么都不做 —— 为一次无关的删除重载整页太粗暴。
+ */
+function reloadIfIdentityChanged(before) {
+  if (currentActorLabel() === before) return
+  // 留 800ms 让上面那条成功提示先露个面，否则用户只看到"闪了一下"。
+  setTimeout(() => location.reload(), 800)
 }
 
 async function doDisableLock() {
@@ -740,6 +757,7 @@ async function doDisableLock() {
   } catch {
     return
   }
+  const before = currentActorLabel()
   disableLock()
   refreshLock()
   ElMessage.success('应用锁已停用')
@@ -749,6 +767,7 @@ async function doDisableLock() {
     type: 'warning',
     tagType: 'warning'
   })
+  reloadIfIdentityChanged(before)
 }
 
 // 展示数据库文件位置（Electron 桌面版）

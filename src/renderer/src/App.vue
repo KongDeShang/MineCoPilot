@@ -59,6 +59,12 @@
 
       <!-- 侧边栏底部 -->
       <div class="aside-footer">
+        <!-- 当前身份（P4-3）。没启用应用锁时整行不渲染 —— 编不出身份就不要占位。
+             这一行与设置页卡片、每条操作日志的 actor 共用 appLock.currentActorLabel()，
+             三处口径永远一致（"界面上的操作人与日志里的操作人对不上"是审计场景的大忌）。 -->
+        <div v-if="actorLabel" class="actor-line" :title="`本次操作将以「${actorLabel}」记入操作日志`">
+          <el-icon><User /></el-icon> {{ actorLabel }}
+        </div>
         <div class="offline-badge">
           <span class="dot-green"></span> 离线运行中 · 数据在本机
         </div>
@@ -221,6 +227,7 @@ import { startTour } from './utils/demoTour'
 import { DEMO_ROUTES } from './utils/demoRoutes'
 import { getMenus } from './domains/registry'
 import { appError, clearError } from './utils/errorBoundary'
+import { currentActorLabel } from './utils/appLock'
 
 const route = useRoute()
 const router = useRouter()
@@ -230,6 +237,23 @@ const tourStarting = ref(false)
 const navQuery = ref('')
 const pinned = ref(loadPinned())
 const wizardOpen = ref(false)
+
+/**
+ * 当前身份（P4-3）。**读取一次即可，不需要响应式跟踪** —— 但"读一次"是**有前提的**，
+ * 写在注释里免得下次有人把它当成一处可以随手优化掉的写法：
+ *
+ * 会改变"当前身份"的操作只有三种，都不指望这一行自己变：
+ *   · 解锁：发生在 app.mount('#app') **之前**（main.js 的 handleUnlock）；
+ *   · 停用应用锁 / 删掉当前账户：**改的人负责整页重载**（Settings.vue 的
+ *     reloadIfIdentityChanged），重载之后这里自然重新读一遍；
+ *   · 闲置自动锁：lockNow() + location.reload()。
+ *
+ * 这行注释原本写的是"身份在这次运行里不会中途变化" —— 而"停用"那条路当场把它推翻：
+ * 账户清空了、此后每条日志的 actor 都是空串，侧边栏却继续显示一个已经不作数的身份。
+ * 界面上的操作人与日志里的操作人对不上，恰恰是这个功能最不该出的错。
+ * 未启用应用锁 / 未解锁时是空串，模板里整行不渲染。
+ */
+const actorLabel = ref(currentActorLabel())
 
 /**
  * 版本号：**只从 package.json 来**（vite define 注入，见 vite.config.mjs）。
@@ -776,6 +800,22 @@ html, body, #app {
   font-size: 10.5px;
   color: rgba(255, 255, 255, 0.58);
   margin-top: 6px;
+}
+
+/* 当前身份（P4-3）。字号与 .offline-badge 同档，颜色比它更亮的 0.86：
+   这行是"谁在操作、以谁的名义留痕"的答案，侧栏底色 #072159 上
+   0.62 那档（storage-line）在此处偏暗，审计场景要一眼看清。 */
+.actor-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.86);
+  margin-bottom: 8px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .offline-badge {

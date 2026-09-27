@@ -2565,6 +2565,42 @@ function check(name, condition, detail = '') {
   localStorage.removeItem(LOCK_KEY)
 }
 
+// ============ S 身份文案（currentActorLabel，P4-3） ============
+/**
+ * 这个函数是"谁在操作"这条链的**第一段**（第二段是 addLog 盖章、第三段是落库、
+ * 第四段是回读），界面上三处共用它：设置页卡片、侧边栏身份行、每条日志的 actor。
+ *
+ * 这里测的是**拼串口径**本身。"这条链真的通了"由 store-check 覆盖
+ * （那边建真账户、真落盘、真重启），"界面真的显示了"由 e2e 覆盖。
+ * 分三层是因为这三种缺陷长得不一样：口径错（多一个空格、少一个分隔符）、
+ * 链路断（漏了一处映射）、没渲染（模板启动时只读一次，之后不跟着变）。
+ */
+{
+  const LOCK_KEY = 'ks:app-lock'
+
+  localStorage.removeItem(LOCK_KEY)
+  check('身份文案：没配账户时是空串（调用方据此"整行不渲染"，而不是编一个「未知用户」）',
+    appLock.currentActorLabel() === '', JSON.stringify(appLock.currentActorLabel()))
+
+  const withRole = await appLock.createAccount({ name: '王建国', role: '维修工程师', pin: '2468' })
+  check('身份文案：有角色时是「姓名 · 角色」（分隔符前后各一个空格，三处界面共用这一份拼串）',
+    withRole.ok === true && appLock.currentActorLabel() === '王建国 · 维修工程师',
+    JSON.stringify(appLock.currentActorLabel()))
+
+  const noRole = await appLock.createAccount({ name: '李梅', pin: '1357' })
+  const switched = noRole.ok === true ? await appLock.unlock('1357', noRole.account.id) : { ok: false }
+  check('身份文案：没角色时不留光秃秃的分隔符（是「李梅」，不是「李梅 · 」）',
+    switched.ok === true && appLock.currentActorLabel() === '李梅',
+    JSON.stringify(appLock.currentActorLabel()))
+
+  check('身份文案：锁回后回到空串（不会把上一个身份留在那里，日志也就不会挂在走掉的人身上）',
+    appLock.lockNow().ok === true && appLock.currentActorLabel() === '',
+    JSON.stringify(appLock.currentActorLabel()))
+
+  appLock.disableLock()
+  localStorage.removeItem(LOCK_KEY)
+}
+
 // ============ 汇总 ============
 const failed = results.filter(r => !r.ok)
 for (const r of results) {

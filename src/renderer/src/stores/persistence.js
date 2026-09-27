@@ -237,7 +237,10 @@ export function createPersistence(ctx) {
       content: log.content || '',
       source: log.source || '',
       type: log.type || 'info',
-      tag_type: log.tagType || log.type || 'info'
+      tag_type: log.tagType || log.type || 'info',
+      // 操作人（P4-3）。`|| ''` 而不是 `|| '未知'`：这里回落的正是
+      // "这条日志本来就没有身份"，编一个值填进去就把"没记录"伪装成"记录了"。
+      actor: log.actor || ''
     }))
   }
 
@@ -336,7 +339,8 @@ export function createPersistence(ctx) {
           content: row.content || '',
           source: row.source || '',
           type: row.type || 'info',
-          tagType: row.tag_type || row.type || 'info'
+          tagType: row.tag_type || row.type || 'info',
+          actor: row.actor || ''
         }))
       : (seedFallbacks ? seedLogs() : [])
 
