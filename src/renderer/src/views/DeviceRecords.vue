@@ -121,7 +121,9 @@
               <span v-else class="diff-cell first">首份快照</span>
             </template>
           </el-table-column>
-          <el-table-column prop="note" label="备注" min-width="160" show-overflow-tooltip />
+          <!-- 备注给 140px 而不是 160px：1366 这类"刚好在断点之上"的视口，
+               卡片能分到的宽度差这 20px 就从"表格自己滚动"变成"放得下"（悬停仍看全） -->
+          <el-table-column prop="note" label="备注" min-width="140" show-overflow-tooltip />
         </el-table>
         <div class="history-note">
           快照在<strong>记录维保</strong>与<strong>工单完成归档</strong>时自动落库——这就是"病历越攒越全、经验越用越厚"的数据资产。
@@ -362,8 +364,19 @@ onMounted(() => {
   min-width: 0;
 }
 
+/*
+ * 两栏并排 vs 折行的分界线，由**基准宽之和**决定，不用媒体查询也不用 JS：
+ *   480（报告）+ 620（病历）+ 16（间距）= 1116px
+ * 内容区宽于 1116 就并排（1440 视口 → 1202px，并排且病历表放得下），
+ * 窄于 1116 就自动折成上下两行（1100 视口 → 862px）。
+ *
+ * 病历这张卡的基准宽必须**按表的自然宽给**（5 列：120+90+80+110+140 = 540px）：
+ * 原先给 300px 时，1440 下并排分配到手只有 ~380px，表格自己撑出横向滚动条
+ * （实测溢出 180px）—— 而 1440 正是 e2e / 对比度门禁用的宽度，门禁不查溢出，
+ * 所以这个缺陷一直没被发现。给足之后并排与折行两种情形都不滚。
+ */
 .history-card {
-  flex: 1 1 300px;
+  flex: 1 1 620px;
   min-width: 0;
 }
 

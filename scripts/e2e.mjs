@@ -2261,6 +2261,163 @@ async function main() {
       afterErrNav.cards > 0 && afterErrNav.stillClean === true,
       `设备卡片 ${afterErrNav.cards} 张 / 提示条残留 ${!afterErrNav.stillClean}`)
 
+    // ---------- 13b. 窄屏响应式：关键列让位，而不是挤出横向滚动条（P3-1） ----------
+    /**
+     * 为什么要在真浏览器里断这一条：`v-if="!isNarrow"` 对不对，只有把视口真的改窄
+     * 才知道 —— self-check 只能证明"这个视图调了 useNarrowMode()"，证明不了断点
+     * 生效、更证明不了"摘完之后表就不滚了"。而这一项**历史上正是靠人眼漏过去的**：
+     * 1440px（就是本套件用的视口）下病历表本来溢出 180px，门禁一路全绿。
+     *
+     * 量法：改视口宽（不刷新，走的是 resize 监听那条路）→ 读每张表**可见表头**与
+     * `body-wrapper` 里 scrollWidth - clientWidth。判据三条：
+     *   ① 该在的关键列在（摘错了列 = 把功能摘没了）；
+     *   ② 不该在的次要列不在（断点没生效 = 白摘）；
+     *   ③ 表格不横向溢出（摘完还滚 = 摘得不够，本项要修的正是这个）。
+     * 再加一条 1440 的对照：同一列在宽视口下**必须回来** —— 否则测的是"永久删列"。
+     */
+    const TABLE_REPORT = `(() => {
+      const out = []
+      document.querySelectorAll('.el-table').forEach((t, i) => {
+        const wrap = t.querySelector('.el-table__body-wrapper .el-scrollbar__wrap') ||
+                     t.querySelector('.el-table__body-wrapper')
+        out.push({
+          i,
+          headers: Array.from(t.querySelectorAll('.el-table__header-wrapper th'))
+            .map(th => (th.innerText || '').trim()).filter(Boolean),
+          overflow: wrap ? Math.max(0, wrap.scrollWidth - wrap.clientWidth) : -1
+        })
+      })
+      return out
+    })()`
+
+    /** 走一条路由 → 等表格渲染 → 报每张表的表头与溢出差 */
+    const probeTables = async (hash) => {
+      await session.eval(`location.hash = '${hash}'`)
+      await sleep(2600)
+      return session.eval(TABLE_REPORT)
+    }
+
+    /** 在若干张表里找出"含有该表头集合"的那一张 */
+    const findTable = (tables, mustHave) =>
+      tables.find(t => mustHave.every(h => t.headers.includes(h)))
+
+    const setWidth = async (w) => {
+      await session.send('Emulation.setDeviceMetricsOverride', { width: w, height: 940, deviceScaleFactor: 1, mobile: false })
+      await sleep(600)
+    }
+
+    /**
+     * 设备病历的两栏布局：是并排还是折成了上下两行，病历卡实际拿到多宽。
+     * 1440 与 1100 两档都要用（前者验"并排放得下"、后者验"折成两行"），所以提出来一份 ——
+     * 两处各写一遍的话，改了一处另一处就成了摆设。
+     */
+    const probeMrLayout = () => session.eval(`(() => {
+      const report = document.querySelector('.report-card')
+      const history = document.querySelector('.history-card')
+      if (!report || !history) return { ok: false, why: '找不到两栏容器（设备病历可能没选中设备）' }
+      return {
+        ok: true,
+        stacked: history.getBoundingClientRect().top >= report.getBoundingClientRect().bottom - 1,
+        historyW: Math.round(history.getBoundingClientRect().width)
+      }
+    })()`)
+
+    // 先宽（1440）：作为对照，次要列此时必须都在
+    await setWidth(1440)
+    const wideKb = await probeTables('#/knowledge-base')
+    const wideKbTable = findTable(wideKb, ['条目标题', '来源'])
+    check('窄屏对照：1440px 下规程库的「来源」列在（改窄才摘列，不是永久删列）',
+      !!wideKbTable && wideKbTable.headers.includes('来源') && wideKbTable.overflow === 0,
+      wideKbTable ? `表头 ${wideKbTable.headers.join('/')} · 溢出 ${wideKbTable.overflow}px` : `没找到带「来源」的规程表（现有 ${wideKb.length} 张表）`)
+
+    // 1440 这一档对**设备病历**格外重要，而它原先正是漏在这里：这一档是 e2e 与对比度
+    // 门禁用的视口，并排时病历卡只分到 267px、表自然宽 540px ⇒ 溢出 180px。门禁不查溢出，
+    // 人工评审看的截图恰好也是这一档 —— 于是它一路全绿地存在着。
+    // （这条是后补的：上表 Mn3 把病历卡基准宽打回 300px 时，1100 那两条如实见红，而 1440
+    //  这一档**一条断言都没有**、纹丝不动 —— 也就是"缺陷放回去仍然全绿"，那就等于没验。）
+    const wideMr = await probeTables('#/medical-records')
+    const wideMrTable = findTable(wideMr, ['体检日期'])
+    const wideMrLayout = await probeMrLayout()
+    check('窄屏对照：1440px 下设备病历两栏是并排的，且病历表分到的宽度放得下它、不溢出（这一档正是门禁视口）',
+      wideMrLayout.ok === true && wideMrLayout.stacked === false && wideMrLayout.historyW >= 540 &&
+      !!wideMrTable && wideMrTable.overflow === 0,
+      wideMrLayout.ok
+        ? `折行=${wideMrLayout.stacked} / 病历卡宽 ${wideMrLayout.historyW}px / 溢出 ${wideMrTable ? wideMrTable.overflow : '?'}px（表自然宽 540px）`
+        : wideMrLayout.why)
+
+    // 改窄到 1100（不刷新 —— 走的是 useNarrowMode 的 resize 监听）
+    await setWidth(1100)
+
+    // ① 维修规程库：摘「分类」「来源」，留标题 / 关键词 / 频次 / 操作
+    const kb = await probeTables('#/knowledge-base')
+    const kbTable = findTable(kb, ['条目标题'])
+    check('窄屏：规程库摘掉「分类」「来源」，保留标题/关键词/频次/操作',
+      !!kbTable &&
+      ['分类', '来源'].every(h => !kbTable.headers.includes(h)) &&
+      ['条目标题', '关键词', '频次', '操作'].every(h => kbTable.headers.includes(h)),
+      kbTable ? `表头 ${kbTable.headers.join('/')}` : '没找到规程表')
+    check('窄屏：规程库不再横向溢出（摘完之后宽度真的够了）',
+      !!kbTable && kbTable.overflow === 0,
+      kbTable ? `溢出 ${kbTable.overflow}px` : '没找到规程表')
+
+    // ② 复诊管理：摘「复诊日期」，留「是否到期」——这一页的重点列原先正好被固定列盖住
+    const rc = await probeTables('#/recheck')
+    const rcTable = findTable(rc, ['复诊内容'])
+    check('窄屏：复诊管理摘掉「复诊日期」，但「是否到期」必须还在（它是这页的重点）',
+      !!rcTable &&
+      !rcTable.headers.includes('复诊日期') &&
+      ['设备', '复诊内容', '是否到期', '操作'].every(h => rcTable.headers.includes(h)),
+      rcTable ? `表头 ${rcTable.headers.join('/')}` : '没找到复诊表')
+    check('窄屏：复诊管理不再横向溢出（原先「是否到期」被右侧固定列盖住）',
+      !!rcTable && rcTable.overflow === 0,
+      rcTable ? `溢出 ${rcTable.overflow}px` : '没找到复诊表')
+
+    // ③ 手册资料库：摘「大小」「添加时间」，留标题 / 机型 / 可问答 / 操作
+    const docs = await probeTables('#/documents')
+    const docsTable = findTable(docs, ['可问答'])
+    check('窄屏：手册资料库摘掉「大小」「添加时间」，保留标题/机型/可问答/操作',
+      !!docsTable &&
+      ['大小', '添加时间'].every(h => !docsTable.headers.includes(h)) &&
+      ['标题', '机型', '可问答', '操作'].every(h => docsTable.headers.includes(h)),
+      docsTable ? `表头 ${docsTable.headers.join('/')}` : '没找到手册表')
+    check('窄屏：手册资料库不再横向溢出',
+      !!docsTable && docsTable.overflow === 0,
+      docsTable ? `溢出 ${docsTable.overflow}px` : '没找到手册表')
+
+    // ④ 设备病历：这一页的问题不在列，在**两栏布局**（并排时病历表只分到 267px，
+    //    而表自然宽 540px）—— 所以断言的是"折成上下两行 + 五列都在 + 拿到整行宽度 + 不溢出"，
+    //    不是"摘了几列"。判据落在**结果**（病历卡的实际宽度）上，不落在机制上：
+    //    折行是靠 flex 基准宽之和超过行宽触发的（无媒体查询、无 JS），
+    //    只盯"某个类在不在"会漏掉"类在、但布局没变"这种假绿（变异 Mn3 实测踩到过）。
+    const mr = await probeTables('#/medical-records')
+    const mrTable = findTable(mr, ['体检日期'])
+    const mrLayout = await probeMrLayout()
+    check('窄屏：设备病历两栏折成上下两行，病历卡拿回整行宽度（并排时它只有 ~267px）',
+      mrLayout.ok === true && mrLayout.stacked === true && mrLayout.historyW >= 700,
+      mrLayout.ok ? `折行=${mrLayout.stacked} / 病历卡宽 ${mrLayout.historyW}px（并排时实测 267px）` : mrLayout.why)
+    check('窄屏：设备病历折行后五列全在且不溢出（这一页不摘列，靠布局解决）',
+      !!mrTable && mrTable.headers.length === 5 && mrTable.overflow === 0,
+      mrTable ? `表头 ${mrTable.headers.join('/')} · 溢出 ${mrTable.overflow}px` : '没找到病历表')
+
+    // ⑤ 工单 / 备件：这两张表更早就接了 isNarrow，但**此前一条断言都没有** ——
+    //    "写好了没人验"与"没写"在验收上是同一件事（本项顺带补上）
+    const wo = await probeTables('#/workorder')
+    const woTable = findTable(wo, ['标题'])
+    check('窄屏：工单表不溢出（早先接入的 isNarrow 第一次有了断言）',
+      !!woTable && woTable.overflow === 0,
+      woTable ? `表头 ${woTable.headers.join('/')} · 溢出 ${woTable.overflow}px` : '没找到工单表')
+    const pi = await probeTables('#/parts-inventory')
+    const piOver = pi.filter(t => t.overflow > 0)
+    check('窄屏：备件库存主表不溢出（同上）',
+      pi.length > 0 && piOver.length === 0,
+      pi.length ? `共 ${pi.length} 张表，溢出 ${piOver.length} 张${piOver.length ? '：' + piOver.map(t => '#' + t.i + '=' + t.overflow + 'px').join(',') : ''}` : '没找到备件表')
+
+    // 收回宽视口：后面几段（应用锁那一段要按文字点按钮）在 1440 下跑
+    await setWidth(1440)
+    const restored = await session.eval('window.innerWidth')
+    check('窄屏：收尾把视口改回 1440（后面几段按 1440 布局写的）',
+      restored === 1440, `innerWidth=${restored}`)
+
     // ---------- 14. 应用锁：启用 ⇒ 刷新 ⇒ 只出锁屏、业务数据不装载（P4-1） ----------
     /**
      * 这一段只能在真实浏览器里断言。store-check / self-check 能证明 appLock.js

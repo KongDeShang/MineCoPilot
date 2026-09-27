@@ -2646,6 +2646,69 @@ function check(name, condition, detail = '') {
   localStorage.removeItem(LOCK_KEY)
 }
 
+// ============ T 窄屏响应式（摘列与折行，P3-1） ============
+//
+// 这一层守的是"接进来了没有"与"两半都在不在"，不守"好不好看"：
+// 宽度够不够、摘完之后还滚不滚，只有真浏览器里改视口才知道（e2e 13b 段负责）。
+// 分工的理由：v-if 写在模板里、useNarrowMode 写在脚本里，**少一半都不报错**——
+// 少脚本那半是运行期 "isNarrow is not defined"；少模板那半是"接了个寂寞"，
+// 页面上完全看不出来。这两种都不是人眼能稳定发现的。
+{
+  const responsiveSrc = readFileSync(join(root, 'src/renderer/src/utils/responsive.js'), 'utf8')
+
+  // 断点必须**严格小于**门禁视口（1440）：大于等于它的话，e2e / 对比度门禁自己
+  // 就落在"窄屏"里，摘列与折行会参与验收，结论跟人工评审时看到的不是同一张页面。
+  const bpMatch = responsiveSrc.match(/useNarrowMode\(breakpoint = (\d+)\)/)
+  const bp = bpMatch ? Number(bpMatch[1]) : NaN
+  check('窄屏断点存在且严格小于门禁视口 1440（否则门禁自己会踩进窄屏布局）',
+    Number.isFinite(bp) && bp < 1440, `断点 ${bpMatch ? bp : '(没解析到)'}`)
+
+  const viewsDir = join(root, 'src/renderer/src/views')
+  const vueFiles = readdirSync(viewsDir).filter(f => f.endsWith('.vue'))
+  const readView = (f) => readFileSync(join(viewsDir, f), 'utf8')
+
+  // 探测器自证：先证明它认得出一段"用了 isNarrow"的写法，再相信"没有漏接"
+  // （同 §N / §K 的教训 —— 靠扫描实现的守卫必须先证明它会响）
+  const probeCode = '<el-table-column v-if="!isNarrow" prop="x" label="X" />'
+  check('窄屏探测器：能命中真实用法（三个判据的输入都认得出）',
+    /!isNarrow/.test(probeCode) && !/useNarrowMode\(/.test(probeCode) &&
+    /\.records-body\.narrow\s*\{/.test('.records-body.narrow {'))
+
+  // ① 用了 isNarrow 的视图必须真的调过 useNarrowMode()
+  const misWired = vueFiles.filter(f => {
+    const code = readView(f)
+    return /!isNarrow/.test(code) && !/useNarrowMode\(/.test(code)
+  })
+  check('用到 isNarrow 的视图都调用了 useNarrowMode()（只写 v-if 会在运行期炸）',
+    misWired.length === 0, misWired.join('、') || '全部已接线')
+
+  // ② 接线名单：能挡住"有人顺手删掉一处接线"（删了不报错，只是那一页不再摘列）
+  //    设备病历不在这张名单里 —— 那一页不摘列，靠两栏折行（见 ③）
+  const WIRED = ['WorkOrder.vue', 'PartsInventory.vue', 'Documents.vue', 'KnowledgeBase.vue', 'RecheckManage.vue']
+  const wiredNow = vueFiles.filter(f => /!isNarrow/.test(readView(f)))
+  const missingWire = WIRED.filter(f => !wiredNow.includes(f))
+  check('窄屏接线的视图名单与预期一致（删掉一处接线不会报错，只会静默不摘列）',
+    missingWire.length === 0,
+    missingWire.length ? `少了 ${missingWire.join('、')}` : `共 ${wiredNow.length} 个视图`)
+
+  // ③ 设备病历：不摘列，靠"两栏基准宽之和超过行宽就折行"。折行本身由 CSS 自然发生，
+  //    这里守的是**病历卡的基准宽不能小于表的自然宽** —— 小于的话并排时表格自己撑出
+  //    横向滚动条（1440 视口下原本就溢出 180px，门禁不查溢出所以一直没被发现）。
+  //    表自然宽 = 120+90+80+110+140 = 540px；基准宽 620 是实测能同时满足"并排放得下"
+  //    与"窄屏折行"的值（见 DeviceRecords.vue 里那段注释）。
+  const recordsSrc = readView('DeviceRecords.vue')
+  const basisMatch = recordsSrc.match(/\.history-card\s*\{[^}]*flex:\s*1\s+1\s+(\d+)px/)
+  const basis = basisMatch ? Number(basisMatch[1]) : NaN
+  check('设备病历的卡片基准宽不小于表的自然宽 540px（小于它并排时表格就会自己滚动）',
+    Number.isFinite(basis) && basis >= 540, `基准宽 ${basisMatch ? basis : '(没解析到)'}px`)
+
+  // ④ 摘列/折行都是取舍，取舍必须留痕：每个改过布局的视图都要有"窄屏怎么让位、为什么"的注释
+  const missingNote = ['Documents.vue', 'KnowledgeBase.vue', 'RecheckManage.vue', 'DeviceRecords.vue']
+    .filter(f => !/窄屏摘|基准宽/.test(readView(f)))
+  check('每个窄屏让位的视图都写了"让谁、为什么"的注释（取舍要能复核）',
+    missingNote.length === 0, missingNote.join('、') || '都有')
+}
+
 // ============ 汇总 ============
 const failed = results.filter(r => !r.ok)
 for (const r of results) {

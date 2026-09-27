@@ -45,10 +45,12 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="大小" width="90">
+        <!-- 窄屏摘列：留「哪本手册、能不能问答、怎么操作」三件事。
+             「大小」与「添加时间」是次要信息，且都在查看原文里看得到 -->
+        <el-table-column v-if="!isNarrow" label="大小" width="90">
           <template #default="{ row }">{{ fmtSize(row.fileSize) }}</template>
         </el-table-column>
-        <el-table-column prop="addedAt" label="添加时间" width="130">
+        <el-table-column v-if="!isNarrow" prop="addedAt" label="添加时间" width="130">
           <template #default="{ row }">{{ (row.addedAt || '').slice(0, 10) }}</template>
         </el-table-column>
         <el-table-column label="操作" width="150" fixed="right">
@@ -125,8 +127,10 @@ import { ref, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useAppStore } from '../stores/appStore'
 import StatCards from '../components/StatCards.vue'
+import { useNarrowMode } from '../utils/responsive'
 
 const store = useAppStore()
+const { isNarrow } = useNarrowMode()
 const showAdd = ref(false)
 const adding = ref(false)
 const selectedFile = ref(null)

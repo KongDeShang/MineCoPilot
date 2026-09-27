@@ -13,7 +13,11 @@
       <el-table :data="recheckList" stripe>
         <el-table-column prop="equipment_name" label="设备" width="160" />
         <el-table-column prop="title" label="复诊内容" min-width="220" show-overflow-tooltip />
-        <el-table-column prop="recheck_date" label="复诊日期" width="120" />
+        <!-- 窄屏摘「复诊日期」：留下的是设备 / 复诊内容 / 是否到期 / 操作 ——
+             这一页要回答的就是"哪台、干什么、到没到期、我做点什么"，
+             日期本身在详情与工单里都有。而「是否到期」必须留下：
+             1100px 下它原先正好被右侧固定列盖住，等于整页的重点看不见 -->
+        <el-table-column v-if="!isNarrow" prop="recheck_date" label="复诊日期" width="120" />
         <el-table-column label="是否到期" width="100">
           <template #default="{ row }">
             <el-tag size="small" :type="isDue(row) ? 'danger' : 'info'" effect="plain">
@@ -43,10 +47,12 @@ import { computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { confirmAction } from '../utils/confirmAction'
 import { useAppStore } from '../stores/appStore'
+import { useNarrowMode } from '../utils/responsive'
 import StatCards from '../components/StatCards.vue'
 import { now } from '../utils/dates'
 
 const store = useAppStore()
+const { isNarrow } = useNarrowMode()
 
 const recheckList = computed(() => store.recheckList)
 const recheckStats = computed(() => store.recheckStats)

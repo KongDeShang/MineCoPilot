@@ -49,7 +49,10 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="category" label="分类" width="110">
+        <!-- 窄屏摘「分类」「来源」，留标题 / 关键词 / 频次 / 操作。
+             「来源」是可追溯性信息，但详情抽屉里一字不差地还在；
+             而「关键词」是现场判断"这条跟我这台机器对不对得上"最直接的线索，留下 -->
+        <el-table-column v-if="!isNarrow" prop="category" label="分类" width="110">
           <template #default="{ row }">
             <el-tag size="small" effect="plain">{{ row.category }}</el-tag>
           </template>
@@ -59,7 +62,7 @@
             <span class="kb-keywords">{{ (row.keywords || []).join('、') }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="source" label="来源" min-width="180" show-overflow-tooltip />
+        <el-table-column v-if="!isNarrow" prop="source" label="来源" min-width="180" show-overflow-tooltip />
         <el-table-column label="频次" width="80" align="center">
           <template #default="{ row }">
             <span v-if="row.frequency > 0" style="color:var(--warn-ink);font-weight:600">{{ row.frequency }}次</span>
@@ -190,8 +193,10 @@ import { ref, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAppStore } from '../stores/appStore'
 import { confirmAction } from '../utils/confirmAction'
+import { useNarrowMode } from '../utils/responsive'
 
 const store = useAppStore()
+const { isNarrow } = useNarrowMode()
 
 const CATEGORIES = [
   '液压系统', '动力系统', '电气系统', '制动系统', '行走机构', '保养规范',
