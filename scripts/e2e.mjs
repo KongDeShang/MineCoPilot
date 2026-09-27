@@ -253,7 +253,15 @@ const LOCK_HELPER = `
   // 整轮 e2e 被这一句中断、连已经收到的断言都打不出来 —— 只留一句 TypeError。
   window.__unlock = async (pin) => {
     if (!document.querySelector('input[placeholder^="PIN"]') || !document.querySelector('.lock-btn')) {
-      return { ok: false, why: '锁屏不在（没有 PIN 输入框或解锁按钮）' }
+      // why 里带上现场：光说"锁屏不在"分不清是"页面还没换新（求值落在旧文档，
+      // 那里本来就没有锁屏）"还是"换新了但没回锁定态（真缺陷）"。
+      // 前者内容区会在、就绪态是 complete —— 2026-09-27 那次 14 条级联红就卡在这个分辨上。
+      return {
+        ok: false,
+        why: '锁屏不在（没有 PIN 输入框或解锁按钮；内容区=' + !!document.querySelector('.app-main') +
+          ' 就绪=' + document.readyState +
+          ' 标题=' + ((document.querySelector('.lock-title') || {}).textContent || '(无)') + '）'
+      }
     }
     await window.__setInput('input[placeholder^="PIN"]', pin)
     document.querySelector('.lock-btn').click()
@@ -291,6 +299,46 @@ async function safeEval(session, label, expression) {
     // 带上 cause，报错堆栈里能同时看到原始异常（否则只剩一句 message）
     throw new Error(`断言块「${label}」执行失败：${error.message}`, { cause: error })
   }
+}
+
+/**
+ * 重载页面，并且**等它真的落回到锁屏上**再返回（而不是睡够几秒就当它好了）。
+ *
+ * 为什么不能只 `sleep(3400)`：应用锁那几段后面的断言全都建立在"此刻页面已经换新、
+ * 并且停在锁屏上"这个前提上，固定 sleep 只是赌一把。2026-09-27 升 1.2.0 后的首跑
+ * 就赌输了 —— 冷着的开发服务器下，重载 3.4 秒后页面**还没换新**，求值落进旧文档
+ * （旧文档本来就停在已解锁的设置页、没有锁屏），`__unlock` 拿到"锁屏不在"，
+ * 其后 13 条断言连锁变红。而账户其实建好了、`ks:app-lock` 也在 localStorage 里
+ * （`readConfig()` 是同步读 localStorage 的）—— 产品没毛病，是脚本自己没等。
+ *
+ * 判"已经是新文档"用的是重载前埋的 window 标记：旧文档里标记还在，新文档里必然没有。
+ * 求值本身要 try 住 —— 换文档时执行上下文会被销毁、求值会抛，那是导航的正常现象，
+ * 重试即可；而这一种时刻恰恰就是固定 sleep 挡不住的那种时刻。
+ *
+ * 等不到就返回 false，**不抛异常**：抛了会把整轮 e2e 打断、已收集的断言全丢
+ * （这个坑本文件踩过三次），何况返回 false 之后下面那条断言会带着现场自己报红。
+ */
+async function waitForFreshDoc(session, selector, timeoutMs = 25000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    try {
+      const settled = await session.eval(
+        `(!window.__e2eOldDoc) && !!document.querySelector(${JSON.stringify(selector)})`
+      )
+      if (settled) return true
+    } catch { /* 换文档中：上下文销毁会让求值抛，继续等 */ }
+    await sleep(250)
+  }
+  return false
+}
+
+/** 重载 + 等落定。拆成两个函数是为了能单独把"等"这一步拿去做负向对照（见 14c 那段）。 */
+async function reloadUntil(session, selector, timeoutMs = 25000) {
+  try {
+    await session.eval('window.__e2eOldDoc = 1')
+  } catch { /* 旧文档半死也不碍事：下面只要还看得见标记，就说明它还不是新文档 */ }
+  await session.send('Page.reload', { ignoreCache: true })
+  return waitForFreshDoc(session, selector, timeoutMs)
 }
 
 async function main() {
@@ -2264,8 +2312,7 @@ async function main() {
       `有配置=${lockSetup.hasConfig} 含明文=${lockSetup.plainPinInConfig} 盐 ${lockSetup.saltLen} 字符 / 摘要 ${lockSetup.hashLen} 字符`)
 
     // 刷新 = 重启。锁状态只活在内存里，刷新必然回到锁定态 —— 这正是"启动时锁"
-    await session.send('Page.reload', { ignoreCache: true })
-    await sleep(3400)
+    await reloadUntil(session, '.lock-screen .lock-btn')
 
     const lockedView = await session.eval(`(async () => {
       const app = document.querySelector('#app').__vue_app__
@@ -2452,8 +2499,7 @@ async function main() {
 
     // 忘记 PIN 的自救：清空本机数据并解锁。这一段会把库清掉重新播种，
     // 所以放在最后，也顺带把本段造的锁配置收干净。
-    await session.send('Page.reload', { ignoreCache: true })
-    await sleep(3400)
+    await reloadUntil(session, '.lock-screen .lock-btn')
     await session.eval(LOCK_HELPER)
     const rescueAsk = await session.eval(`(async () => {
       const locked = !!document.querySelector('.lock-screen')
@@ -2561,12 +2607,14 @@ async function main() {
     check('前置条件：为停用这条路径重新建了一个账户（否则下面没有可停用的东西）',
       disableSetup.filled.name && disableSetup.filled.pin && disableSetup.filled.pin2 &&
         disableSetup.clicked === true && disableSetup.enabled === true,
-      JSON.stringify(disableSetup.filled))
+      // detail 里必须把 clicked / enabled 一并打出来：2026-09-27 那次 14 条级联红，
+      // 首条就卡在这组前置上，而当时只打了 filled —— 三个 true 摆在那儿，
+      // "按钮到底点到没有、账户到底落盘没有"全被藏住了，白查了一轮。
+      JSON.stringify(disableSetup))
 
     // 新建账户是在**本次运行**里生效的，可侧边栏那行是启动时读的 ⇒ 必须刷新一次才会出现。
     // 这一步同时把"刷新 ⇒ 回锁屏 ⇒ 解锁 ⇒ 身份行出现"整条路再走一遍（用的是新账户）。
-    await session.send('Page.reload', { ignoreCache: true })
-    await sleep(3400)
+    const lockSettled = await reloadUntil(session, '.lock-screen .lock-btn')
     await session.eval(LOCK_HELPER)
     const disableUnlocked = await session.eval(`(async () => {
       const tried = await window.__unlock('8642')
@@ -2582,7 +2630,27 @@ async function main() {
     })()`)
     check('前置条件：刷新后回锁屏、用新账户的 PIN 能进，侧边栏显示新身份（点击停用前身份行必须在）',
       disableUnlocked.tried === true && disableUnlocked.text === '赵工',
-      disableUnlocked.why || `身份行「${disableUnlocked.text}」`)
+      (lockSettled ? '' : '重载后 25 秒内没等到锁屏；') +
+        (disableUnlocked.why || `身份行「${disableUnlocked.text}」`))
+
+    /**
+     * 负向对照：等一个**不可能出现**的选择器，必须超时返回 false。
+     *
+     * 为什么非要有这一条：刚加的等待函数（waitForFreshDoc）如果写错了、恒返回 true，
+     * 它就会变成一个"什么都不等"的装饰品 —— 那种假绿正是本轮要修掉的东西
+     * （上一版是固定 sleep(3400)，赌输了 13 条连锁红）。"等到了"和"恒真"
+     * 光看绿条分不开，所以在这里正面证一次它能返回 false。
+     *
+     * 不重载、不注入 helper、不碰任何状态，只是拿 1.5 秒空等一次。
+     */
+    const noSuchSettle = await waitForFreshDoc(session, '.lock-screen .no-such-btn', 1500)
+    // 顺带钉一句：此刻的文档**必须**是"新文档"（重载前埋的标记不在）。
+    // 否则上面那次 false 可能是被标记挡下来的，而不是被选择器挡下来的 ——
+    // 那样这条对照就退化成了恒真，正是它自己要防的东西。
+    const markerGone = await session.eval('!window.__e2eOldDoc')
+    check('负向对照：等一个不存在的选择器会超时返回 false（证明这个等待不是恒真的）',
+      noSuchSettle === false && markerGone === true,
+      `返回 ${noSuchSettle}（恒真就是它坏了）；新文档标记已清=${markerGone}`)
 
     // 再用赵工写一条：与上面那条"没身份"的日志同页对照。
     // 换个人再证一次，是为了堵住"这行字是第一次解锁那一刻写死的"这种可能。
@@ -2797,19 +2865,29 @@ async function main() {
       `下拉「${idlePicked.selText}」/ 说明「${idlePicked.note}」/ 落盘 ${idlePicked.minutes}`)
 
     // 15b) 刷新 ⇒ 必须落在锁屏上（这一步同时把计时器装上：installIdleLock 在 boot 里）
-    await session.send('Page.reload', { ignoreCache: true })
-    await sleep(3400)
+    await reloadUntil(session, '.lock-screen .lock-btn')
     const idleBoot = await withLockHelper(`(async () => {
       const tried = await window.__unlock('1357')
       const deadline = Date.now() + 15000
       while (Date.now() < deadline && !document.querySelector('.app-main')) {
         await new Promise(r => setTimeout(r, 300))
       }
-      return { tried: tried.ok === true, why: tried.why || '', appMain: !!document.querySelector('.app-main') }
+      // 点了解锁却进不去，多半是"锁屏上选中的账户不是这个 PIN 的主人"
+      // （多账户时锁屏默认选第一个）。把锁屏自己那句提示和它列的账户一起带出来，
+      // 否则这条红条只说"内容区=false"，看不出到底是 PIN 不对还是别的。
+      const err = document.querySelector('.lock-err')
+      return {
+        tried: tried.ok === true, why: tried.why || '',
+        appMain: !!document.querySelector('.app-main'),
+        err: err ? err.textContent.trim() : '',
+        who: (document.querySelector('.lock-who-name') || {}).textContent || ''
+      }
     })()`)
     check('空闲自动锁：配了锁之后刷新，照常先落在锁屏，用新账户的 PIN 能进',
       idleBoot.tried === true && idleBoot.appMain === true,
-      idleBoot.why || `解锁按钮点到了=${idleBoot.tried} 内容区=${idleBoot.appMain}`)
+      idleBoot.why ||
+        `解锁按钮点到了=${idleBoot.tried} 内容区=${idleBoot.appMain}` +
+          ` 锁屏提示「${idleBoot.err}」当前账户「${idleBoot.who}」`)
     // 计时器就是在刚刚这次装载里启动的（installIdleLock 在 bootAppData 末尾），
     // 所以把"现在"当作时间轴的原点：后面的等待都按目标时刻倒推，不吃 sleep 的漂移。
     const bootAt = Date.now()
