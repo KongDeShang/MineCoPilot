@@ -15,6 +15,7 @@
     "coverage": "node scripts/coverage.mjs",
     "e2e": "node scripts/e2e.mjs",
     "e2e:nl": "node scripts/e2e-nl.mjs",
+    "bench:scale": "node scripts/bench-scale.mjs",
     "audit:contrast": "node scripts/contrast-audit.mjs",
     "audit:contrast:dark": "node scripts/contrast-audit.mjs --dark",
     "verify": "npm run lint && npm run self-check && npm run main-check && npm run store-check && npm run pack-check && npm run coverage && npm run build && npm run e2e && npm run e2e:nl && npm run audit:contrast",
