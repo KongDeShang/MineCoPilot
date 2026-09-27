@@ -235,7 +235,7 @@ import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAppStore } from '../stores/appStore'
 import { DAILY_OUTPUT_LOSS, PRESET_SCENARIOS } from '../utils/health'
-import { exportBackup, importBackup } from '../utils/backup'
+import { exportBackup, importBackup, isElectron } from '../utils/backup'
 import { masterEnabled, setMasterEnabled } from '../utils/masterPersona'
 import { getTroubleshootMaps, saveTroubleshootMap, resetTroubleshootMaps } from '../utils/troubleshootMaps'
 import { applyPref, readMirror, readColorMirror, applyColor, saveColorMirror, watchSystem, THEME_PREF_META_KEY, COLOR_THEMES } from '../utils/theme'
@@ -422,9 +422,14 @@ async function doExport() {
 }
 
 async function doImport() {
+  // 导入前的自动备份只在 Electron 下发生（浏览器模式没法静默写盘），
+  // 所以这句提示按运行环境分叉 —— 不能让浏览器里的用户去 backups 目录找一个不存在的文件。
+  const autoHint = isElectron()
+    ? '导入前会自动备份当前数据到本机 backups 目录。'
+    : '（浏览器模式下无法自动备份，需要留底请先自行导出一次。）'
   try {
     await ElMessageBox.confirm(
-      '导入将覆盖当前全部本地数据（设备台账、维保、工单、快照、知识库、文档资料、设置、聊天记录）。导入前会自动备份当前数据到本机 backups 目录。是否继续？',
+      `导入将覆盖当前全部本地数据（设备台账、维保、工单、快照、知识库、文档资料、设置、聊天记录）。${autoHint}是否继续？`,
       '导入备份',
       { confirmButtonText: '继续导入', cancelButtonText: '取消', type: 'warning' }
     )
@@ -497,9 +502,19 @@ async function doImport() {
         tagType: 'success'
       })
     } else if (r && r.canceled) {
-      /* 用户取消 */
+      /* 用户自己按的取消：不该再弹一个框告诉他"失败了" */
     } else {
-      ElMessage.error((r && r.error) || '导入失败')
+      /**
+       * 失败要说话，也要留痕。
+       *
+       * 这里原来只弹一条 ElMessage 就完了，**不写操作日志** —— 于是导入失败
+       * 在库里的痕迹为零：现场事后翻日志只能看到"什么时候导过"，看不到
+       * "导失败了、为什么"。而这个弹窗几秒后就消失，是现场唯一一次提示。
+       * 凡是走到这个 else 的都是真失败，一律留一条 danger 日志（会落库）。
+       */
+      const msg = (r && r.error) || '导入失败'
+      ElMessage.error(msg)
+      store.addLog({ content: `导入备份失败：${msg}`, source: '设置', type: 'danger', tagType: 'danger' })
     }
   } catch (error) {
     // 同 doExport：没有 catch 时抛错会静默消失在未处理 rejection 里

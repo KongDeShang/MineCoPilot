@@ -10,7 +10,7 @@
  * 可选环境变量：E2E_BASE_URL（默认 http://localhost:5173）、E2E_CDP_PORT（默认 9222）
  */
 import { spawn } from 'node:child_process'
-import { existsSync, rmSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, rmSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ensureServer, stopServer, seedTourSeen, unseedTourSeen } from './devServer.mjs'
@@ -136,6 +136,32 @@ class Session {
   /** 绑定 this 的求值（避免把方法当回调传递时丢失 this） */
   evaluate(expression) {
     return this.eval(expression)
+  }
+
+  /** 求值取对象句柄（不取 value）。CDP 的 DOM 域命令要的是 objectId，`eval()` 拿不到 */
+  async handle(expression) {
+    const result = await this.send('Runtime.evaluate', { expression, returnByValue: false })
+    if (result.exceptionDetails) {
+      throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text)
+    }
+    if (!result.result || !result.result.objectId) {
+      throw new Error(`句柄求值没拿到对象：${expression}（多半是选择器没匹配到元素）`)
+    }
+    return result.result.objectId
+  }
+
+  /**
+   * 把磁盘上的真实文件塞进 `<input type="file">`。
+   *
+   * 这是整套 e2e 里唯一能测"用户真的选了一个文件"的办法：`DOM.setFileInputFiles`
+   * 走浏览器自己的文件选择通道，会照常派发 change，页面里 `file.text()` 读到的
+   * 确实是磁盘上那份字节。手工 `new File()` + 派发 change 做不到这一点 ——
+   * 那是合成事件，测不到"input 到底有没有被插进 DOM、accept 写对没有、
+   * 取到内容之后走的是哪条分支"。
+   */
+  async setFileInputFiles(selector, files) {
+    const objectId = await this.handle(`document.querySelector(${JSON.stringify(selector)})`)
+    await this.send('DOM.setFileInputFiles', { files, objectId })
   }
 
   async goto(url, waitMs = 2600) {
@@ -942,6 +968,209 @@ async function main() {
       return { ok: !!(r && r.ok), version: (r && r.version) || '' }
     })()`)
     check('v1 旧备份兼容导入', backupV1.ok && backupV1.version === '1.0.0', JSON.stringify(backupV1))
+
+    /**
+     * ---------- 7c-2. 浏览器模式：真实文件选择路径（P3-3） ----------
+     *
+     * 上面三条走的都是 `importBackup(内容)`，把"文件从哪来"这一步整个跳过了；
+     * 而 P3-3 的缺陷恰好就在这一步。浏览器模式没有原生打开框，调用点
+     * `Settings.vue` 也不传内容，于是 `importBackup()` 必然落到
+     * "未读取到备份内容" —— 在用户还没有机会选任何文件的时候就报"没读到内容"。
+     * 而演示脚本 §零 推荐的正是浏览器模式，等于这个按钮在演示路径上
+     * 从来没成功过，只是失败得很费解（一个红条 + 一句与操作对不上的话）。
+     *
+     * 所以这里不能再用"传内容"的调用形态验证，必须走真路径：
+     * 点按钮 → 确认 → 用 CDP 往隐藏 input 里喂**磁盘上的真文件** → 看界面说什么。
+     * 文件是真数据导出来的（不是手搓 JSON），读回来才有意义。
+     */
+    const bakDir = mkdtempSync(join(tmpdir(), 'kuangshan-e2e-bak-'))
+    try {
+      const bakJson = await session.eval(`(async () => {
+        const { buildBackup } = await import('/src/utils/backup.js')
+        return await buildBackup()
+      })()`)
+      const goodPath = join(bakDir, '往返.mbak')
+      const badPath = join(bakDir, '不是备份.mbak')
+      writeFileSync(goodPath, bakJson, 'utf8')
+      writeFileSync(badPath, JSON.stringify({ app: 'some-other-app', dbBase64: 'AAAA' }), 'utf8')
+
+      const equipBefore = await session.eval(
+        `(async () => { const d = await import('/src/utils/database.js'); return d.count('equipment') })()`
+      )
+
+      // ① 点「一键导入备份」→ 确认 → 应拉起一个隐藏的文件选择框
+      const picker = await session.eval(`(async () => {
+        const btn = Array.from(document.querySelectorAll('.backup-row button')).find(b => /一键导入备份/.test(b.textContent))
+        if (!btn) return { ok: false, reason: '找不到一键导入备份按钮' }
+        btn.click()
+        await new Promise(r => setTimeout(r, 800))
+        const box = document.querySelector('.el-message-box')
+        const confirm = box && Array.from(box.querySelectorAll('button')).find(b => /继续导入/.test(b.textContent))
+        if (!confirm) return { ok: false, reason: '确认框没出现' }
+        const confirmText = ((box.querySelector('.el-message-box__message') || {}).textContent || '').replace(/\\s+/g, ' ').trim()
+        confirm.click()
+        const deadline = Date.now() + 5000
+        let input = null
+        while (Date.now() < deadline) {
+          input = document.querySelector('input[data-backup-picker]')
+          if (input) break
+          await new Promise(r => setTimeout(r, 100))
+        }
+        return {
+          ok: !!input,
+          reason: input ? '' : '点了导入但没出现文件选择框（浏览器模式仍然取不到文件）',
+          accept: input ? input.accept : '',
+          hidden: input ? getComputedStyle(input).display === 'none' : false,
+          confirmText
+        }
+      })()`)
+      check('浏览器模式点「一键导入备份」会拉起文件选择框（P3-3）',
+        picker.ok && /\.mbak/.test(picker.accept) && picker.hidden,
+        JSON.stringify(picker).slice(0, 220))
+      check('浏览器模式下确认框不再承诺做不到的自动备份',
+        /无法自动备份/.test(picker.confirmText) && !/备份当前数据到本机 backups/.test(picker.confirmText),
+        picker.confirmText.slice(0, 180))
+
+      /**
+       * 往文件选择框里喂文件。选择框不在时**不抛异常**：那是"上一条断言已经红了"
+       * 的连锁反应，抛出去会让整轮 e2e 中断、已经收集的断言全部丢失 ——
+       * 而真出问题时最需要看到的恰恰是"哪几条红了、分别为什么红"。
+       * 返回空串表示喂进去了，否则返回原因，由后续断言带着它变红。
+       */
+      const feedFile = async (path) => {
+        try {
+          await session.setFileInputFiles('input[data-backup-picker]', [path])
+          return ''
+        } catch (error) {
+          return `文件没能送进选择框：${error.message}`
+        }
+      }
+
+      // ② 往那个 input 里喂真文件 → 必须一路走到"导入完成"，且台账还在
+      const feedErr = await feedFile(goodPath)
+      let imported = { title: '(未发生)', text: '', boxGone: false, pickerRemoved: false }
+      if (!feedErr) {
+        imported = await session.eval(`(async () => {
+          const deadline = Date.now() + 40000
+          let title = '', text = ''
+          while (Date.now() < deadline) {
+            const box = document.querySelector('.el-message-box')
+            if (box && /导入完成/.test(box.textContent)) {
+              title = ((box.querySelector('.el-message-box__title') || {}).textContent || '').trim()
+              text = ((box.querySelector('.el-message-box__message') || {}).textContent || '').replace(/\\s+/g, ' ').trim()
+              const ok = Array.from(box.querySelectorAll('button')).find(b => /知道了/.test(b.textContent))
+              if (ok) ok.click()
+              // 关掉弹窗要等淡出动画走完，否则读到的仍是尚未移除的节点
+              await new Promise(r => setTimeout(r, 700))
+              break
+            }
+            await new Promise(r => setTimeout(r, 250))
+          }
+          return {
+            title, text: text.slice(0, 160),
+            boxGone: !document.querySelector('.el-message-box'),
+            pickerRemoved: !document.querySelector('input[data-backup-picker]')
+          }
+        })()`)
+      }
+      const equipAfter = await session.eval(
+        `(async () => { const d = await import('/src/utils/database.js'); return d.count('equipment') })()`
+      )
+      check('浏览器模式真选文件能把备份导进来（不再静默失败）',
+        !feedErr && imported.title === '导入完成' && imported.boxGone && imported.pickerRemoved,
+        feedErr || `${imported.title} / ${imported.text}`)
+      /**
+       * ⚠️ 这一条必须带上 `!feedErr`：不然文件根本没送进去时，台账数量当然也没变，
+       * 断言照样绿 —— 那测的就不是"导入后台账还在"，而是"什么都没发生"。
+       */
+      check('浏览器模式文件导入后台账数量不变（真读到了文件内容）',
+        !feedErr && imported.title === '导入完成' && equipAfter === equipBefore && equipBefore > 0,
+        feedErr || `导入前 ${equipBefore} 台 → 导入后 ${equipAfter} 台`)
+
+      // ③ 喂一个不是备份的文件 → 必须明确报错 + 留日志（原来是弹个条就没了，库里零痕迹）
+      const reopen = await session.eval(`(async () => {
+        const btn = Array.from(document.querySelectorAll('.backup-row button')).find(b => /一键导入备份/.test(b.textContent))
+        if (!btn) return false
+        btn.click()
+        await new Promise(r => setTimeout(r, 800))
+        const confirm = Array.from(document.querySelectorAll('.el-message-box__btns button')).find(b => /继续导入/.test(b.textContent))
+        if (!confirm) return false
+        confirm.click()
+        const deadline = Date.now() + 5000
+        while (Date.now() < deadline) {
+          if (document.querySelector('input[data-backup-picker]')) return true
+          await new Promise(r => setTimeout(r, 100))
+        }
+        return false
+      })()`)
+      check('再次点「一键导入备份」仍能拉起文件选择框', reopen === true, String(reopen))
+
+      const feedErr2 = await feedFile(badPath)
+      let rejected = { err: '(未发生)', successBox: false, logged: false, pickerRemoved: false }
+      if (!feedErr2) {
+        rejected = await session.eval(`(async () => {
+          const deadline = Date.now() + 15000
+          let err = ''
+          while (Date.now() < deadline) {
+            const m = Array.from(document.querySelectorAll('.el-message--error .el-message__content')).map(e => e.textContent.trim())
+            if (m.length) { err = m.join(' | '); break }
+            await new Promise(r => setTimeout(r, 200))
+          }
+          await new Promise(r => setTimeout(r, 900))
+          const box = document.querySelector('.el-message-box')
+          const d = await import('/src/utils/database.js')
+          const rows = d.query('SELECT content FROM operation_logs ORDER BY id DESC LIMIT 8')
+          return {
+            err,
+            successBox: !!(box && /导入完成/.test(box.textContent)),
+            logged: rows.map(r => String(r.content)).some(t => /导入备份失败/.test(t)),
+            pickerRemoved: !document.querySelector('input[data-backup-picker]')
+          }
+        })()`)
+      }
+      check('浏览器模式导入非备份文件会明确报错并指出原因',
+        !feedErr2 && /不是矿山智工的备份文件/.test(rejected.err) && !rejected.successBox && rejected.pickerRemoved,
+        feedErr2 || JSON.stringify(rejected).slice(0, 220))
+      check('导入失败会写进操作日志（离线现场唯一的事后凭据）',
+        !feedErr2 && rejected.logged === true,
+        feedErr2 || `err=${rejected.err} logged=${rejected.logged}`)
+
+      /**
+       * ④ 取消选择文件不能算失败。
+       *
+       * 用户自己关掉了系统选择框，界面不该再弹一个红条说他"导入失败" ——
+       * 所以 `canceled` 和 `error` 必须是两个分得开的字段。
+       *
+       * ⚠️ 本条的局限要说清楚：headless 里没有真的文件选择框可点，`cancel`
+       * 是**合成事件**，所以它测的是"我们监听了 cancel、并且把它收敛成 canceled"，
+       * 不是"Chromium 真的会在用户关掉对话框时补发 cancel"。后者只能装机实测。
+       */
+      const cancelFlow = await session.eval(`(async () => {
+        const { importBackup } = await import('/src/utils/backup.js')
+        const pending = importBackup()
+        const deadline = Date.now() + 5000
+        let input = null
+        while (Date.now() < deadline) {
+          input = document.querySelector('input[data-backup-picker]')
+          if (input) break
+          await new Promise(r => setTimeout(r, 50))
+        }
+        if (!input) return { reason: '没拉起文件选择框，取消路径无从验证' }
+        input.dispatchEvent(new Event('cancel'))
+        const r = await pending
+        return {
+          ok: !!(r && r.ok),
+          canceled: !!(r && r.canceled),
+          error: (r && r.error) || '',
+          pickerRemoved: !document.querySelector('input[data-backup-picker]')
+        }
+      })()`)
+      check('取消选择文件不算失败（canceled 与 error 分得开）',
+        cancelFlow.canceled === true && cancelFlow.ok === false && !cancelFlow.error && cancelFlow.pickerRemoved,
+        JSON.stringify(cancelFlow).slice(0, 200))
+    } finally {
+      try { rmSync(bakDir, { recursive: true, force: true }) } catch { /* 忽略 */ }
+    }
 
     // ---------- 7d. AI 老师傅人设 + 对话式 AI（任务 17 Batch B） ----------
     // 纯函数直调（不依赖 store）：B2 症状通道 / B3 排查思路 / B4 追问与摘要 / 人设开关。

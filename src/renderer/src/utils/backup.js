@@ -55,7 +55,12 @@ const SETTINGS_KEYS = [
 const DOCS_IDB_NAME = 'kuangshan-docs'
 const DOCS_IDB_STORE = 'files'
 
-function isElectron() {
+/**
+ * 导出给界面用：设置页的确认框要按同一个判据决定"要不要承诺导入前自动备份"。
+ * 两个地方各写一份 isElectron（storage.js 那份看的是 `electronAPI.db`）就会漂 ——
+ * 桥名不一样，将来少一个就会让提示与真实行为对不上。
+ */
+export function isElectron() {
   return typeof window !== 'undefined' && !!(window.electronAPI && window.electronAPI.backup)
 }
 
@@ -308,8 +313,76 @@ async function parseBackup(content) {
 }
 
 /**
- * 一键导入备份：Electron 弹打开框；浏览器模式需外部传入文件内容
- * 导入前会先自动备份当前数据到 userData/backups/（防呆：导入错了能回滚）
+ * 浏览器模式下取备份文件：临时插一个隐藏的 `<input type="file">` 读文本。
+ *
+ * 为什么需要它：`importBackup()` 原来只在 Electron 下取得到内容（主进程弹打开框），
+ * 浏览器模式既没有打开框、调用点也不传参，于是一路落到
+ * `if (!content) return { ok: false, error: '未读取到备份内容' }` ——
+ * **必然失败**。而演示脚本推荐的正是浏览器模式（见 `docs/演示脚本.md` §零），
+ * 也就是说这个按钮在演示路径上从来就没成功过。
+ * 当时界面的表现是：点「一键导入备份」→ 确认 → 弹一条红色
+ * 「未读取到备份内容」—— 在用户**还没有机会选任何文件**的时候就报"没读到内容"，
+ * 除了"这按钮坏了"读不出别的信息。
+ *
+ * 取消必须能和失败分开：`canceled` 不该弹错误，而"读不出来"必须弹。
+ * change 没触发并不能证明是取消（用户也可能永远不选），所以：
+ *   ① 听 `cancel` 事件（Chromium 113+ 在用户关掉选择框时会补发）；
+ *   ② 兜底：窗口失焦后再聚焦 = 用户从系统对话框回到了页面，此时还没读到文件就是取消。
+ *     失焦这一步必须先发生才认聚焦，否则页面本来就带焦点，一聚焦就误判成取消。
+ */
+function pickBackupFile() {
+  return new Promise((resolve) => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    // .mbak 是本项目自定义扩展名，系统不认它对应哪个 MIME，所以 json 也放进来兜底
+    input.accept = '.mbak,application/json'
+    input.style.display = 'none'
+    // e2e 的钩子：验收脚本靠这个属性找到节点，再用 CDP 的 DOM.setFileInputFiles 喂真文件
+    input.setAttribute('data-backup-picker', '1')
+
+    let done = false
+    let blurred = false
+    const finish = (result) => {
+      if (done) return
+      done = true
+      window.removeEventListener('blur', onBlur)
+      window.removeEventListener('focus', onFocus)
+      input.remove()
+      resolve(result)
+    }
+    const onBlur = () => { blurred = true }
+    const onFocus = () => {
+      if (blurred) setTimeout(() => finish({ ok: false, canceled: true }), 400)
+    }
+
+    input.addEventListener('change', async () => {
+      const file = input.files && input.files[0]
+      if (!file) return finish({ ok: false, canceled: true })
+      try {
+        finish({ ok: true, content: await file.text() })
+      } catch (error) {
+        finish({ ok: false, error: `读取备份文件失败：${(error && error.message) || error}` })
+      }
+    })
+    input.addEventListener('cancel', () => finish({ ok: false, canceled: true }))
+
+    window.addEventListener('blur', onBlur)
+    window.addEventListener('focus', onFocus)
+    document.body.appendChild(input)
+    input.click()
+  })
+}
+
+/**
+ * 一键导入备份。
+ *
+ * 取文件的方式按运行环境分两种，返回契约一致：
+ *   - Electron：主进程弹打开框，导入前自动把当前数据静默备份到 userData/backups/（防呆）
+ *   - 浏览器：`pickBackupFile()` 弹 `<input type="file">`（浏览器里没有原生打开框；
+ *     浏览器下也**不做**导入前自动备份 —— 那会变成一次凭空的多余下载）
+ * 调用方也可以直接传入 `fileContent` 跳过取文件这一步（e2e 就是这么做的）。
+ *
+ * @returns `{ ok: true }` / `{ ok: false, canceled: true }`（用户取消，不是错误）/ `{ ok: false, error }`
  */
 export async function importBackup(fileContent) {
   let content = fileContent
@@ -328,6 +401,13 @@ export async function importBackup(fileContent) {
       return { ok: false, error: (r && r.error) || '未选择备份文件' }
     }
     content = r.content
+  } else if (!content) {
+    const picked = await pickBackupFile()
+    if (!picked.ok) {
+      if (picked.canceled) return { ok: false, canceled: true }
+      return { ok: false, error: picked.error || '未读取到备份内容' }
+    }
+    content = picked.content
   }
   if (!content) return { ok: false, error: '未读取到备份内容' }
 
