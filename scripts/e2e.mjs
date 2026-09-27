@@ -221,6 +221,45 @@ const ASK_HELPER = `
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms))
 
+/**
+ * 应用锁那一段要往 Vue 受控输入框里塞值、按文字点按钮。
+ *
+ * 两类操作都走"原生 setter + 派发 input"与真实 click：
+ * 直接改 `el.value` 不会触发 Vue 的 v-model（它监听的是 input 事件），
+ * 而真实点击才会走到我们自己的 @click 处理里。
+ * 页面每刷新一次就得重新注入一次 —— 注入的挂在 window 上，刷新就没了。
+ */
+const LOCK_HELPER = `
+  window.__setInput = async (sel, value) => {
+    const el = document.querySelector(sel)
+    if (!el) return false
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+    setter.call(el, value)
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+    await new Promise(r => setTimeout(r, 150))
+    return true
+  };
+  window.__clickText = (text) => {
+    const btn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim() === text)
+    if (!btn) return false
+    btn.click()
+    return true
+  };
+  // 解锁动作必须**不抛异常**：锁屏不在时返回一句原因，交给断言去报红。
+  // 一开始这里写的是 document.querySelector('.lock-btn').click()，后果是
+  // 变异验证时（把 PIN 校验改成永远通过 ⇒ 错 PIN 也进了主界面 ⇒ 后面再找锁屏就没了）
+  // 整轮 e2e 被这一句中断、连已经收到的断言都打不出来 —— 只留一句 TypeError。
+  window.__unlock = async (pin) => {
+    if (!document.querySelector('input[placeholder^="PIN"]') || !document.querySelector('.lock-btn')) {
+      return { ok: false, why: '锁屏不在（没有 PIN 输入框或解锁按钮）' }
+    }
+    await window.__setInput('input[placeholder^="PIN"]', pin)
+    document.querySelector('.lock-btn').click()
+    return { ok: true }
+  };
+  'lock-helper-ready'
+`
+
 /** 带标签的求值：出错时能立刻指出是哪个断言块挂了 */
 async function safeEval(session, label, expression) {
   try {
@@ -2138,6 +2177,224 @@ async function main() {
     check('错误边界：出错后换页仍然正常渲染（错误没有拖坏整棵应用）',
       afterErrNav.cards > 0 && afterErrNav.stillClean === true,
       `设备卡片 ${afterErrNav.cards} 张 / 提示条残留 ${!afterErrNav.stillClean}`)
+
+    // ---------- 14. 应用锁：启用 ⇒ 刷新 ⇒ 只出锁屏、业务数据不装载（P4-1） ----------
+    /**
+     * 这一段只能在真实浏览器里断言。store-check / self-check 能证明 appLock.js
+     * 的判定是对的，证明不了 main.js 在**装载业务数据之前**问过它一句 ——
+     * 而"锁屏出现了"是容易的（App.vue 里加个 v-if 也能做到）。
+     * 所以真正的判据是"数据库还没开、store 都没建"：
+     * 把判锁挪到 initStore() 之后（或无条件调用 bootAppData），锁屏照样会出现，
+     * 只有 isReady 与 $pinia 这两条抓得住。
+     *
+     * 收尾必须把 ks:app-lock 清干净：本段造的"有账户"状态是临时的，
+     * 留着它，之后任何按 hash 跳页的探针都会停在锁屏上。
+     */
+    await session.goto(`${BASE}/#/settings`, 2400)
+    await session.eval(LOCK_HELPER)
+
+    const lockSetup = await session.eval(`(async () => {
+      const filled = {}
+      filled.name = await window.__setInput('input[placeholder^="姓名"]', '王建国')
+      filled.role = await window.__setInput('input[placeholder^="角色"]', '维修工程师')
+      filled.pin = await window.__setInput('input[placeholder^="PIN"]', '2468')
+      filled.pin2 = await window.__setInput('input[placeholder^="再输一次"]', '2468')
+      const clicked = window.__clickText('启用应用锁')
+      await new Promise(r => setTimeout(r, 1800))
+      const raw = localStorage.getItem('ks:app-lock') || ''
+      let acct = {}
+      try { acct = (JSON.parse(raw).accounts || [])[0] || {} } catch { /* 没写进去 */ }
+      const card = document.querySelector('.settings-page')
+      const text = card ? card.innerText.replace(/\\s+/g, ' ') : ''
+      return {
+        filled, clicked,
+        hasConfig: !!raw,
+        plainPinInConfig: raw.includes('2468'),
+        saltLen: String(acct.salt || '').length,
+        hashLen: String(acct.hash || '').length,
+        tagOn: /已启用/.test(text),
+        actorShown: /本次运行已以/.test(text) && /王建国/.test(text) && /维修工程师/.test(text),
+        formCollapsed: !document.querySelector('input[placeholder^="姓名"]')
+      }
+    })()`)
+    check('应用锁：设置页能建账户并启用（四个输入框都真的送进去了）',
+      lockSetup.filled.name && lockSetup.filled.role && lockSetup.filled.pin && lockSetup.filled.pin2 && lockSetup.clicked === true,
+      JSON.stringify(lockSetup.filled))
+    check('应用锁：启用后卡片转为已启用、并写明本次以谁的身份进入',
+      lockSetup.tagOn === true && lockSetup.actorShown === true,
+      `已启用=${lockSetup.tagOn} 身份行=${lockSetup.actorShown}`)
+    check('应用锁：浏览器里落盘的是盐 + 摘要，不是明文 PIN',
+      lockSetup.hasConfig && lockSetup.plainPinInConfig === false &&
+        lockSetup.saltLen >= 16 && lockSetup.hashLen === 64,
+      `有配置=${lockSetup.hasConfig} 含明文=${lockSetup.plainPinInConfig} 盐 ${lockSetup.saltLen} 字符 / 摘要 ${lockSetup.hashLen} 字符`)
+
+    // 刷新 = 重启。锁状态只活在内存里，刷新必然回到锁定态 —— 这正是"启动时锁"
+    await session.send('Page.reload', { ignoreCache: true })
+    await sleep(3400)
+
+    const lockedView = await session.eval(`(async () => {
+      const app = document.querySelector('#app').__vue_app__
+      const d = await import('/src/utils/database.js')
+      return {
+        lockScreen: !!document.querySelector('.lock-screen'),
+        title: (document.querySelector('.lock-title') || {}).textContent || '',
+        who: (document.querySelector('.lock-who-name') || {}).textContent || '',
+        whoRole: (document.querySelector('.lock-who-role') || {}).textContent || '',
+        statValues: document.querySelectorAll('.stat-value').length,
+        appMain: !!document.querySelector('.app-main'),
+        aside: !!document.querySelector('.app-aside'),
+        cards: document.querySelectorAll('.equip-card').length,
+        hasPinia: !!(app && app.config.globalProperties.$pinia),
+        dbReady: d.isReady() === true
+      }
+    })()`)
+    check('应用锁：启用后刷新 ⇒ 出现锁屏（"启动时锁"靠的就是刷新即回锁定态）',
+      lockedView.lockScreen === true && lockedView.title.includes('矿山智工'),
+      `锁屏=${lockedView.lockScreen} 标题「${lockedView.title}」`)
+    check('应用锁：锁屏上写明是谁在用、什么身份',
+      lockedView.who === '王建国' && lockedView.whoRole === '维修工程师',
+      `${lockedView.who || '(空)'} / ${lockedView.whoRole || '(空)'}`)
+    check('应用锁：未解锁时业务界面一概没渲染（侧栏与内容区都不在 DOM 里）',
+      lockedView.appMain === false && lockedView.aside === false &&
+        lockedView.statValues === 0 && lockedView.cards === 0,
+      `内容区=${lockedView.appMain} 侧栏=${lockedView.aside} 看板数字 ${lockedView.statValues} 个 / 设备卡片 ${lockedView.cards} 张`)
+    check('应用锁：未解锁时业务数据**根本没装载**（数据库没开、store 都没建）',
+      lockedView.dbReady === false && lockedView.hasPinia === false,
+      `isReady=${lockedView.dbReady} 有 pinia=${lockedView.hasPinia}`)
+
+    await session.eval(LOCK_HELPER)
+    const wrongPin = await session.eval(`(async () => {
+      const tried = await window.__unlock('9999')
+      await new Promise(r => setTimeout(r, 1500))
+      const d = await import('/src/utils/database.js')
+      const input = document.querySelector('input[placeholder^="PIN"]')
+      return {
+        tried: tried.ok, why: tried.why || '',
+        err: (document.querySelector('.lock-err') || {}).textContent || '',
+        stillLocked: !!document.querySelector('.lock-screen'),
+        leftover: input ? input.value : '(没有输入框)',
+        dbReady: d.isReady() === true
+      }
+    })()`)
+    check('应用锁：错 PIN 明确报错、仍是锁定态、库依然没开',
+      wrongPin.tried === true && /PIN 不正确/.test(wrongPin.err) &&
+        wrongPin.stillLocked === true && wrongPin.dbReady === false,
+      wrongPin.why || `提示「${wrongPin.err.slice(0, 40)}」/ 仍锁=${wrongPin.stillLocked} / isReady=${wrongPin.dbReady}`)
+    check('应用锁：错一次就把输入框清空（不让用户自己删了再重输）',
+      wrongPin.leftover === '', `输入框残留「${wrongPin.leftover}」`)
+
+    const unlockedView = await session.eval(`(async () => {
+      const tried = await window.__unlock('2468')
+      // 解锁后要先装载数据库、再换挂主应用，这里轮询而不是死等一个拍脑袋的时长
+      const deadline = Date.now() + 12000
+      while (Date.now() < deadline && !document.querySelector('.app-main')) {
+        await new Promise(r => setTimeout(r, 300))
+      }
+      const d = await import('/src/utils/database.js')
+      const app = document.querySelector('#app').__vue_app__
+      return {
+        tried: tried.ok, why: tried.why || '',
+        lockGone: !document.querySelector('.lock-screen'),
+        appMain: !!document.querySelector('.app-main'),
+        aside: !!document.querySelector('.app-aside'),
+        dbReady: d.isReady() === true,
+        hasPinia: !!(app && app.config.globalProperties.$pinia)
+      }
+    })()`)
+    check('应用锁：PIN 正确 ⇒ 锁屏卸掉、主应用挂上，数据库到这一刻才装载',
+      unlockedView.tried === true && unlockedView.lockGone && unlockedView.appMain &&
+        unlockedView.aside && unlockedView.dbReady && unlockedView.hasPinia,
+      unlockedView.why || `锁屏已卸=${unlockedView.lockGone} 内容区=${unlockedView.appMain} 侧栏=${unlockedView.aside} isReady=${unlockedView.dbReady} pinia=${unlockedView.hasPinia}`)
+
+    const afterUnlock = await session.eval(`(async () => {
+      location.hash = '#/equipment'
+      await new Promise(r => setTimeout(r, 1800))
+      return { cards: document.querySelectorAll('.equip-card').length }
+    })()`)
+    check('应用锁：解锁后业务功能恢复正常（设备台账能正常渲染）',
+      afterUnlock.cards > 0, `${afterUnlock.cards} 张设备卡片`)
+
+    // 停用这条路径只验"确认框接上了"：点取消、状态不变。
+    // 真正的停用在 self-check 里对 disableLock() 断言过（清空账户 + 退出解锁态）。
+    const disableWiring = await session.eval(`(async () => {
+      location.hash = '#/settings'
+      await new Promise(r => setTimeout(r, 1600))
+      const cardText = (document.querySelector('.settings-page') || {}).innerText || ''
+      const clicked = window.__clickText('停用应用锁')
+      await new Promise(r => setTimeout(r, 900))
+      const box = document.querySelector('.el-message-box')
+      const title = box ? (box.querySelector('.el-message-box__title') || {}).textContent.trim() : ''
+      const body = box ? (box.querySelector('.el-message-box__message') || {}).textContent.replace(/\\s+/g, ' ') : ''
+      const cancel = box && Array.from(box.querySelectorAll('button')).find(b => b.textContent.trim() === '取消')
+      if (cancel) cancel.click()
+      await new Promise(r => setTimeout(r, 900))
+      return {
+        cardShowsOn: /已启用/.test(cardText) && /王建国/.test(cardText),
+        clicked, title, body,
+        boxGone: !document.querySelector('.el-message-box'),
+        stillOn: !!localStorage.getItem('ks:app-lock')
+      }
+    })()`)
+    check('应用锁：解锁后设置页能看到已启用的账户',
+      disableWiring.cardShowsOn === true, `卡片显示已启用+账户=${disableWiring.cardShowsOn}`)
+    check('应用锁：停用走二次确认，点取消不动任何状态',
+      disableWiring.clicked === true && disableWiring.title.includes('停用应用锁') &&
+        /不再要求输入 PIN/.test(disableWiring.body) &&
+        disableWiring.boxGone === true && disableWiring.stillOn === true,
+      `标题「${disableWiring.title}」/ 取消后仍启用=${disableWiring.stillOn}`)
+
+    // 忘记 PIN 的自救：清空本机数据并解锁。这一段会把库清掉重新播种，
+    // 所以放在最后，也顺带把本段造的锁配置收干净。
+    await session.send('Page.reload', { ignoreCache: true })
+    await sleep(3400)
+    await session.eval(LOCK_HELPER)
+    const rescueAsk = await session.eval(`(async () => {
+      const locked = !!document.querySelector('.lock-screen')
+      const clicked = window.__clickText('忘记 PIN？清空本机数据并解锁')
+      await new Promise(r => setTimeout(r, 900))
+      const box = document.querySelector('.el-message-box')
+      return {
+        locked, clicked,
+        title: box ? (box.querySelector('.el-message-box__title') || {}).textContent.trim() : '',
+        body: box ? (box.querySelector('.el-message-box__message') || {}).textContent.replace(/\\s+/g, ' ') : ''
+      }
+    })()`)
+    check('应用锁：刷新后回到锁定态（上面那次解锁只活在内存里）',
+      rescueAsk.locked === true, `锁屏在=${rescueAsk.locked}`)
+    check('应用锁：锁屏给「忘记 PIN」自救入口，二次确认如实写明后果',
+      rescueAsk.clicked === true && rescueAsk.title.includes('清空本机数据并解锁') &&
+        /不可撤销/.test(rescueAsk.body) && /账户与 PIN 也会一并清除/.test(rescueAsk.body),
+      `标题「${rescueAsk.title}」/ 正文 ${rescueAsk.body.slice(0, 50)}…`)
+
+    const rescued = await session.eval(`(async () => {
+      const btn = Array.from(document.querySelectorAll('.el-message-box button'))
+        .find(b => b.textContent.trim() === '确认清空并解锁')
+      if (!btn) return { error: '确认框里找不到「确认清空并解锁」按钮' }
+      btn.click()
+      // 清库 ⇒ 重新播种 60 台设备：这一段是整轮里最慢的一步，轮询到内容区出现为止
+      const deadline = Date.now() + 30000
+      while (Date.now() < deadline && !document.querySelector('.app-main')) {
+        await new Promise(r => setTimeout(r, 400))
+      }
+      location.hash = '#/dashboard'
+      await new Promise(r => setTimeout(r, 2200))
+      const d = await import('/src/utils/database.js')
+      const first = document.querySelector('.stat-value')
+      return {
+        lockGone: !document.querySelector('.lock-screen'),
+        lockKeyGone: localStorage.getItem('ks:app-lock') === null,
+        dbReady: d.isReady() === true,
+        equipCount: d.count('equipment'),
+        firstStat: first ? first.textContent.trim() : ''
+      }
+    })()`)
+    check('应用锁：清空自救后能直接进界面（锁配置连同数据一起清掉）',
+      rescued.error === undefined && rescued.lockGone === true &&
+        rescued.lockKeyGone === true && rescued.dbReady === true,
+      rescued.error || `锁屏已卸=${rescued.lockGone} 锁配置已清=${rescued.lockKeyGone} isReady=${rescued.dbReady}`)
+    check('应用锁：清空自救后演示数据重新播种（不是留下一台空库）',
+      rescued.equipCount > 0 && rescued.firstStat === String(rescued.equipCount),
+      `台账 ${rescued.equipCount} 台 / 看板显示「${rescued.firstStat}」`)
 
     // ---------- 汇总 ----------
     console.log('')

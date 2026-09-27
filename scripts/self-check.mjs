@@ -16,6 +16,7 @@
 import initSqlJsImport from 'sql.js'
 import * as XLSX from 'xlsx'
 import { readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync, existsSync, statSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
 
@@ -33,7 +34,7 @@ mkdirSync(mirrorDir, { recursive: true })
 // knowledgeBase / reportGenerator 开始 import 它之后，镜像里没有对应文件，
 // self-check 抛 ERR_MODULE_NOT_FOUND 整个中断（verify 的前置步骤，全链路失败）。
 // 以后再往 utils 加纯函数模块，记得同步加到这里。
-for (const name of ['dates', 'html', 'htmlIcons', 'appIcons', 'storage', 'database', 'excelParser', 'synonyms', 'knowledgeBase', 'health', 'equipmentCatalog', 'equipmentPhoto', 'fleetData', 'healthReport', 'faultStats', 'alertRules', 'aliases', 'seedGate', 'nlCommand', 'llmClient', 'narrate', 'reportGenerator', 'dictionaries', 'bundledDocs', 'faultCaseDraft', 'demoTour']) {
+for (const name of ['dates', 'html', 'htmlIcons', 'appIcons', 'storage', 'database', 'excelParser', 'synonyms', 'knowledgeBase', 'health', 'equipmentCatalog', 'equipmentPhoto', 'fleetData', 'healthReport', 'faultStats', 'alertRules', 'aliases', 'seedGate', 'nlCommand', 'llmClient', 'narrate', 'reportGenerator', 'dictionaries', 'bundledDocs', 'faultCaseDraft', 'demoTour', 'appLock']) {
   const code = readFileSync(join(srcDir, `${name}.js`), 'utf8')
     .replace(/(from\s+['"]\.\/[a-zA-Z0-9_-]+)(['"])/g, '$1.mjs$2')
   writeFileSync(join(mirrorDir, `${name}.mjs`), code, 'utf8')
@@ -85,6 +86,7 @@ const narrate = await import(mirror('narrate'))
 const reportGen = await import(mirror('reportGenerator'))
 const caseDraft = await import(mirror('faultCaseDraft'))
 const photo = await import(mirror('equipmentPhoto'))
+const appLock = await import(mirror('appLock'))
 
 const results = []
 function check(name, condition, detail = '') {
@@ -2365,6 +2367,125 @@ function check(name, condition, detail = '') {
     uniform
       ? `提问「${nameQuery}」→ ${scores.length} 片同为 ${scores[0]} 分`
       : `提问「${nameQuery}」→ 分数有 ${new Set(scores).size} 种（${scores.slice(0, 5).join('/')}…），有页被正文分顶了上来`)
+}
+
+// ============ Q 应用锁（账户存储 / PIN 校验 / 清空自救，P4-1） ============
+/**
+ * 这一组测的是"锁的判定逻辑"，测不到"界面有没有真的把锁装上" ——
+ * 后者归 e2e（启用锁后刷新必须只出锁屏，且业务数据不装载）。
+ *
+ * 本段自己造状态：开头的 localStorage 是干净的（前面各段不用这个键），
+ * 结尾也把 ks:app-lock 清掉，不留状态给以后新增的段。
+ */
+{
+  const LOCK_KEY = 'ks:app-lock'
+  const raw = () => localStorage.getItem(LOCK_KEY)
+  const sha256Hex = (s) => createHash('sha256').update(s).digest('hex')
+
+  localStorage.removeItem(LOCK_KEY)
+  check('没配过账户时锁是关的（这正是 e2e/其它验收默认不受锁影响的前提）',
+    appLock.lockEnabled() === false, `lockEnabled=${appLock.lockEnabled()}`)
+
+  // ---- 建账户 ----
+  const first = await appLock.createAccount({ name: '王建国', role: '维修工程师', pin: '2468' })
+  check('建账户成功，返回的账户带 id/姓名/角色',
+    first.ok === true && !!first.account.id && first.account.name === '王建国' && first.account.role === '维修工程师',
+    first.ok ? `${first.account.id} / ${first.account.name}` : `error=${first.error}`)
+  check('建完账户后锁即为启用', appLock.lockEnabled() === true, `lockEnabled=${appLock.lockEnabled()}`)
+  check('建完账户后本次运行就认下了身份（否则设置页会显示"没人"）',
+    (appLock.currentAccount() || {}).name === '王建国',
+    JSON.stringify(appLock.currentAccount() || null))
+
+  // ---- 落盘内容：不许有明文，摘要必须够"重" ----
+  const firstCfg = JSON.parse(raw() || '{}')
+  const firstAcct = (firstCfg.accounts || [])[0] || {}
+  check('配置里绝不出现明文 PIN（也不出现它的 base64 / 简单重复）',
+    !!raw() && !raw().includes('2468') && !raw().includes(Buffer.from('2468').toString('base64')) && !raw().includes('2468'.repeat(5)),
+    raw() ? `配置 ${raw().length} 字节，含明文=${raw().includes('2468')}` : '(配置为空)')
+  check('摘要不是 PIN 的直接 SHA-256（那样一张彩虹表就查穿了）',
+    !!firstAcct.hash && firstAcct.hash !== sha256Hex('2468') && firstAcct.hash !== '2468',
+    `hash=${String(firstAcct.hash).slice(0, 16)}…`)
+  check('账户记下了盐与迭代数（以后把迭代数调大，老账户仍校验得动）',
+    typeof firstAcct.salt === 'string' && firstAcct.salt.length >= 16 &&
+      firstAcct.hash.length === 64 && Number.isInteger(firstAcct.iterations) && firstAcct.iterations >= 1000,
+    `salt=${String(firstAcct.salt).slice(0, 8)}… hash=${String(firstAcct.hash).length} 位 iterations=${firstAcct.iterations}`)
+
+  // ---- 同 PIN 不同盐 ⇒ 不同哈希 ----
+  const second = await appLock.createAccount({ name: '李梅', role: '', pin: '2468' })
+  const cfg = JSON.parse(raw()).accounts
+  check('同 PIN 不同账户 ⇒ 盐与哈希都不同（否则破一个等于破全部）',
+    second.ok === true && cfg.length === 2 && cfg[0].salt !== cfg[1].salt && cfg[0].hash !== cfg[1].hash,
+    cfg.length === 2 ? `盐 ${cfg[0].salt === cfg[1].salt ? '相同' : '不同'} / 哈希 ${cfg[0].hash === cfg[1].hash ? '相同' : '不同'}` : `账户数 ${cfg.length}`)
+  check('账户列表剥掉 salt/hash（摘要不许离开这个模块）',
+    appLock.listAccounts().every(a => !('salt' in a) && !('hash' in a)) && appLock.listAccounts().length === 2,
+    JSON.stringify(appLock.listAccounts()))
+
+  // ---- 校验 ----
+  const li = cfg[1].id
+  check('正确 PIN 能解开，并切换到对应身份',
+    (await appLock.unlock('2468', li)).ok === true && (appLock.currentAccount() || {}).name === '李梅',
+    JSON.stringify(appLock.currentAccount() || null))
+  check('错误 PIN 被拒绝，且不改变当前身份',
+    (await appLock.unlock('1357', li)).ok === false && (appLock.currentAccount() || {}).name === '李梅',
+    `ok=${(await appLock.unlock('1357', li)).ok}`)
+  check('多账户且不指明账户时拒绝解锁（不许替用户猜一个）',
+    (await appLock.unlock('2468')).ok === false)
+  check('已删除的账户 id 解锁不了',
+    (await appLock.unlock('2468', 'u-not-exist')).ok === false)
+
+  // ---- 入口校验：PIN 4~6 位数字 ----
+  const pinCases = [['1234', true], ['123456', true], ['123', false], ['1234567', false], ['12a4', false], ['', false]]
+  const pinBad = pinCases.filter(([p, want]) => appLock.validatePin(p).ok !== want)
+  check('PIN 只收 4~6 位数字（3 位、7 位、含字母、空都被挡）',
+    pinBad.length === 0, pinBad.length ? pinBad.map(([p]) => JSON.stringify(p)).join('、') : pinCases.length + ' 种输入全部符合预期')
+
+  // ---- 非法输入不许落半个账户 ----
+  const before = JSON.parse(raw()).accounts.length
+  const badTries = [
+    await appLock.createAccount({ name: '', pin: '2468' }),
+    await appLock.createAccount({ name: '王建国', pin: '9876' }),
+    await appLock.createAccount({ name: '張三', pin: '12' }),
+    await appLock.createAccount({ name: 'a'.repeat(20), pin: '1234' })
+  ]
+  check('空名 / 重名 / PIN 位数不符 / 超长姓名一律拒绝，且账户数不变',
+    badTries.every(r => r.ok === false) && JSON.parse(raw()).accounts.length === before,
+    badTries.map(r => r.error).join(' | '))
+
+  // ---- 删账户 ----
+  appLock.removeAccount(cfg[0].id)
+  check('删掉一个账户后锁仍然启用（还剩一个）', appLock.lockEnabled() === true && appLock.listAccounts().length === 1)
+  appLock.removeAccount(li)
+  check('删掉最后一个账户 = 锁停用，本次身份也一并清掉',
+    appLock.lockEnabled() === false && appLock.currentAccount() === null)
+
+  // ---- 清空自救：清的键集合必须恰好是被作废的那几个 ----
+  // 夹具先就位再断言（否则"什么都没清"也会让"键都不在"成立 —— P3-3 踩过的那个假绿）
+  await appLock.createAccount({ name: '自救测试', role: '', pin: '4321' })
+  localStorage.setItem('ks:undo-stack', '[{"x":1}]')
+  localStorage.setItem('ai_chat_messages', '[{"role":"user"}]')
+  localStorage.setItem('ks:theme', 'dark')
+  localStorage.setItem('mining-nav-pinned', '["equipment"]')
+  check('自救前的夹具就位（锁是启用的、偏好也在）',
+    appLock.lockEnabled() === true && raw() !== null && localStorage.getItem('ks:theme') === 'dark' &&
+      localStorage.getItem('ks:undo-stack') !== null && localStorage.getItem('ai_chat_messages') !== null,
+    `lockEnabled=${appLock.lockEnabled()} theme=${localStorage.getItem('ks:theme')}`)
+
+  const rescued = await appLock.rescueAndUnlock()
+  check('清空自救执行成功', rescued.ok === true, rescued.error || 'ok')
+  check('自救清掉了被这次清空作废的键（账户 / 撤销栈 / 聊天记录）',
+    raw() === null && localStorage.getItem('ks:undo-stack') === null && localStorage.getItem('ai_chat_messages') === null,
+    `app-lock=${raw() === null ? '已清' : '还在'} undo-stack=${localStorage.getItem('ks:undo-stack') === null ? '已清' : '还在'} chat=${localStorage.getItem('ai_chat_messages') === null ? '已清' : '还在'}`)
+  check('自救没动用户偏好（主题 / 导航钉住）——那是另一件事，不该顺手抹掉',
+    localStorage.getItem('ks:theme') === 'dark' && localStorage.getItem('mining-nav-pinned') !== null,
+    `theme=${localStorage.getItem('ks:theme')} pinned=${localStorage.getItem('mining-nav-pinned')}`)
+  check('自救之后锁回到"未启用"（能直接进得去，自救才算成立）',
+    appLock.lockEnabled() === false && appLock.currentAccount() === null)
+
+  // 收尾：不留状态给后面的段
+  localStorage.removeItem('ks:undo-stack')
+  localStorage.removeItem('ai_chat_messages')
+  localStorage.removeItem('ks:theme')
+  localStorage.removeItem('mining-nav-pinned')
 }
 
 // ============ 汇总 ============

@@ -40,7 +40,14 @@ function hasChatContent(chat) {
   return Object.keys(chat).length > 0
 }
 
-/** 纳入备份的 localStorage 白名单（用户设置类键；数据库兜底键天然排除） */
+/**
+ * 纳入备份的 localStorage 白名单（用户设置类键；数据库兜底键天然排除）
+ *
+ * `ks:app-lock` **刻意不在其中**：锁是本机的事（这台机器谁在用），备份是数据的事。
+ * 导出的备份里带上账户 PIN 摘要只会让"备份文件"变成一份可离线爆破的凭证；
+ * 导入侧也按这份白名单逐键写回、不清别的键，所以换机导入备份后
+ * **目标机器的锁保持原样**（原来没锁就还是没锁，原来锁着就还是那些账户）。
+ */
 const SETTINGS_KEYS = [
   'ks:theme',          // 深浅主题
   'ks:color',          // 色彩主题

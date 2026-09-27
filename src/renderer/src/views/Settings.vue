@@ -42,6 +42,61 @@
       </div>
     </el-card>
 
+    <!-- ===== 应用锁（本机界面锁） ===== -->
+    <el-card shadow="never" style="margin-bottom: 16px">
+      <template #header>
+        <div class="card-header">
+          <span><el-icon><Lock /></el-icon> 应用锁（本机界面锁）</span>
+          <el-tag size="small" :type="lockOn ? 'success' : 'info'" effect="plain">
+            {{ lockOn ? '已启用 · 每次启动要求 PIN' : '未启用' }}
+          </el-tag>
+        </div>
+      </template>
+
+      <!-- 已启用的账户 -->
+      <template v-if="lockOn">
+        <div v-if="actorLabel" class="lock-current">
+          本次运行已以 <b>{{ actorLabel }}</b> 的身份进入。
+        </div>
+        <div class="lock-list">
+          <div v-for="a in accounts" :key="a.id" class="lock-item">
+            <div class="lock-item-main">
+              <span class="lock-item-name">{{ a.name }}</span>
+              <span v-if="a.role" class="lock-item-role">{{ a.role }}</span>
+            </div>
+            <el-button link type="danger" size="small" @click="doRemoveAccount(a)">删除</el-button>
+          </div>
+        </div>
+      </template>
+
+      <!-- 新增账户表单：未启用时是"启用"，已启用时是"再加一个" -->
+      <div v-if="showForm" class="lock-form">
+        <el-input v-model="lockForm.name" maxlength="12" placeholder="姓名（例如：王建国）" style="width: 200px" />
+        <el-input v-model="lockForm.role" maxlength="16" placeholder="角色（例如：维修工程师，可留空）" style="width: 260px" />
+        <el-input v-model="lockForm.pin" type="password" maxlength="6" inputmode="numeric" placeholder="PIN（4~6 位数字）" style="width: 170px" />
+        <el-input v-model="lockForm.pin2" type="password" maxlength="6" inputmode="numeric" placeholder="再输一次 PIN" style="width: 170px" />
+        <el-button type="primary" :loading="lockBusy" @click="doCreateAccount">
+          {{ lockOn ? '添加账户' : '启用应用锁' }}
+        </el-button>
+        <el-button v-if="lockOn" @click="clearLockForm">取消</el-button>
+      </div>
+
+      <div class="lock-actions">
+        <el-button v-if="lockOn && !showForm" size="small" @click="adding = true">再加一个账户</el-button>
+        <el-button v-if="lockOn" size="small" type="danger" plain @click="doDisableLock">停用应用锁</el-button>
+      </div>
+
+      <div class="lock-hint">
+        启用后每次启动都要选身份、输 PIN；锁屏页提供「忘记 PIN？清空本机数据并解锁」的自救入口。
+        多个账户用同一套界面，各自有各自的 PIN；<b>角色只作标识</b>（界面显示 + 操作日志），<b>不做权限拦截</b>。
+      </div>
+      <div class="lock-honest">
+        <el-icon><WarningFilled /></el-icon>
+        如实说明：这是一把<b>界面锁，不是文件加密</b>——本机的数据库文件仍可被 SQLite 工具直接打开；
+        锁的配置也只存在本机浏览器存储里，清掉它就绕过了锁。它防的是「旁人随手翻看 / 误操作」，不是技术人员。
+      </div>
+    </el-card>
+
     <!-- ===== AI 助手（老师傅人设 + 排查思路表） ===== -->
     <el-card shadow="never" style="margin-bottom: 16px">
       <template #header>
@@ -231,7 +286,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAppStore } from '../stores/appStore'
 import { DAILY_OUTPUT_LOSS, PRESET_SCENARIOS } from '../utils/health'
@@ -239,6 +294,9 @@ import { exportBackup, importBackup, isElectron } from '../utils/backup'
 import { masterEnabled, setMasterEnabled } from '../utils/masterPersona'
 import { getTroubleshootMaps, saveTroubleshootMap, resetTroubleshootMaps } from '../utils/troubleshootMaps'
 import { applyPref, readMirror, readColorMirror, applyColor, saveColorMirror, watchSystem, THEME_PREF_META_KEY, COLOR_THEMES } from '../utils/theme'
+import {
+  currentAccount, createAccount, disableLock, listAccounts, lockEnabled, removeAccount
+} from '../utils/appLock'
 import * as db from '../utils/database'
 
 const store = useAppStore()
@@ -524,6 +582,125 @@ async function doImport() {
   }
 }
 
+// ---------- 应用锁（本机界面锁 + 身份，P4-1） ----------
+/**
+ * 这一块只管**账户**：启用 / 停用 / 加删。
+ *
+ * 「启动时判锁」不在这个页面 —— 它在 main.js，发生在 store 装载之前，
+ * 所以这里改完账户**不需要**重载界面：锁在下次启动时才生效。
+ * 这一点要在界面上说清楚（下面的提示文案），否则用户会以为"点了启用没反应"。
+ */
+const lockOn = ref(lockEnabled())
+const accounts = ref(listAccounts())
+const actorLabel = ref(actorText())
+const adding = ref(false)
+const lockBusy = ref(false)
+const lockForm = reactive({ name: '', role: '', pin: '', pin2: '' })
+// 未启用时表单就是"启用"的入口；已启用时默认收起，点「再加一个账户」才展开
+const showForm = computed(() => !lockOn.value || adding.value)
+
+/** 当前身份文案（形如「王建国 · 维修工程师」）；没身份就返回空串 */
+function actorText() {
+  const a = currentAccount()
+  if (!a) return ''
+  return a.role ? `${a.name} · ${a.role}` : a.name
+}
+
+function refreshLock() {
+  lockOn.value = lockEnabled()
+  accounts.value = listAccounts()
+  actorLabel.value = actorText()
+}
+
+function clearLockForm() {
+  adding.value = false
+  lockForm.name = ''
+  lockForm.role = ''
+  lockForm.pin = ''
+  lockForm.pin2 = ''
+}
+
+async function doCreateAccount() {
+  if (lockBusy.value) return
+  // "两次输入一致"只有界面能判（appLock 拿不到第二个输入框）；
+  // 姓名 / 角色的合法性交给 createAccount 统一判，免得两处规则各写一份。
+  if (lockForm.pin !== lockForm.pin2) {
+    ElMessage.error('两次输入的 PIN 不一致')
+    return
+  }
+  const wasOn = lockOn.value
+  lockBusy.value = true
+  try {
+    const r = await createAccount({ name: lockForm.name, role: lockForm.role, pin: lockForm.pin })
+    if (!r.ok) {
+      ElMessage.error(r.error)
+      return
+    }
+    const who = r.account.role ? `${r.account.name} · ${r.account.role}` : r.account.name
+    refreshLock()
+    clearLockForm()
+    ElMessage.success(wasOn
+      ? `已添加账户「${who}」`
+      : `应用锁已启用：下次启动需要用「${who}」的 PIN 解锁`)
+    store.addLog({
+      content: `${wasOn ? '添加应用锁账户' : '启用应用锁'}：${who}`,
+      source: '设置',
+      type: 'success',
+      tagType: 'success'
+    })
+  } catch (error) {
+    ElMessage.error((error && error.message) || '启用失败')
+  } finally {
+    lockBusy.value = false
+  }
+}
+
+async function doRemoveAccount(a) {
+  // 删掉最后一个账户 = 锁没了：这件事的说法必须变，不能还叫"删除账户"
+  const last = accounts.value.length <= 1
+  try {
+    await ElMessageBox.confirm(
+      last
+        ? `「${a.name}」是本机最后一个账户，删除它等于停用应用锁：此后启动不再要求输入 PIN。是否继续？`
+        : `删除账户「${a.name}」？该账户将无法再用于解锁，其它账户不受影响。`,
+      last ? '停用应用锁' : '删除账户',
+      { type: 'warning', confirmButtonText: last ? '确认停用' : '确认删除', cancelButtonText: '取消' }
+    )
+  } catch {
+    return
+  }
+  removeAccount(a.id)
+  refreshLock()
+  ElMessage.success(last ? '应用锁已停用' : `已删除账户「${a.name}」`)
+  store.addLog({
+    content: `${last ? '停用应用锁（删除最后一个账户）' : '删除应用锁账户'}：${a.name}`,
+    source: '设置',
+    type: 'warning',
+    tagType: 'warning'
+  })
+}
+
+async function doDisableLock() {
+  try {
+    await ElMessageBox.confirm(
+      '停用后本机不再保留任何账户，每次启动都不再要求输入 PIN。已配置的账户与 PIN 会被清除（设备台账等业务数据不受影响）。',
+      '停用应用锁',
+      { type: 'warning', confirmButtonText: '确认停用', cancelButtonText: '取消' }
+    )
+  } catch {
+    return
+  }
+  disableLock()
+  refreshLock()
+  ElMessage.success('应用锁已停用')
+  store.addLog({
+    content: '停用应用锁',
+    source: '设置',
+    type: 'warning',
+    tagType: 'warning'
+  })
+}
+
 // 展示数据库文件位置（Electron 桌面版）
 async function loadDbInfo() {
   try {
@@ -618,8 +795,105 @@ loadDbInfo()
   font-size: 16px;
   font-weight: 700;
   /* 深色对勾 + 白晕：深色/浅色 swatch 上都可辨认（白字在浅底上 1:1 不达标） */
-  color: var(--ink-1);
+  color: var(--ink);
   text-shadow: 0 0 2px #fff, 0 0 2px #fff;
+}
+
+/* ---------- 应用锁卡片 ---------- */
+
+.lock-current {
+  font-size: 13px;
+  color: var(--text-2);
+  margin-bottom: 10px;
+}
+
+.lock-current b {
+  color: var(--text-1);
+}
+
+.lock-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.lock-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+/* min-width:0 让姓名过长时先压缩自己，而不是把「删除」挤出这一行 */
+.lock-item-main {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.lock-item-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lock-item-role {
+  font-size: 12px;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+
+.lock-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 12px;
+}
+
+.lock-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.lock-hint {
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.7;
+  margin-bottom: 10px;
+}
+
+/* 如实说明那条：给个底色，让人一眼看出这是"边界声明"而不是又一段功能说明 */
+.lock-honest {
+  padding: 8px 10px;
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.7;
+}
+
+/*
+ * 图标走 inline + vertical-align，**不要**把这一块做成 flex：
+ * 段子里有行内 <b>（"界面锁，不是文件加密"），一旦父级是 flex，
+ * 每个文本节点和 <b> 都会各自变成一个 flex 项，句子被拆成几段并排，
+ * 实测渲染成"这是一 把 / 界面锁，不是文件加 密"这种夹着空隙的碎片。
+ */
+.lock-honest .el-icon {
+  margin-right: 4px;
+  vertical-align: -2px;
+  color: var(--danger-ink);
 }
 
 .card-header {
