@@ -30,7 +30,14 @@ export default [
       // 但 eslint 看的是工作区、git 看的是版本控制，两件事 —— 不在这里再忽略一次的话，
       // 一个随手写的探针就能让 npm run verify 在第一步 lint 挂掉，而原因与项目代码无关。
       '.tmp-*/**',
-      '.audit-probe*.mjs'
+      '.audit-probe*.mjs',
+      // 同理，而且**实际撞过一次**：`.workbuddy/` 是一次性探针、截图与
+      // "能失败验证"备份的目录，始终不进版本库（它的纪律是只用显式
+      // `git add <paths>`，绝不 `git add -A`）。做 P4-2 的变异验证时把一份
+      // .vue 备份到了 `.workbuddy/mutbak/`，`npm run verify` 第一步 lint 就报
+      // `Component name "Settings" should always be multi-word` ——
+      // 报的是备份文件、与项目代码无关，但整条链停在这里。
+      '.workbuddy/**'
     ]
   },
 
