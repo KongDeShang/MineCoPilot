@@ -11,9 +11,10 @@ import { spawn } from 'node:child_process'
 import { existsSync, rmSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ensureServer, stopServer, seedTourSeen } from './devServer.mjs'
+import { ensureServer, resolveCleanBase, stopServer, seedTourSeen } from './devServer.mjs'
 
-const BASE = process.env.E2E_BASE_URL || 'http://localhost:5173'
+// 顶层 await 定地址：外部服务器若被 HMR 污染就换端口自起干净的（详见 devServer.mjs）
+const BASE = await resolveCleanBase(process.env.E2E_BASE_URL || 'http://localhost:5173')
 const CDP_PORT = Number(process.env.E2E_NL_CDP_PORT || 9224)
 const CDP = `http://127.0.0.1:${CDP_PORT}`
 

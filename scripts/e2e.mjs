@@ -13,9 +13,11 @@ import { spawn } from 'node:child_process'
 import { existsSync, rmSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ensureServer, stopServer, seedTourSeen, unseedTourSeen } from './devServer.mjs'
+import { ensureServer, resolveCleanBase, stopServer, seedTourSeen, unseedTourSeen } from './devServer.mjs'
 
-const BASE = process.env.E2E_BASE_URL || 'http://localhost:5173'
+// 顶层 await 定地址：外部那个开发服务器若已被 HMR 污染（页面里会出现同名模块的两份实例，
+// 脚本按裸路径 import 拿到的是没 init 过的那份），就换端口自起一份干净的。详见 devServer.mjs。
+const BASE = await resolveCleanBase(process.env.E2E_BASE_URL || 'http://localhost:5173')
 const CDP_PORT = Number(process.env.E2E_CDP_PORT || 9222)
 const CDP = `http://127.0.0.1:${CDP_PORT}`
 
@@ -371,6 +373,12 @@ async function main() {
       return result
     })()`)
     console.info(`[e2e] 清空本机数据：${cleared}`)
+    // 特意在这里说一句：**从这里到结束都不会再有输出**（逐条打印要 `E2E_TRACE=1`，
+    // 默认只在末尾统一汇总）。2026-09-27 做 P4-3 时就是照着"日志一直不动"把两轮
+    // **正在正常运行**的 e2e 判成了卡死、中途杀掉，白丢两轮。要看它在不在跑，看
+    // 浏览器那侧（`curl -s http://127.0.0.1:9222/json/list` 里页面 URL 在不在变），
+    // 不是看这个日志。
+    console.info('[e2e] 断言结果在结束时统一汇总，中途无输出属正常（要看逐条进度设 E2E_TRACE=1）')
     await session.send('Page.reload', { ignoreCache: true })
     await sleep(5500)
 
