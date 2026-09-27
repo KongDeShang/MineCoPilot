@@ -67,6 +67,20 @@
             <el-button link type="danger" size="small" @click="doRemoveAccount(a)">删除</el-button>
           </div>
         </div>
+
+        <!-- 空闲自动锁（P4-2）。演示友好是硬要求：必须能关掉，也必须能一眼看出当前是什么状态 -->
+        <div class="lock-idle">
+          <span class="lock-idle-label">空闲自动锁</span>
+          <el-select v-model="idleMinutes" size="small" style="width: 118px" @change="doSetIdle">
+            <el-option :value="0" label="关闭" />
+            <el-option :value="1" label="1 分钟" />
+            <el-option :value="5" label="5 分钟" />
+            <el-option :value="10" label="10 分钟" />
+            <el-option :value="15" label="15 分钟" />
+            <el-option :value="30" label="30 分钟" />
+          </el-select>
+          <span class="lock-idle-note" :class="{ 'is-off': idleMinutes === 0 }">{{ idleText }}</span>
+        </div>
       </template>
 
       <!-- 新增账户表单：未启用时是"启用"，已启用时是"再加一个" -->
@@ -89,6 +103,7 @@
       <div class="lock-hint">
         启用后每次启动都要选身份、输 PIN；锁屏页提供「忘记 PIN？清空本机数据并解锁」的自救入口。
         多个账户用同一套界面，各自有各自的 PIN；<b>角色只作标识</b>（界面显示 + 操作日志），<b>不做权限拦截</b>。
+        <b>上台演示前，建议把「空闲自动锁」改成关闭或调长</b> —— 讲解到一半当场弹回锁屏是最尴尬的一种失败。
       </div>
       <div class="lock-honest">
         <el-icon><WarningFilled /></el-icon>
@@ -295,7 +310,8 @@ import { masterEnabled, setMasterEnabled } from '../utils/masterPersona'
 import { getTroubleshootMaps, saveTroubleshootMap, resetTroubleshootMaps } from '../utils/troubleshootMaps'
 import { applyPref, readMirror, readColorMirror, applyColor, saveColorMirror, watchSystem, THEME_PREF_META_KEY, COLOR_THEMES } from '../utils/theme'
 import {
-  currentAccount, createAccount, disableLock, listAccounts, lockEnabled, removeAccount
+  currentAccount, createAccount, disableLock, getIdleMinutes, listAccounts, lockEnabled,
+  removeAccount, setIdleMinutes
 } from '../utils/appLock'
 import * as db from '../utils/database'
 
@@ -606,10 +622,44 @@ function actorText() {
   return a.role ? `${a.name} · ${a.role}` : a.name
 }
 
+/**
+ * 空闲自动锁（P4-2）。这里选的时长**当次就生效**：main.js 的计时器每 15 秒
+ * 重新读一次阈值，所以调长/关掉不用重启 —— "改完要重启才生效"在演示前
+ * 临时调整的那一刻最气人。
+ *
+ * 但要如实说清一个限定：**计时器本身只在启动装载时安装一次**（installIdleLock）。
+ * 于是在"本次运行里刚启用应用锁"这一种情况下，要到下次启动才有计时器 ——
+ * 这和整个应用锁"锁在下次启动才生效"的口径是一致的，卡片上的提示文案也是这么写的。
+ */
+const idleMinutes = ref(getIdleMinutes())
+const idleText = computed(() =>
+  idleMinutes.value === 0
+    ? '不自动锁 —— 只在启动时要求 PIN'
+    : `闲置 ${idleMinutes.value} 分钟就回锁屏，要重新输 PIN`
+)
+
+async function doSetIdle(value) {
+  const r = setIdleMinutes(value)
+  if (!r.ok) {
+    ElMessage.error(r.error)
+    idleMinutes.value = getIdleMinutes()
+    return
+  }
+  // 回读一次：万一日后被夹取，界面显示的必须是真正落盘的那个值
+  idleMinutes.value = getIdleMinutes()
+  store.addLog({
+    level: idleMinutes.value === 0 ? 'warning' : 'info',
+    module: '应用锁',
+    message: idleMinutes.value === 0 ? '关闭了空闲自动锁' : `空闲自动锁设为 ${idleMinutes.value} 分钟`
+  })
+  ElMessage.success(idleMinutes.value === 0 ? '已关闭空闲自动锁' : `空闲 ${idleMinutes.value} 分钟后自动锁屏`)
+}
+
 function refreshLock() {
   lockOn.value = lockEnabled()
   accounts.value = listAccounts()
   actorLabel.value = actorText()
+  idleMinutes.value = getIdleMinutes()
 }
 
 function clearLockForm() {
@@ -858,6 +908,29 @@ loadDbInfo()
   align-items: center;
   gap: 8px;
   margin: 2px 0 12px;
+}
+
+.lock-idle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.lock-idle-label {
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.lock-idle-note {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+/* 关掉时给个提示色：演示前专门来关它的人，不该看漏自己有没有关成功 */
+.lock-idle-note.is-off {
+  color: var(--warn-ink);
 }
 
 .lock-actions {

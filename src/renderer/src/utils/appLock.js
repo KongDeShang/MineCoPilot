@@ -31,6 +31,18 @@ const LOCK_KEY = 'ks:app-lock'
 const CONFIG_VERSION = 1
 
 /**
+ * 空闲自动锁的默认时长（分钟）。**0 = 关闭**。
+ *
+ * 为什么默认开着：锁的意义是"人走开时挡住界面"，只在启动时锁的话，
+ * 中途去倒杯水、把笔记本留在演示台上就形同虚设。
+ * 为什么设置页必须能关掉/调长：演示时它当场弹出来是最尴尬的一种失败（P4-2 硬要求）。
+ */
+const DEFAULT_IDLE_MINUTES = 10
+
+/** 上限：4 小时。再长就等于关掉了，不如直说关掉 */
+const MAX_IDLE_MINUTES = 240
+
+/**
  * PBKDF2 迭代次数。
  * 取 10 万：在办公笔记本的浏览器里实测约 50~120 ms —— 对"解锁时算一次"足够快，
  * 对"离线爆破一个 4~6 位纯数字 PIN"则是明确的阻碍。**这不是密码学强度的承诺**：
@@ -131,6 +143,69 @@ function emptyConfig() {
 }
 
 /**
+ * 空闲自动锁的时长（分钟）。0 = 关闭。读不到/不认识一律回落默认。
+ *
+ * 为什么脏值朝"默认（会锁）"倒而不是朝"关闭"倒：这是一个锁的设置项，
+ * 手改 localStorage 改坏了不该让锁变成"永不锁"。**这与凭证校验的取舍方向一致**
+ * （WebCrypto 不可用时拒绝解锁，不放行）。
+ */
+export function getIdleMinutes() {
+  const raw = readConfig().idleMinutes
+  if (raw === 0) return 0 // 显式关闭
+  if (!Number.isInteger(raw) || raw < 1 || raw > MAX_IDLE_MINUTES) return DEFAULT_IDLE_MINUTES
+  return raw
+}
+
+/**
+ * 设置空闲自动锁时长（分钟），0 = 关闭。
+ * @returns `{ ok:true, minutes }` 或 `{ ok:false, error }`
+ *
+ * **非法值一律拒绝，不做静默收敛**：调用方是设置页的几个固定选项，
+ * 出现别的值就是代码有 bug；这时"擅自关掉自动锁"与"擅自设成 10 分钟"
+ * 都是在替用户做决定，不如报错让调用方看见。
+ */
+export function setIdleMinutes(minutes) {
+  const v = Number(minutes)
+  const valid = v === 0 || (Number.isInteger(v) && v >= 1 && v <= MAX_IDLE_MINUTES)
+  if (!valid) return { ok: false, error: `空闲时长只能是 0（关闭）或 1~${MAX_IDLE_MINUTES} 之间的整数` }
+  const config = readConfig()
+  config.idleMinutes = v
+  writeConfig(config)
+  return { ok: true, minutes: v }
+}
+
+/**
+ * 该不该锁？**纯函数**（喂两个时间戳就能测，不需要真的等 10 分钟）。
+ *
+ * @param {number} lastActivityAt 最后一次活动的时间戳
+ * @param {number} now 当前时间戳
+ * @param {number} minutes 空闲阈值（分钟，0 = 关闭）
+ */
+export function shouldAutoLock(lastActivityAt, now, minutes) {
+  // 关闭（0）与"没配/配脏了"（undefined、NaN）都算关闭 —— 这里**不**回落默认值：
+  // 回落默认值会让"没配"变成"默认 10 分钟就锁"，而调用方本意是不锁。
+  if (!(minutes > 0)) return false
+  if (!Number.isFinite(lastActivityAt) || !Number.isFinite(now)) return false
+  // 系统时钟被回拨（对时、休眠唤醒）：宁可这一次不锁，也不要拿"未来"去算"闲置了多久"
+  if (now < lastActivityAt) return false
+  return now - lastActivityAt >= minutes * 60000
+}
+
+/**
+ * 立刻回到锁定态。
+ *
+ * 只清内存里的会话，**不动任何存储**（账户还在、数据还在）。
+ * 调用方 main.js 拿到之后会 `location.reload()` 重新走一遍启动判锁 ——
+ * 于是"未解锁时业务数据不装载"这条结构保证在自动锁之后同样成立。
+ * 就地盖一层锁屏是另一条路：store / 路由 / 模型都还活着，只是被遮住，
+ * 那正是 P4-1 特意避开的那种"靠约定"。
+ */
+export function lockNow() {
+  unlockedAccountId = null
+  return { ok: true }
+}
+
+/**
  * 读配置。**任何异常都收敛成空配置**（锁打不开比丢锁配置严重得多）：
  * 非法 JSON、旧版本、字段缺失都不该让应用起不来。
  */
@@ -148,14 +223,22 @@ function readConfig() {
     const accounts = Array.isArray(parsed.accounts) ? parsed.accounts : []
     // 逐条筛：字段不全的账户不算账户（否则锁屏上会出现一个永远解不开的头像）
     const usable = accounts.filter(a => a && a.id && a.name && a.salt && a.hash)
-    return { version: CONFIG_VERSION, accounts: usable }
+    const config = { version: CONFIG_VERSION, accounts: usable }
+    // 空闲时长原样带过来（合法性由 getIdleMinutes 判）—— **这里不丢字段**，
+    // 否则每次改账户都会把用户的空闲设置抹成默认
+    if (Object.prototype.hasOwnProperty.call(parsed, 'idleMinutes')) {
+      config.idleMinutes = parsed.idleMinutes
+    }
+    return config
   } catch {
     return emptyConfig()
   }
 }
 
 function writeConfig(config) {
-  localStorage.setItem(LOCK_KEY, JSON.stringify({ version: CONFIG_VERSION, accounts: config.accounts || [] }))
+  const out = { version: CONFIG_VERSION, accounts: config.accounts || [] }
+  if (config.idleMinutes !== undefined) out.idleMinutes = config.idleMinutes
+  localStorage.setItem(LOCK_KEY, JSON.stringify(out))
 }
 
 // ---------- 会话（只放内存） ----------
@@ -253,9 +336,17 @@ export function removeAccount(id) {
   return { ok: true, remaining: config.accounts.length }
 }
 
-/** 停用锁（清空全部账户），并退出解锁态 */
+/**
+ * 停用锁（清空全部账户），并退出解锁态。
+ *
+ * **只清账户，保留空闲时长设置**：停用再启用是常见操作（换个账户、临时关一下），
+ * 顺手把用户选的"关闭/30 分钟"抹回默认 10 分钟是另一件事，不该夹在这里做。
+ */
 export function disableLock() {
-  writeConfig(emptyConfig())
+  const config = emptyConfig()
+  const idle = readConfig().idleMinutes
+  if (idle !== undefined) config.idleMinutes = idle
+  writeConfig(config)
   unlockedAccountId = null
   return { ok: true }
 }

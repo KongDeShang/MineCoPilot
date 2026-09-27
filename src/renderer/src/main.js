@@ -26,7 +26,7 @@ import { applyPref, readMirror, readColorMirror, applyColor, watchSystem, THEME_
 import * as db from './utils/database'
 import { bootStep } from './utils/bootSplash'
 import { installErrorBoundaries } from './utils/errorBoundary'
-import { lockEnabled } from './utils/appLock'
+import { getIdleMinutes, lockEnabled, lockNow, shouldAutoLock } from './utils/appLock'
 
 /**
  * 装配主应用外壳（**不含**数据装载）。
@@ -53,6 +53,57 @@ function createMainApp() {
   // 中文 locale：按需引入模式下由 globalProperties 注入，与全量 app.use(ElementPlus, { locale }) 等效
   app.config.globalProperties.$ELEMENT = { locale: zhCn }
   return app
+}
+
+/** 空闲自动锁的检查间隔（毫秒）。比它短没意义，比它长会让人多等一截 */
+const IDLE_TICK_MS = 15000
+
+/**
+ * 空闲自动锁（P4-2）：闲置到点就回锁屏。
+ *
+ * ── 到点做什么：`lockNow()` + `location.reload()`，而不是就地盖一层锁屏 ──────
+ * 就地盖一层看着更"优雅"，但那样 store、路由、模型全都还活着，只是被一块遮罩挡住 ——
+ * 那正是 P4-1 特意避开的那种"靠约定"。重载会重新走一遍启动判锁，
+ * 于是"未解锁时业务数据不装载"这条结构保证在自动锁之后同样成立。
+ * 代价如实说明：锁的一瞬间会闪一下重载（本次运行本来也不需要保住什么视图状态）。
+ *
+ * ── 什么算"活动" ──────────────────────────────────────────────────────────
+ * 指针按下 / 按键 / 滚轮 / 触摸。**刻意不把"窗口重新可见"算活动**：
+ * 人离开时窗口最小化、三小时后回来，那种情况恰恰应该锁；回来后第一次
+ * 按键或点击自然会重置计时。
+ */
+function installIdleLock(store) {
+  if (!lockEnabled()) return
+
+  let last = Date.now()
+  let lastBump = 0
+  // 节流：滚轮与指针每秒能来几十次，没必要每次都取时间
+  const onActivity = () => {
+    const t = Date.now()
+    if (t - lastBump < 2000) return
+    lastBump = t
+    last = t
+  }
+  for (const ev of ['pointerdown', 'keydown']) window.addEventListener(ev, onActivity)
+  for (const ev of ['wheel', 'touchstart']) window.addEventListener(ev, onActivity, { passive: true })
+
+  // 每次 tick 重新读时长：设置页改了阈值不该要求重启应用
+  let locking = false
+  setInterval(() => {
+    if (locking) return
+    const minutes = getIdleMinutes()
+    if (!lockEnabled() || !shouldAutoLock(last, Date.now(), minutes)) return
+    locking = true
+    // 先落盘再上锁：上锁只是清内存里的会话，但重载会丢掉未落盘的变更。
+    // 落盘失败也照样锁（锁失效比丢一次自动保存严重得多），只记一行控制台。
+    try {
+      store.saveNow()
+    } catch (error) {
+      console.error('[应用锁] 空闲上锁前落盘失败（仍继续上锁）：', error)
+    }
+    lockNow()
+    location.reload()
+  }, IDLE_TICK_MS)
 }
 
 async function bootstrap() {
@@ -98,6 +149,9 @@ async function bootstrap() {
       router,
       log: (entry, options) => store.addLog(entry, options)
     })
+
+    // 空闲自动锁只在"配了锁"时才有意义（没账户就没有锁屏可回）
+    installIdleLock(store)
   }
 
   if (!lockEnabled()) {

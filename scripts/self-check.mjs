@@ -2488,6 +2488,83 @@ function check(name, condition, detail = '') {
   localStorage.removeItem('mining-nav-pinned')
 }
 
+// ============ R 空闲自动锁（判定纯函数 + 设置读写，P4-2） ============
+/**
+ * 「到点该不该锁」写成纯函数，就是为了在这里喂时间戳测边界 ——
+ * 而不是在 e2e 里真等 10 分钟。界面接线（计时器真的装上、真的回锁屏）归 e2e。
+ */
+{
+  const LOCK_KEY = 'ks:app-lock'
+  const MIN = 60000
+  localStorage.removeItem(LOCK_KEY)
+
+  // ---- 默认值 ----
+  check('没配过时空闲自动锁是默认 10 分钟（不是"关闭"——默认应当是锁着的）',
+    appLock.getIdleMinutes() === 10, `getIdleMinutes=${appLock.getIdleMinutes()}`)
+
+  // ---- 判定边界 ----
+  const now = 1800000000000
+  check('到点判定：恰好到阈值就锁（含等号，不能差一毫秒就不锁）',
+    appLock.shouldAutoLock(now - 10 * MIN, now, 10) === true)
+  check('到点判定：差 1 毫秒不锁',
+    appLock.shouldAutoLock(now - 10 * MIN + 1, now, 10) === false)
+  check('到点判定：闲置远超阈值当然锁',
+    appLock.shouldAutoLock(now - 180 * MIN, now, 10) === true)
+  check('阈值 0 = 关闭：闲置再久也不锁',
+    appLock.shouldAutoLock(now - 600 * MIN, now, 0) === false)
+  check('阈值缺失/非法一律当关闭（这里刻意不回落默认 10 分钟，否则"没配"会变成"默认就锁"）',
+    appLock.shouldAutoLock(now - 60 * MIN, now, undefined) === false &&
+      appLock.shouldAutoLock(now - 60 * MIN, now, NaN) === false,
+    `undefined=${appLock.shouldAutoLock(now - 60 * MIN, now, undefined)} NaN=${appLock.shouldAutoLock(now - 60 * MIN, now, NaN)}`)
+  check('系统时钟被回拨（now 早于最后活动）不锁 —— 宁可这一次不锁，也不要拿"未来"算闲置',
+    appLock.shouldAutoLock(now + 60 * MIN, now, 10) === false)
+  check('时间戳非法（NaN / Infinity）不锁，不抛异常',
+    appLock.shouldAutoLock(NaN, now, 10) === false && appLock.shouldAutoLock(0, Infinity, 10) === false)
+  check('阈值 1 分钟就按 1 分钟算（设置页最短那一档）',
+    appLock.shouldAutoLock(now - MIN, now, 1) === true &&
+      appLock.shouldAutoLock(now - MIN + 1, now, 1) === false)
+
+  // ---- 设置读写 ----
+  check('设为关闭能存住（演示前要关得掉，这是硬要求）',
+    appLock.setIdleMinutes(0).ok === true && appLock.getIdleMinutes() === 0,
+    `getIdleMinutes=${appLock.getIdleMinutes()}`)
+  check('设为 30 分钟能存住并读回', appLock.setIdleMinutes(30).ok === true && appLock.getIdleMinutes() === 30)
+  check('非法值一律拒绝，且**不改动**已存的值（拒绝要真的不落盘）',
+    appLock.setIdleMinutes(2.5).ok === false && appLock.setIdleMinutes(-1).ok === false &&
+      appLock.setIdleMinutes(1000000000).ok === false && appLock.setIdleMinutes('abc').ok === false &&
+      appLock.getIdleMinutes() === 30,
+    `读回=${appLock.getIdleMinutes()}`)
+  check('落盘里存的是数字，不是字符串（否则读回时会回落默认）',
+    typeof JSON.parse(localStorage.getItem(LOCK_KEY)).idleMinutes === 'number',
+    JSON.stringify(JSON.parse(localStorage.getItem(LOCK_KEY))))
+
+  check('脏值回落默认 10 分钟（手改坏了不该让锁变成"永不锁"）',
+    (() => {
+      const cfg = JSON.parse(localStorage.getItem(LOCK_KEY))
+      cfg.idleMinutes = 'x'
+      localStorage.setItem(LOCK_KEY, JSON.stringify(cfg))
+      return appLock.getIdleMinutes() === 10
+    })(), `读回=${appLock.getIdleMinutes()}`)
+
+  // ---- 与账户的相互影响 ----
+  appLock.setIdleMinutes(15)
+  const rAcc = await appLock.createAccount({ name: '空闲测试', role: '巡检工', pin: '1357' })
+  check('加账户不会把空闲设置抹掉（读写配置时不许丢字段）',
+    rAcc.ok === true && appLock.getIdleMinutes() === 15, `getIdleMinutes=${appLock.getIdleMinutes()}`)
+
+  check('lockNow 只清本次会话，不停用锁、不动账户',
+    appLock.currentAccount() !== null &&
+      appLock.lockNow().ok === true &&
+      appLock.currentAccount() === null &&
+      appLock.lockEnabled() === true && appLock.listAccounts().length === 1,
+    `账户还在=${appLock.listAccounts().length}`)
+  check('停用锁之后空闲设置仍然保留（停用再启用不该把用户选的档位抹回默认）',
+    appLock.disableLock().ok === true && appLock.getIdleMinutes() === 15,
+    `getIdleMinutes=${appLock.getIdleMinutes()}`)
+
+  localStorage.removeItem(LOCK_KEY)
+}
+
 // ============ 汇总 ============
 const failed = results.filter(r => !r.ok)
 for (const r of results) {

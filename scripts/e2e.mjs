@@ -257,6 +257,27 @@ const LOCK_HELPER = `
     document.querySelector('.lock-btn').click()
     return { ok: true }
   };
+  // 在设置页的「空闲自动锁」下拉里选一档（P4-2）。
+  // 同样不抛异常：缺哪一环就返回哪一环的 why，交给断言去报红 ——
+  // 这里要是写成裸 querySelector().click()，设置页还没渲染完就会
+  // 把整轮 e2e 打断（和 __unlock 那次踩的是同一个坑）。
+  window.__pickIdle = async (label) => {
+    const sel = document.querySelector('.lock-idle .el-select')
+    if (!sel) return { ok: false, why: '设置页没有「空闲自动锁」那一行' }
+    ;(sel.querySelector('.el-select__wrapper') || sel).click()
+    let item = null
+    const deadline = Date.now() + 3000
+    while (Date.now() < deadline) {
+      item = Array.from(document.querySelectorAll('.el-select-dropdown__item'))
+        .find(o => o.textContent.trim() === label)
+      if (item) break
+      await new Promise(r => setTimeout(r, 100))
+    }
+    if (!item) return { ok: false, why: '下拉里没有这一档：' + label }
+    item.click()
+    await new Promise(r => setTimeout(r, 600))
+    return { ok: true, picked: label }
+  };
   'lock-helper-ready'
 `
 
@@ -2395,6 +2416,201 @@ async function main() {
     check('应用锁：清空自救后演示数据重新播种（不是留下一台空库）',
       rescued.equipCount > 0 && rescued.firstStat === String(rescued.equipCount),
       `台账 ${rescued.equipCount} 台 / 看板显示「${rescued.firstStat}」`)
+
+    // ---------- 15) 空闲自动锁（P4-2）----------
+    /**
+     * 这一段要证的是**接上了没有**，不是算术。
+     *
+     * 「多久才算闲置」的边界（恰好到阈值 / 差 1 毫秒 / 阈值 0 / 时钟回拨 / 脏值回落）
+     * 在 self-check 里喂时间戳测过 —— 那边快、准，而且每条都做过"能失败"验证。
+     * 这里只留真正非得"等"的三件事：
+     *   ① 计时器在跑，而且读的是设置里那个阈值 ⇒ 到点真的回锁屏
+     *   ② 中途有活动就重新计时 ⇒ 到点那一刻不该锁
+     *   ③ 界面上关掉之后 ⇒ 真的不再锁（演示前最需要的那一下）
+     *
+     * 阈值为什么用 1 分钟：它是设置页能选的**最小档**。想要更快就得绕开界面直接
+     * 写 localStorage，那测的就不是用户走得通的那条路了。代价是这一段要跑近三分钟 ——
+     * 时间行为没法在时间上偷懒。
+     *
+     * 为什么必须先 reload：main.js 的 installIdleLock 只在**启动装载**时装一次，
+     * 本次运行里刚启用的锁这一趟根本没有计时器。不刷新就会"等半天也不锁"，
+     * 而那是用法问题，不是缺陷 —— 这段前面那句提示文案说的就是这件事。
+     */
+    const waitTo = async (t0, ms) => {
+      const left = ms - (Date.now() - t0)
+      if (left > 0) await sleep(left)
+    }
+
+    /**
+     * 制造一次"真的活动"。走 CDP 的原生按键（渲染进程的输入管线，页面收到的是
+     * trusted 事件），**不用** `new KeyboardEvent('keydown')` 合成一个：
+     * 合成事件能过"有没有监听器"这种断言，却证明不了真按键也会被算作活动。
+     * 发 Shift：不产生文本、不触发任何快捷键，副作用最小。
+     */
+    const nudgeActivity = async () => {
+      const key = { windowsVirtualKeyCode: 16, nativeVirtualKeyCode: 16, code: 'ShiftLeft', key: 'Shift', location: 1 }
+      await session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...key, modifiers: 8 })
+      await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...key, modifiers: 0 })
+    }
+
+    /**
+     * 注入 helper 再求值。**这一段里每一步都必须重新注入一次。**
+     *
+     * 理由：空闲上锁走的是 `location.reload()`，注入到 window 上的 `__unlock` /
+     * `__pickIdle` 会随页面一起消失。第一次写这段时没重注入，结果变异 M7
+     * （把活动监听全去掉 ⇒ 60 秒就该锁 ⇒ 到 82 秒页面早已刷新过）当场得到
+     * `TypeError: window.__pickIdle is not a function`，**整轮 e2e 又是只留一句话、
+     * 已收集的断言全部丢失** —— 和当初 `__unlock` 那次是同一个坑，只不过这次
+     * 不是"元素不在"而是"函数不在"。
+     *
+     * 重注入是幂等的（只是重新定义几个 window 函数），而且**不会掩盖缺陷**：
+     * 页面若已回到锁屏，`__pickIdle` 自己会返回「设置页没有「空闲自动锁」那一行」，
+     * 这比一句 TypeError 有用得多。
+     */
+    const withLockHelper = async (expression) => {
+      await session.eval(LOCK_HELPER)
+      return session.eval(expression)
+    }
+
+    // 15a) 起点：块 14 的自救把锁配置连同数据一起清了，此刻是"没账户、不设防"的状态。
+    //      先建一个账户（默认档位不动），看设置页写的是不是那回事。
+    const idleArm = await session.eval(`(async () => {
+      const m = await import('/src/utils/appLock.js')
+      const created = await m.createAccount({ name: '李巡检', role: '巡检工', pin: '1357' })
+      location.hash = '#/settings'
+      await new Promise(r => setTimeout(r, 1800))
+      const sel = document.querySelector('.lock-idle .el-select')
+      const note = document.querySelector('.lock-idle-note')
+      return {
+        created: created.ok === true, createErr: created.error || '',
+        defMinutes: m.getIdleMinutes(),
+        selText: sel ? sel.textContent.trim() : '(没有下拉)',
+        note: note ? note.textContent.trim() : '(没有说明)'
+      }
+    })()`)
+    check('空闲自动锁：默认 10 分钟，设置页把当前档位与后果都写在明面上',
+      idleArm.created === true && idleArm.defMinutes === 10 &&
+        /10 分钟/.test(idleArm.selText) && /闲置 10 分钟/.test(idleArm.note),
+      idleArm.createErr || `下拉「${idleArm.selText}」/ 说明「${idleArm.note}」/ 落盘 ${idleArm.defMinutes}`)
+
+    const idlePick = await withLockHelper(`window.__pickIdle('1 分钟')`)
+    check('空闲自动锁：能在这个下拉里改档位（演示前调长/关掉走的就是这条路）',
+      idlePick.ok === true && idlePick.picked === '1 分钟',
+      idlePick.why || `选中「${idlePick.picked || '(空)'}」`)
+
+    const idlePicked = await session.eval(`(async () => {
+      const m = await import('/src/utils/appLock.js')
+      const sel = document.querySelector('.lock-idle .el-select')
+      const note = document.querySelector('.lock-idle-note')
+      return {
+        minutes: m.getIdleMinutes(),
+        selText: sel ? sel.textContent.trim() : '(没有下拉)',
+        note: note ? note.textContent.trim() : '(没有说明)'
+      }
+    })()`)
+    check('空闲自动锁：改完界面回读的是真正落盘的值（不是只改了显示）',
+      idlePicked.minutes === 1 && /1 分钟/.test(idlePicked.selText) && /闲置 1 分钟/.test(idlePicked.note),
+      `下拉「${idlePicked.selText}」/ 说明「${idlePicked.note}」/ 落盘 ${idlePicked.minutes}`)
+
+    // 15b) 刷新 ⇒ 必须落在锁屏上（这一步同时把计时器装上：installIdleLock 在 boot 里）
+    await session.send('Page.reload', { ignoreCache: true })
+    await sleep(3400)
+    const idleBoot = await withLockHelper(`(async () => {
+      const tried = await window.__unlock('1357')
+      const deadline = Date.now() + 15000
+      while (Date.now() < deadline && !document.querySelector('.app-main')) {
+        await new Promise(r => setTimeout(r, 300))
+      }
+      return { tried: tried.ok === true, why: tried.why || '', appMain: !!document.querySelector('.app-main') }
+    })()`)
+    check('空闲自动锁：配了锁之后刷新，照常先落在锁屏，用新账户的 PIN 能进',
+      idleBoot.tried === true && idleBoot.appMain === true,
+      idleBoot.why || `解锁按钮点到了=${idleBoot.tried} 内容区=${idleBoot.appMain}`)
+    // 计时器就是在刚刚这次装载里启动的（installIdleLock 在 bootAppData 末尾），
+    // 所以把"现在"当作时间轴的原点：后面的等待都按目标时刻倒推，不吃 sleep 的漂移。
+    const bootAt = Date.now()
+
+    // 15c) 到点前敲一下键 ⇒ 计时必须重置。
+    //      判据取在 82 秒：没有这次重置的话，最后一个 tick 在 75 秒就该锁了。
+    await waitTo(bootAt, 40000)
+    await nudgeActivity()
+    await waitTo(bootAt, 82000)
+    const idleAlive = await withLockHelper(`(async () => {
+      const locked = !!document.querySelector('.lock-screen')
+      const picked = await window.__pickIdle('关闭')
+      const m = await import('/src/utils/appLock.js')
+      const sel = document.querySelector('.lock-idle .el-select')
+      const note = document.querySelector('.lock-idle-note')
+      return {
+        locked, pickedOk: picked.ok === true, pickedWhy: picked.why || '',
+        minutes: m.getIdleMinutes(),
+        selText: sel ? sel.textContent.trim() : '(没有下拉)',
+        note: note ? note.textContent.trim() : '(没有说明)'
+      }
+    })()`)
+    check('空闲自动锁：中途有活动就重新计时（没重置的话这个点早就锁了）',
+      idleAlive.locked === false, `此刻锁屏在=${idleAlive.locked}`)
+    check('空闲自动锁：界面上能关掉，界面文案与落盘同步变成「不自动锁」',
+      idleAlive.pickedOk === true && idleAlive.minutes === 0 &&
+        /关闭/.test(idleAlive.selText) && /不自动锁/.test(idleAlive.note),
+      idleAlive.pickedWhy || `下拉「${idleAlive.selText}」/ 说明「${idleAlive.note}」/ 落盘 ${idleAlive.minutes}`)
+
+    // 15d) 关掉之后撑过原本该锁的那一刻（开着的档位在 105 秒就该锁了）
+    await waitTo(bootAt, 142000)
+    const idleStillOff = await session.eval(`(async () => {
+      const m = await import('/src/utils/appLock.js')
+      return { locked: !!document.querySelector('.lock-screen'), minutes: m.getIdleMinutes() }
+    })()`)
+    check('空闲自动锁：关掉之后真的不再锁（撑过了 1 分钟档本该到点的那一刻）',
+      idleStillOff.locked === false && idleStillOff.minutes === 0,
+      `此刻锁屏在=${idleStillOff.locked} / 落盘 ${idleStillOff.minutes}`)
+
+    // 15e) 再开回 1 分钟。此刻已经闲置了两分多钟（远超阈值）⇒ 下一次检查就该回锁屏。
+    //      这条同时覆盖"开着锁、但已经闲置超时"的即时性：不必再等一个完整周期。
+    const idleRearm = await withLockHelper(`(async () => {
+      const before = !!document.querySelector('.lock-screen')
+      const picked = await window.__pickIdle('1 分钟')
+      return { wasLocked: before, pickedOk: picked.ok === true, why: picked.why || '' }
+    })()`)
+    await waitTo(bootAt, 165000)
+    const idleFired = await session.eval(`({
+      locked: !!document.querySelector('.lock-screen'),
+      hasPin: !!document.querySelector('input[placeholder^="PIN"]')
+    })`)
+    check('空闲自动锁：重新开成 1 分钟且已闲置超时 ⇒ 到点自动回到锁屏（要重新输 PIN）',
+      idleRearm.wasLocked === false && idleRearm.pickedOk === true &&
+        idleFired.locked === true && idleFired.hasPin === true,
+      idleRearm.why || `重开前已锁=${idleRearm.wasLocked} / 此刻锁屏在=${idleFired.locked} / PIN 框=${idleFired.hasPin}`)
+
+    // 收尾：自动锁那次是 location.reload()，注入的 helper 已经随页面没了，要重新注入。
+    // 把这一段造的锁停掉，别把"一起来就锁屏"留给后面（也免得再跑一次时读到脏配置）。
+    const idleClean = await withLockHelper(`(async () => {
+      // 锁屏在就解锁，不在就直接收 —— 这一步的职责是"别留一个锁在后面"，
+      // 不是"再验一遍上一条断言"。写成无条件 __unlock 的话，上一条一旦红，
+      // 这条会跟着红成"锁屏不在"，看着像两处坏了、其实只有一处。
+      // （变异 M8 就是这么暴露出来的。）
+      const locked = !!document.querySelector('.lock-screen')
+      let tried = true
+      let why = ''
+      if (locked) {
+        const r = await window.__unlock('1357')
+        tried = r.ok === true
+        why = r.why || ''
+        const deadline = Date.now() + 20000
+        while (Date.now() < deadline && !document.querySelector('.app-main')) {
+          await new Promise(r => setTimeout(r, 300))
+        }
+      }
+      const m = await import('/src/utils/appLock.js')
+      m.disableLock()
+      return {
+        lockedAtStart: locked, tried, why,
+        stillEnabled: m.lockEnabled(), accounts: m.listAccounts().length
+      }
+    })()`)
+    check('空闲自动锁：收尾（有锁屏就先解锁，然后停用，不留一个锁着的会话给后面）',
+      idleClean.tried === true && idleClean.stillEnabled === false && idleClean.accounts === 0,
+      idleClean.why || `起手锁屏在=${idleClean.lockedAtStart} / 解锁=${idleClean.tried} / 仍启用=${idleClean.stillEnabled} / 账户 ${idleClean.accounts} 个`)
 
     // ---------- 汇总 ----------
     console.log('')
