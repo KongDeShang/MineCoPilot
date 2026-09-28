@@ -1,0 +1,348 @@
+/**
+ * 矿山智工 - 锁屏视觉（锁屏与首启设锁两处共用）
+ *
+ * ── 为什么单独一个 CSS 文件，而不是写在某个 .vue 的 scoped 里 ──────────────
+ * 这两个界面是**两个各自独立的 Vue 应用**（见 main.js：未跨过锁之前不创建主应用），
+ * 但它们要长得一样。Vue 的 scoped 样式**到不了插槽内容**，所以放在 LockShell.vue
+ * 里就得靠 :deep() 穿透 —— 那等于绕开 scoped 机制再自己拼一套，更难读。
+ * 项目里已有先例（styles/healthReport.css、styles/driverTheme.css）：
+ * 跨组件共用的视觉语言单独成文件，由用到它的组件 import。
+ *
+ * ── 所有选择器都挂在 .lock-screen 之下 ──────────────────────────────────────
+ * 不是洁癖：设置页（views/Settings.vue）也有 .lock-idle / .lock-item / .lock-form
+ * 这些类名，而 e2e 有一条断言直接查 `.lock-idle .el-select`。全局文件里若出现
+ * 裸的 .lock-idle，就会和设置页那一份撞车。加这一层前缀之后互不干扰。
+ *
+ * ── 背景图为什么是本地文件，不是设计稿里那个 URL ──────────────────────────
+ * 设计稿写的是 `https://aka.doubaocdn.com/s/6ZsiREbU4j`（豆包 CDN）。**不能直接用**：
+ * 铁律①「运行期零联网」，锁屏是启动第一屏，引远程图等于每次开机都往外发一个请求。
+ * 做法是把那张图下载下来随包走（src/renderer/src/assets/lock-bg.jpg，2730×1420），
+ * 观感与设计稿一致、运行期零请求。放 assets/ 而不是 public/，是为了让 Vite 走
+ * 资源指纹并把 CSS 里的 url() 改写成**相对路径** —— 打包版是 loadFile(file://)，
+ * 写 `/lock-bg.jpg` 会解析到盘符根、直接碎图（设备照片踩过同一个坑，P2-17）。
+ *
+ * 尺寸 2730×1420 不是原图尺寸：原图 2730×1536 的**右下角有「豆包 AI 生成」水印**
+ * （豆包生成器烙上去的），锁屏是满屏背景，水印会直接露给使用者看，交付件上不该带。
+ * 水印的实测范围是 x 2467–2707 / y 1449–1506，所以裁掉底部 116 行（保留到 1420）
+ * 就够 —— 车头轮胎最低点在 y≈1351，裁剪没有碰到机器本体，构图不变。
+ * `background-size: cover` 会自适应新的宽高比，无需改 CSS。
+ *
+ * ── 与设计稿的偏离（都有硬理由，改回去之前先看这里）──────────────────────
+ *   ① **卡片不透明度**（稿子 0.42 → 0.82）、**最暗一档字色**（稿子 0.50/0.42 → 0.62）、
+ *      **输入框描边**（稿子 0.18 → 0.40）。这三条都是**实测不达标**才改的，
+ *      理由与实测数字分别写在下面 --lk-card / --lk-dim / --lk-field-border 三处注释上，
+ *      完整那一轮数字在 docs/测试报告.md。其余各档配色、尺寸、圆角、间距全部照稿。
+ *   ② **没有"记住我"与"注册"**。锁的语义是"刷新即回锁定态、不落任何会话存储"
+ *      （见 utils/appLock.js 里 unlockedAccountId 的注释），"记住我"与之直接冲突；
+ *      本机账户由使用者在设置页自己加，没有"注册"这个概念。
+ *   ③ 字体用项目的 --font-sans（与稿子的字体栈是同一批字族，见 tokens.css）。
+ *
+ * 其余配色、尺寸、圆角、间距全部照稿取值；--lk- 前缀是为了不和 tokens.css 的令牌
+ * 混淆：锁屏是一块**固定暗暖色**的封面，不跟随浅/深主题（它盖住整个应用，
+ * 不存在"与谁并排看"的问题），所以刻意不接 --bg/--text-1 那一套。
+ */
+
+.lock-screen {
+  --lk-accent: #f0a94e;
+  --lk-accent-strong: #e8962f;
+  --lk-ink: #f6f1e8;
+  --lk-muted: rgba(246, 241, 232, 0.68);
+  /**
+   * 最暗的一档字（页脚小字、输入框占位符）。**实测定的，不是照抄稿子。**
+   *
+   * 稿子这两处分别写 0.50 与 0.42。压在这张图的卡面上，实测只有 3.99:1 与 3.28:1
+   * —— 都不到 AA 的 4.5:1，而这是评委第一眼看到的画面。0.62 时两处都在 5:1 上下。
+   * 只提这一档、只提到达标所需，其余各档（ink / muted）照稿不动。
+   * 实测方法见文件头与 docs/测试报告.md。
+   */
+  --lk-dim: rgba(246, 241, 232, 0.62);
+  --lk-field: rgba(255, 255, 255, 0.10);
+  /**
+   * 输入框描边。稿子写 0.18 —— 压在卡面上实测 1.76:1，远低于 WCAG 1.4.11 对
+   * "控件可辨识边界"要求的 3:1。0.40 时约 3.4:1。
+   * 同一条令牌也用在「跳过」次按钮的描边上：那个按钮本来就该看得出是个按钮。
+   *
+   * 填底 --lk-field 保持稿子的 0.10 不动 —— 让填底单独到 3:1 得提到近白，
+   * 那就不是稿子里那层玻璃了；边界职责由描边承担，填底只是同色系的浅层。
+   */
+  --lk-field-border: rgba(255, 255, 255, 0.40);
+  --lk-danger: #ff8a7a;
+  /**
+   * 卡面。**这一条是按实测定的，不是照抄稿子**。
+   *
+   * 稿子写的是 --glass: rgba(24, 22, 18, 0.42)。0.42 在稿子那张图上不够：
+   * 卡片落在画面右侧那片日出天空上（那儿是整张图最亮的地方），0.42 的暗色玻璃
+   * 压上去之后，暖白小字只有 3:1 上下，远不到 AA 的 4.5:1 —— 而这张图是要
+   * 放在演示现场给评委看的，看不清就是看不清。
+   *
+   * 最终取值靠**实测**，不是估算：把卡片内容藏起来、截真图、在页面里取卡片矩形内的
+   * 像素，算最亮处与各档文字色的对比度（做法与全部数字记在 docs/测试报告.md 那一轮里）。
+   *
+   * 顺带记一笔：稿子原值 0.42 压在这张图上，连**不透明的**标题字也只有 3.86:1，
+   * 所以这条偏离不是"保险起见加一点"，是原值本身不达标。
+   */
+  --lk-card: rgba(24, 22, 18, 0.82);
+  --lk-card-border: rgba(255, 255, 255, 0.16);
+
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  overflow: auto;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ===== 背景：设计稿那张"日出矿卡"（随包本地文件，见文件头说明）===== */
+.lock-screen .lock-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background: url('../assets/lock-bg.jpg') center / cover no-repeat;
+}
+
+/* 轻量暖调压暗，提升右侧卡片可读性，不改动背景主体（稿子原样：105deg，0.06 → 0.28） */
+.lock-screen .lock-stage::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, rgba(20, 16, 12, 0.06) 0%, rgba(20, 16, 12, 0.28) 100%);
+}
+
+/* ===== 布局：卡片靠右，避开视觉重心 ===== */
+.lock-screen .lock-wrap {
+  position: relative;
+  z-index: 1;
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: clamp(20px, 4vw, 64px);
+}
+
+.lock-screen .lock-card {
+  width: 300px;
+  max-width: 88vw;
+  padding: 28px 26px 26px;
+  border-radius: 18px;
+  background: var(--lk-card);
+  -webkit-backdrop-filter: blur(20px) saturate(1.25);
+  backdrop-filter: blur(20px) saturate(1.25);
+  border: 1px solid var(--lk-card-border);
+  box-shadow:
+    0 24px 60px -20px rgba(0, 0, 0, 0.62),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+/* ===== 品牌区 ===== */
+.lock-screen .lock-brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-bottom: 24px;
+}
+
+.lock-screen .lock-mark {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  /* 金底 + 深墨描边：BrandMark 用 currentColor，这里用 color 给它上色 */
+  color: #241a0a;
+  background: linear-gradient(140deg, var(--lk-accent-strong), var(--lk-accent));
+  box-shadow: 0 8px 20px -6px rgba(240, 169, 78, 0.5);
+}
+
+.lock-screen .lock-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--lk-ink);
+  letter-spacing: 0.5px;
+  line-height: 1.2;
+}
+
+.lock-screen .lock-sub {
+  font-size: 10.5px;
+  color: var(--lk-muted);
+  margin-top: 3px;
+  line-height: 1.4;
+}
+
+/* ===== 字段 ===== */
+.lock-screen .lock-field {
+  margin-bottom: 15px;
+}
+
+.lock-screen .lock-label {
+  display: block;
+  font-size: 12px;
+  color: var(--lk-muted);
+  margin-bottom: 7px;
+  letter-spacing: 0.3px;
+}
+
+.lock-screen .lock-input {
+  width: 100%;
+  height: 42px;
+  padding: 0 12px;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--lk-ink);
+  background: var(--lk-field);
+  border: 1px solid var(--lk-field-border);
+  border-radius: 10px;
+  outline: none;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.lock-screen .lock-input::placeholder {
+  color: var(--lk-dim);   /* 稿子是 0.42，实测只有 3.28:1，见 --lk-dim 上的说明 */
+}
+
+.lock-screen .lock-input:focus {
+  border-color: var(--lk-accent);
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* ===== 主按钮 ===== */
+.lock-screen .lock-btn {
+  width: 100%;
+  height: 44px;
+  font-family: inherit;
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: #241a0a;
+  background: linear-gradient(140deg, var(--lk-accent), var(--lk-accent-strong));
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease;
+  box-shadow: 0 10px 26px -8px rgba(240, 169, 78, 0.5);
+}
+
+.lock-screen .lock-btn:hover:not(:disabled) {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+
+.lock-screen .lock-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.lock-screen .lock-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+  box-shadow: none;
+}
+
+/* 次按钮（首启界面的「跳过」）：同尺寸、低强调。
+   刻意不做成一个小链接 —— 它和「启用并进入」是并列的两个正当选择，
+   做成角落小字会让人以为跳过是"不推荐"的那条路。 */
+.lock-screen .lock-btn-ghost {
+  width: 100%;
+  height: 40px;
+  margin-top: 10px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--lk-muted);
+  background: transparent;
+  border: 1px solid var(--lk-field-border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: color 0.18s ease, border-color 0.18s ease;
+}
+
+.lock-screen .lock-btn-ghost:hover:not(:disabled) {
+  color: var(--lk-ink);
+  border-color: rgba(255, 255, 255, 0.34);
+}
+
+.lock-screen .lock-btn-ghost:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ===== 提示 / 报错 ===== */
+.lock-screen .lock-hint {
+  margin-top: 15px;
+  font-size: 12px;
+  color: var(--lk-muted);
+  line-height: 1.6;
+}
+
+/* 首启那一屏里点出的「界面」二字：如实声明的重点，提亮到正文色 */
+.lock-screen .lock-hint b {
+  color: var(--lk-ink);
+  font-weight: 600;
+}
+
+.lock-screen .lock-err {
+  margin-top: 12px;
+  padding: 9px 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--lk-danger);
+  background: rgba(255, 138, 122, 0.12);
+  border: 1px solid rgba(255, 138, 122, 0.3);
+  border-radius: 8px;
+}
+
+/* ===== 页脚 ===== */
+.lock-screen .lock-foot {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  justify-content: center;
+}
+
+.lock-screen .lock-rescue {
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--lk-muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.lock-screen .lock-rescue:hover {
+  color: var(--lk-danger);
+}
+
+.lock-screen .lock-note {
+  margin-top: 12px;
+  text-align: center;
+  font-size: 10.5px;
+  color: var(--lk-dim);   /* 稿子是 0.50，实测只有 3.99:1，见 --lk-dim 上的说明 */
+  line-height: 1.6;
+}
+
+/* ===== 窄屏：居中对齐，卡片占满 ===== */
+@media (max-width: 720px) {
+  .lock-screen .lock-wrap {
+    justify-content: center;
+    padding: 0 18px;
+  }
+
+  .lock-screen .lock-card {
+    width: 100%;
+    padding: 32px 24px 28px;
+  }
+}
+
+/* 减弱动效：与 tokens.css 的全局口径一致，这里只关自己的 hover 位移 */
+@media (prefers-reduced-motion: reduce) {
+  .lock-screen .lock-btn,
+  .lock-screen .lock-btn-ghost {
+    transition: none;
+  }
+
+  .lock-screen .lock-btn:hover:not(:disabled) {
+    transform: none;
+  }
+}

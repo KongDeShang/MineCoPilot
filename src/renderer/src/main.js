@@ -19,6 +19,7 @@ import './domains/settings/domain'
 
 import App from './App.vue'
 import LockScreen from './components/LockScreen.vue'
+import LockSetup from './components/LockSetup.vue'
 import router from './router'
 import { APP_ICONS } from './utils/appIcons'
 import { useAppStore } from './stores/appStore'
@@ -26,7 +27,7 @@ import { applyPref, readMirror, readColorMirror, applyColor, watchSystem, THEME_
 import * as db from './utils/database'
 import { bootStep } from './utils/bootSplash'
 import { installErrorBoundaries } from './utils/errorBoundary'
-import { getIdleMinutes, lockEnabled, lockNow, shouldAutoLock } from './utils/appLock'
+import { getIdleMinutes, lockEnabled, lockNow, needsLockSetup, shouldAutoLock } from './utils/appLock'
 
 /**
  * 装配主应用外壳（**不含**数据装载）。
@@ -154,12 +155,50 @@ async function bootstrap() {
     installIdleLock(store)
   }
 
-  if (!lockEnabled()) {
+  /**
+   * 装载业务数据并挂上主应用。三条启动路径共用：
+   * ①没做过的选择 → 出了首启设置屏；②选择跳过 → 直接进；③解锁成功 → 换挂。
+   *
+   * @param {() => void} [beforeMount] 换挂前一刻执行（卸载挡住屏幕的那棵树）。
+   *        为什么是先装载、后卸载：冷启动播种要几秒，这段时间让原来那棵树
+   *        留在屏幕上（按钮显示「正在启用…」/「正在校验…」），比给一块白屏好。
+   */
+  async function mountMain(beforeMount) {
     const app = createMainApp()
     await bootAppData(app)
     // 挂载后 #app 内的启动闪屏被 Vue 整体替换，无需手动清理
     bootStep('正在加载界面…')
+    if (beforeMount) beforeMount()
     app.mount('#app')
+  }
+
+  // ---------- 首启：本机从没就"要不要用锁"做过选择 → 先出「设置 PIN」（可跳过）----------
+  if (needsLockSetup()) {
+    /**
+     * 这一屏**不装错误兜底**，与下面锁屏那条路刻意不同。
+     *
+     * 锁屏那条能兜是因为它可重入：装载失败还留在锁屏上，再点一次「解锁」就是重试一遍。
+     * 这一屏不成立 —— 点了「启用」之后账户已经写进 localStorage，再点一次撞上的是
+     * "已存在同名账户"，兜底会变成一句假承诺。而它不需要兜底：账户建成即
+     * `lockEnabled()` 为真，**下次启动就会走锁屏那条路**，那是一条能走通的口子。
+     * 跳过的情况同理 —— 下次启动直接进主界面，不会卡在这里。
+     */
+    const setupApp = createApp({
+      render: () => h(LockSetup, { onDone: () => { void enterMain() } })
+    })
+    setupApp.config.globalProperties.$ELEMENT = { locale: zhCn }
+    let entering = false
+    async function enterMain() {
+      if (entering) return
+      entering = true
+      await mountMain(() => setupApp.unmount())
+    }
+    setupApp.mount('#app')
+    return
+  }
+
+  if (!lockEnabled()) {
+    await mountMain()
     return
   }
 
@@ -168,7 +207,7 @@ async function bootstrap() {
    * 锁屏是**另一个 Vue 应用**，与主应用不共用实例。这三个取舍都是刻意的：
    *   · 主应用此时还没创建 ⇒ store / 路由 / 模型预热一概不启动（结构保证，不靠约定）
    *   · 解锁前 `#app` 里只有锁屏那棵树 ⇒ 台账数字**不可能**先闪一下再被盖住
-   *   · 代价：锁屏拿不到主应用的全局组件与错误边界，所以它只用 BrandMark + el-input，
+   *   · 代价：锁屏拿不到主应用的全局组件与错误边界，所以它只用原生控件，
    *     并且出错走控制台（装边界会和主应用重复监听 window 'error'，一次异常记两条日志）
    */
   const bootError = ref('')
@@ -186,14 +225,8 @@ async function bootstrap() {
     if (unlocking) return
     unlocking = true
     try {
-      const app = createMainApp()
-      // 先装载、后换挂：装载期间锁屏还留在屏幕上（按钮显示"正在校验…"），
-      // 冷启动播种可能要几秒，这段时间给一块白屏是最糟的观感。
-      await bootAppData(app)
-      bootStep('正在加载界面…')
       // 同一个容器先卸后挂，两步都是同步的，中间不会真的空一帧
-      lockApp.unmount()
-      app.mount('#app')
+      await mountMain(() => lockApp.unmount())
     } catch (error) {
       unlocking = false
       bootError.value = `界面装载失败：${(error && error.message) || error}。请再点一次「解锁」。`

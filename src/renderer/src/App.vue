@@ -553,6 +553,24 @@ async function maybeAutoStartTour() {
     try { localStorage.setItem(TOUR_SEEN_KEY, '1') } catch { /* 隐私模式忽略 */ }
   }
 }
+
+/**
+ * 模型向导关掉之后，把首启引导补上。
+ *
+ * 起因：向导与引导都是"打开就弹"的浮层，会抢同一块屏幕，所以 maybeAutoStartTour
+ * 撞上向导开着时会**直接返回**（上面第 3 条决定）。可那台机器恰恰是最需要引导的
+ * 一台 —— 在线包不含模型，首启必然弹向导，于是"首启引导"在在线包上永远播不出来。
+ * 这个洞不会报错、也不写标记（下次启动还有机会），只是静默地少一件事，
+ * 所以更要有这条补投。
+ *
+ * 为什么写成**顶层 watch**、而不是在 maybeAutoStartTour 里 await 向导关闭：
+ * watch 必须绑在组件作用域上才会随组件卸载一起停，而在 await 之后调 watch 就绑不上了。
+ * 它会在每次向导关闭时触发，但 maybeAutoStartTour 第一句就是 seen 判定 ——
+ * 播过之后这里是空转。
+ */
+watch(wizardOpen, (open) => {
+  if (!open) void maybeAutoStartTour()
+})
 </script>
 
 <style>

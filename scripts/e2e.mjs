@@ -13,7 +13,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, rmSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ensureServer, resolveCleanBase, stopServer, seedTourSeen, unseedTourSeen } from './devServer.mjs'
+import { ensureServer, resolveCleanBase, stopServer, seedFirstRun, unseedFirstRun } from './devServer.mjs'
 
 // 顶层 await 定地址：外部那个开发服务器若已被 HMR 污染（页面里会出现同名模块的两份实例，
 // 脚本按裸路径 import 拿到的是没 init 过的那份），就换端口自起一份干净的。详见 devServer.mjs。
@@ -382,10 +382,11 @@ async function main() {
     await session.send('Emulation.setDeviceMetricsOverride', {
       width: 1440, height: 940, deviceScaleFactor: 1, mobile: false
     })
-    // 首启引导演示会自己弹出来，而 driver 的遮罩拦鼠标 —— 本套件里的合成点击
-    // 倒是照样能过，但结尾那条"首启真的会自动播"的用例要的正是未播种的状态，
-    // 所以先种上，到那里再撤回（见 unseedTourSeen）。
-    const tourSeed = await seedTourSeen(session)
+    // 首启那两屏都会挡在前面：引导演示自己弹出来、遮罩拦鼠标；「设置 PIN」那一屏
+    // 更是整屏占住、主应用压根挂不上来。本套件里的合成点击倒是照样能过遮罩，
+    // 但 12e（首启真的会自动播）和 16（首启设锁屏）要的正是**未播种**的状态，
+    // 所以先种上，到那两处再撤回（见 unseedFirstRun）。
+    const firstRunSeed = await seedFirstRun(session)
 
     // ---------- 0. 干净起点：清空本地库并重新加载（验证首启播种） ----------
     await session.goto(`${BASE}/#/dashboard`, 3500)
@@ -2120,14 +2121,16 @@ async function main() {
       playBtn.ok === true && autoMode === '自动演示中',
       `${playBtn.err || playBtn.at} | ${autoMode}`)
 
-    // 12d) 退出：卡片与工具条都收干净
-    const exitBtn = await realClickEl(session, `document.querySelector('.demo-bar button[aria-label="退出"]')`, '退出按钮')
+    // 12d) 退出：卡片与工具条都收干净。
+    //      这颗按钮带字（「跳过引导」）而不是一颗 ✕ —— 首启这条路是应用自己弹出来的，
+    //      出口得让人一眼看懂，所以连 aria-label 也一起跟着改了口径。
+    const exitBtn = await realClickEl(session, `document.querySelector('.demo-bar button[aria-label="跳过引导"]')`, '跳过引导按钮')
     await sleep(900)
     const closed = await session.eval(`({
       popoverGone: !document.querySelector('.driver-popover'),
       barGone: !document.querySelector('.demo-bar')
     })`)
-    check('引导演示：退出后卡片与工具条都消失',
+    check('引导演示：点「跳过引导」后卡片与工具条都消失',
       closed.popoverGone === true && closed.barGone === true,
       `${exitBtn.err || exitBtn.at} | ${JSON.stringify(closed)}`)
 
@@ -2137,7 +2140,12 @@ async function main() {
     //        · 首启判定挂在 onMounted 上，所以必须让文档**真的重建**。同一个 URL
     //          （只有 hash 不同）的 navigate 是片段导航，应用不重新挂载 ——
     //          写成 goto(`${BASE}/#/dashboard`) 的话这几条会齐刷刷地"没有弹层"。
-    await unseedTourSeen(session, tourSeed)
+    //        · 撤回之后要**单独把「设置 PIN」那一屏的标记种回去**（tour:false）：
+    //          这几条验的是引导，而设锁那一屏紧接着的重载就会先弹出来、把主应用挡在
+    //          外面 —— 那样下面这一串会以"没有弹层"的形式整片红，看着像引导坏了。
+    //          那一屏本身由第 16 段验，这里让它保持"已经过去"的状态。
+    await unseedFirstRun(session, firstRunSeed)
+    const lockSetupSeed = await seedFirstRun(session, { tour: false })
     await session.eval(`localStorage.removeItem('ks:tour-seen')`)
     await session.goto(`${BASE}/#/dashboard`, 1200)
     await session.send('Page.reload')
@@ -3131,6 +3139,209 @@ async function main() {
       idleClean.tried === true && idleClean.stillEnabled === false && idleClean.accounts === 0,
       idleClean.why || `起手锁屏在=${idleClean.lockedAtStart} / 解锁=${idleClean.tried} / 仍启用=${idleClean.stillEnabled} / 账户 ${idleClean.accounts} 个`)
 
+    // ---------- 16) 首启设锁屏：先出「设置 PIN」、可跳过（2026-09-28）----------
+    /**
+     * 这一段取代了一条**旧决定**：「首启不锁（无账户 ⇒ 不锁），装完双击直接进主界面」。
+     * 现在装完第一次双击先出这一屏。要守住的是三件事，缺一条这段就白跑：
+     *   ① 它**真的**出现在首启位置上（而不是只有代码里有这个分支）；
+     *   ② 它没跨过结构保证 —— 主应用 / 数据库在没走完这一屏之前**根本没起来**；
+     *   ③ 「跳过」是一颗真能点、点得到的按钮（不是 0×0、不是被挤出视口），
+     *      点完主界面出得来、且**下次启动不再问**。演示现场最怕的就是这一屏赖着不走。
+     *
+     * 起点是第 15 段的收尾：账户 0 个、锁已停用。而 ks:lock-setup-seen 还在
+     * （createAccount 顺手写过、12e 又重新种过），所以要先撤回注入 + 删标记，
+     * 才回得到真正的首启路径。
+     */
+    await unseedFirstRun(session, lockSetupSeed)
+    await session.eval(`localStorage.removeItem('ks:lock-setup-seen')`)
+    await session.send('Page.reload')
+    await sleep(7000)
+
+    const setupView = await session.eval(`(async () => {
+      const d = await import('/src/utils/database.js')
+      const app = document.querySelector('#app').__vue_app__
+      const ghost = document.querySelector('.lock-btn-ghost')
+      const gb = ghost ? ghost.getBoundingClientRect() : null
+      const root = document.querySelector('.lock-screen')
+      return {
+        lockScreen: !!root,
+        view: root ? (root.getAttribute('data-lock-view') || '') : '',
+        title: (document.querySelector('.lock-title') || {}).textContent || '',
+        sub: (document.querySelector('.lock-sub') || {}).textContent || '',
+        跳过文案: ghost ? ghost.textContent.trim() : '(没有这颗按钮)',
+        跳过尺寸: gb ? [Math.round(gb.width), Math.round(gb.height)] : null,
+        跳过在视口内: gb ? (gb.top >= 0 && gb.bottom <= innerHeight && gb.left >= 0 && gb.right <= innerWidth) : false,
+        按钮数: document.querySelectorAll('.lock-screen button').length,
+        有姓名框: !!document.querySelector('input#setup-name'),
+        appMain: !!document.querySelector('.app-main'),
+        aside: !!document.querySelector('.app-aside'),
+        statValues: document.querySelectorAll('.stat-value').length,
+        hasPinia: !!(app && app.config.globalProperties.$pinia),
+        dbReady: d.isReady() === true
+      }
+    })()`)
+    check('首启设锁：全新机器打开先出这一屏（不是直接进主界面）',
+      setupView.lockScreen === true && setupView.view === 'setup' &&
+        setupView.title.includes('矿山智工') && setupView.sub.includes('首次使用'),
+      `锁屏=${setupView.lockScreen} 视图=${setupView.view || '(无标记)'} 副标题「${setupView.sub}」`)
+    check('首启设锁：跳过是一颗点得到的真按钮（有尺寸、在视口内、文案直白）',
+      setupView.跳过尺寸 !== null && setupView.跳过尺寸[0] > 200 && setupView.跳过尺寸[1] >= 32 &&
+        setupView.跳过在视口内 === true && /跳过/.test(setupView.跳过文案),
+      `「${setupView.跳过文案}」尺寸 ${JSON.stringify(setupView.跳过尺寸)} 在视口内=${setupView.跳过在视口内}`)
+    check('首启设锁：走完这一屏之前，业务界面与数据库一概没起来（结构保证，不靠 v-if）',
+      setupView.appMain === false && setupView.aside === false &&
+        setupView.statValues === 0 && setupView.hasPinia === false && setupView.dbReady === false,
+      `内容区=${setupView.appMain} 侧栏=${setupView.aside} 看板数字 ${setupView.statValues} 个 / pinia=${setupView.hasPinia} / isReady=${setupView.dbReady}`)
+
+    // 16a) 先验一条能失败的：两次 PIN 不一致必须当场报错，且不建账户
+    await session.eval(LOCK_HELPER)
+    const mismatch = await withLockHelper(`(async () => {
+      await window.__setInput('#setup-name', '赵班长')
+      await window.__setInput('#setup-pin', '2468')
+      await window.__setInput('#setup-pin2', '1357')
+      document.querySelector('.lock-btn').click()
+      await new Promise(r => setTimeout(r, 800))
+      const m = await import('/src/utils/appLock.js')
+      const root = document.querySelector('.lock-screen')
+      return {
+        err: (document.querySelector('.lock-err') || {}).textContent || '',
+        pin2: (document.querySelector('#setup-pin2') || {}).value,
+        accounts: m.listAccounts().length,
+        stillSetup: !!root && root.getAttribute('data-lock-view') === 'setup'
+      }
+    })()`)
+    check('首启设锁：两次 PIN 不一致 ⇒ 当场报错、不建账户、仍停在设置屏',
+      /两次输入的 PIN 不一致/.test(mismatch.err) && mismatch.accounts === 0 &&
+        mismatch.pin2 === '' && mismatch.stillSetup === true,
+      `提示「${mismatch.err.slice(0, 40)}」/ 账户 ${mismatch.accounts} 个 / 重输框残留「${mismatch.pin2}」`)
+
+    // 16b) 走通「启用并进入」：锁真的启用、身份认下、标记落盘、主界面出来
+    const doSetup = await withLockHelper(`(async () => {
+      await window.__setInput('#setup-pin2', '2468')
+      document.querySelector('.lock-btn').click()
+      const deadline = Date.now() + 25000
+      while (Date.now() < deadline && !document.querySelector('.app-main')) {
+        await new Promise(r => setTimeout(r, 300))
+      }
+      const raw = localStorage.getItem('ks:app-lock') || ''
+      let cfg = null
+      try { cfg = JSON.parse(raw) } catch { /* 落盘坏了下面断言会红 */ }
+      const acc = cfg && cfg.accounts && cfg.accounts[0] ? cfg.accounts[0] : null
+      return {
+        appMain: !!document.querySelector('.app-main'),
+        lockGone: !document.querySelector('.lock-screen'),
+        setupSeen: (() => { try { return localStorage.getItem('ks:lock-setup-seen') } catch { return '不可读' } })(),
+        accounts: cfg && cfg.accounts ? cfg.accounts.length : 0,
+        saltLen: acc ? String(acc.salt || '').length : 0,
+        hashLen: acc ? String(acc.hash || '').length : 0,
+        含明文PIN: raw.includes('2468'),
+        // 侧栏身份行 = App.vue 的 .actor-line（v-if="actorLabel"）。
+        // 两件事分开报：行在不在、行上写的是谁 —— 混成一句的话，
+        // "选择器写错导致行根本没取到"会和"显示成了别人"长得一模一样。
+        侧栏身份行在: !!document.querySelector('.actor-line'),
+        侧栏身份: (document.querySelector('.actor-line') || {}).textContent || ''
+      }
+    })()`)
+    check('首启设锁：点「启用并进入」⇒ 账户建好、主界面挂上',
+      doSetup.appMain === true && doSetup.lockGone === true && doSetup.accounts === 1,
+      `内容区=${doSetup.appMain} 锁屏已卸=${doSetup.lockGone} 账户 ${doSetup.accounts} 个`)
+    check('首启设锁：落盘的是盐 + 摘要，不是明文 PIN（与设置页同一条链）',
+      doSetup.含明文PIN === false && doSetup.saltLen >= 16 && doSetup.hashLen === 64,
+      `含明文=${doSetup.含明文PIN} 盐 ${doSetup.saltLen} 字符 / 摘要 ${doSetup.hashLen} 字符`)
+    check('首启设锁：身份当场认下（侧栏那行显示的是刚设的这个人）',
+      doSetup.侧栏身份行在 === true && /赵班长/.test(doSetup.侧栏身份),
+      `侧栏身份行在=${doSetup.侧栏身份行在} 显示「${doSetup.侧栏身份.trim() || '(空)'}」`)
+
+    // 16c) 关键的一条：**下次启动不再问**。刷新之后该出的是锁屏，不是设置屏
+    await reloadUntil(session, '.lock-screen .lock-btn')
+    const secondBoot = await session.eval(`(() => {
+      const root = document.querySelector('.lock-screen')
+      return {
+        view: root ? (root.getAttribute('data-lock-view') || '') : '',
+        seen: (() => { try { return localStorage.getItem('ks:lock-setup-seen') } catch { return '不可读' } })(),
+        hasPin: !!document.querySelector('input[placeholder^="PIN"]')
+      }
+    })()`)
+    check('首启设锁：设过之后再启动**不再问**，直接是锁屏（ks:lock-setup-seen 已落盘）',
+      secondBoot.view === 'unlock' && secondBoot.seen === '1' && secondBoot.hasPin === true,
+      `视图=${secondBoot.view || '(无标记)'} 标记=${secondBoot.seen} PIN 框=${secondBoot.hasPin}`)
+
+    // 16d) 收尾：解锁 → 停用锁。**之后不能再刷新**（标记已清，刷新会再弹设置屏）
+    const setupClean = await withLockHelper(`(async () => {
+      const r = await window.__unlock('2468')
+      const deadline = Date.now() + 20000
+      while (Date.now() < deadline && !document.querySelector('.app-main')) {
+        await new Promise(r2 => setTimeout(r2, 300))
+      }
+      const m = await import('/src/utils/appLock.js')
+      m.disableLock()
+      try { localStorage.removeItem('ks:lock-setup-seen') } catch { /* 隐私模式 */ }
+      return {
+        tried: r.ok, why: r.why || '',
+        stillEnabled: m.lockEnabled(),
+        accounts: m.listAccounts().length
+      }
+    })()`)
+    check('首启设锁：收尾（解锁 → 停用，不留一个锁着的会话给后面）',
+      setupClean.tried === true && setupClean.stillEnabled === false && setupClean.accounts === 0,
+      setupClean.why || `解锁=${setupClean.tried} / 仍启用=${setupClean.stillEnabled} / 账户 ${setupClean.accounts} 个`)
+
+    // 16e) 「跳过」这条路：不建账户、不留锁、下次启动不再问
+    /**
+     * 为什么这一段在 e2e 而不在 self-check：「跳过偷偷建了一把锁」这种缺陷，
+     * 最真实的样子是 LockSetup.vue 的 skip() 被改成去调 createAccount —— 那是
+     * **界面接线**的错，纯逻辑层的 self-check 从外面看不见（它只能验"标记写了没"）。
+     * 所以这条必须在这里、点真按钮来验。
+     *
+     * 起点正好是 16d 的收尾：账户 0 个、锁停用、标记已清 = 货真价实的首启状态，
+     * 不用再伪造。上面 12e 已经把 ks:tour-seen 写成 1 了，所以这次进来引导不会自动弹，
+     * 不会有人来挡鼠标。
+     */
+    await session.send('Page.reload')
+    await sleep(7000)
+    await session.eval(LOCK_HELPER)
+    const skipped = await withLockHelper(`(async () => {
+      const ghost = document.querySelector('.lock-btn-ghost')
+      if (!ghost) return { ok: false, why: '设置屏上没有「跳过，先不设锁」这颗按钮' }
+      const 文案 = ghost.textContent.trim()
+      ghost.click()
+      const deadline = Date.now() + 25000
+      while (Date.now() < deadline && !document.querySelector('.app-main')) {
+        await new Promise(r => setTimeout(r, 300))
+      }
+      const m = await import('/src/utils/appLock.js')
+      return {
+        ok: true, 文案,
+        appMain: !!document.querySelector('.app-main'),
+        lockGone: !document.querySelector('.lock-screen'),
+        accounts: m.listAccounts().length,
+        lockEnabled: m.lockEnabled(),
+        seen: (() => { try { return localStorage.getItem('ks:lock-setup-seen') } catch { return '不可读' } })()
+      }
+    })()`)
+    check('首启设锁：点「跳过」⇒ 进得去主界面，且一个账户都没建、锁没被启用（跳过 ≠ 偷偷替他设一把锁）',
+      skipped.ok === true && skipped.appMain === true && skipped.lockGone === true &&
+        skipped.accounts === 0 && skipped.lockEnabled === false && skipped.seen === '1',
+      skipped.ok
+        ? `「${skipped.文案}」内容区=${skipped.appMain} 账户 ${skipped.accounts} 个 锁启用=${skipped.lockEnabled} 标记=${skipped.seen}`
+        : skipped.why)
+
+    // 等的是「进了应用的某个面」而不是「一定是主界面」：这条要验的承诺是**设置屏不再出现**。
+    // 写成非 .app-main 不可，会把"跳过之后停在锁屏"也判红 —— 那是另一件事（16c 管），
+    // 而且会让"跳过偷偷建了账户"这种缺陷同时污染两条断言，红在哪就说不清了。
+    const 落定 = await reloadUntil(session, '.app-main, .lock-screen')
+    const afterSkip = await session.eval(`(() => {
+      const r = document.querySelector('.lock-screen')
+      return {
+        视图: r ? (r.getAttribute('data-lock-view') || '') : '',
+        设置屏: !!r && r.getAttribute('data-lock-view') === 'setup',
+        进了应用: !!document.querySelector('.app-main, .lock-screen')
+      }
+    })()`)
+    check('首启设锁：跳过一次之后再启动不再问（标记落盘了，不是每次都得点一遍）',
+      落定 === true && afterSkip.设置屏 === false && afterSkip.进了应用 === true,
+      `落定=${落定} 视图=${afterSkip.视图 || '(无)'} 设置屏=${afterSkip.设置屏}`)
+
     // ---------- 汇总 ----------
     console.log('')
     for (const c of checks) {
@@ -3154,6 +3365,19 @@ async function main() {
 main().catch(error => {
   console.error('❌ e2e 执行失败:', error && error.message ? error.message : error)
   if (error && error.stack) console.error('堆栈：\n' + error.stack)
+  /**
+   * 崩在半路时，也要把**已经收集到的**断言打出来。
+   *
+   * 原先这里只报异常，于是"一条断言失败 → 后续求值跟着炸掉"这种连锁会把
+   * 前面那些 FAIL 的诊断**一起吞掉**（detail 里才有现场数值），日志上只剩一个
+   * TypeError，哪里坏了全靠猜。checks 是模块级的，兜住它不花什么代价；
+   * 后面若干段跑不到，如实说明"跑到第几条崩的"就够了。
+   */
+  if (checks.length) {
+    const 失败 = checks.filter(c => !c.ok)
+    console.error(`\n崩前已跑 ${checks.length} 条，失败 ${失败.length} 条：`)
+    for (const c of 失败) console.error(`  FAIL  ${c.name}${c.detail ? `  [${c.detail}]` : ''}`)
+  }
   process.exit(1)
 })
 

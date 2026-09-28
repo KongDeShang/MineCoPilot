@@ -11,7 +11,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, rmSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ensureServer, resolveCleanBase, stopServer, seedTourSeen } from './devServer.mjs'
+import { ensureServer, resolveCleanBase, stopServer, seedFirstRun } from './devServer.mjs'
 
 // 顶层 await 定地址：外部服务器若被 HMR 污染就换端口自起干净的（详见 devServer.mjs）
 const BASE = await resolveCleanBase(process.env.E2E_BASE_URL || 'http://localhost:5173')
@@ -163,8 +163,9 @@ async function main() {
     await session.send('Network.enable').catch(() => {})
     await session.send('Network.setCacheDisabled', { cacheDisabled: true }).catch(() => {})
     await session.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 940, deviceScaleFactor: 1, mobile: false })
-    // 首启引导演示的遮罩拦鼠标，会挡住下面的对话操作；本套件不验引导，种上标记跳过
-    await seedTourSeen(session)
+    // 首启那两屏都拦在前面：引导演示的遮罩拦鼠标、会挡住下面的对话操作，
+    // 首启「设置 PIN」整屏更是让主应用挂不上来。本套件不验它们，种上标记跳过。
+    await seedFirstRun(session)
 
     // ---------- 0. 干净起点 ----------
     await session.goto('/dashboard', 3500)

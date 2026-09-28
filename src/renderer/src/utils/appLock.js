@@ -71,6 +71,26 @@ const MAX_ROLE_LEN = 16
  */
 const RESCUE_KEYS = [LOCK_KEY, 'ks:undo-stack', 'ai_chat_messages']
 
+/**
+ * 「本机已经就『要不要用应用锁』做过一次选择」的标记键。
+ *
+ * ── 为什么要有它 ──────────────────────────────────────────────────────────
+ * 首启现在会先出一屏「设置 PIN」（可跳过）。这一屏只该出现**一次**：
+ * 跳过之后每次启动再弹，就成骚扰了。而"有没有账户"不足以判断这件事 ——
+ * 跳过的人没有账户，下次启动又会撞上同一屏。
+ *
+ * ── 谁负责写它 ────────────────────────────────────────────────────────────
+ *   ① 使用者点了「跳过」（LockSetup.vue → markLockSetupSeen）
+ *   ② 成功建了账户（createAccount 里顺手写）—— 建过账户就是做过选择，
+ *      之后即便在设置页把锁停用，也不该再冒出一屏"要不要设 PIN"
+ *
+ * ── 刻意**不**放进 RESCUE_KEYS ────────────────────────────────────────────
+ * 「清空本机数据并解锁」的二次确认里逐项列了会清掉什么。往 RESCUE_KEYS 里加一个，
+ * 就等于让那句枚举变成假话，或者得同步改文案 —— 而"自救之后下次启动要不要再问一次"
+ * 本身不是那次清空的对象。不加：自救完标记还在，安静地进主界面。
+ */
+const SETUP_SEEN_KEY = 'ks:lock-setup-seen'
+
 // ---------- 十六进制 <-> 字节 ----------
 
 function bytesToHex(bytes) {
@@ -251,9 +271,45 @@ function writeConfig(config) {
  */
 let unlockedAccountId = null
 
-/** 有没有账户。没有任何账户 = 锁没启用（这也是 e2e/探针默认不受影响的依据） */
+/** 有没有账户。没有任何账户 = 锁没启用 */
 export function lockEnabled() {
   return readConfig().accounts.length > 0
+}
+
+/** 本机是否已经就「要不要用应用锁」做过一次选择（建过账户，或明确跳过过） */
+export function lockSetupSeen() {
+  try {
+    return localStorage.getItem(SETUP_SEEN_KEY) === '1'
+  } catch {
+    // 隐私模式下读不到 ⇒ 当作"没做过选择"。方向是**多问一次**，不是悄悄替用户决定不设锁
+    return false
+  }
+}
+
+/**
+ * 记下「已经做过选择」。
+ * 写不进去（隐私模式）时**不报错**：这一次跳过没被记住，下次启动会再问一遍 ——
+ * 比弹一个"跳过失败"的框好，也比为此拒绝放行好。
+ */
+export function markLockSetupSeen() {
+  try {
+    localStorage.setItem(SETUP_SEEN_KEY, '1')
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, error: `本机存储不可写，这次跳过不会被记住：${(error && error.message) || error}` }
+  }
+}
+
+/**
+ * 首启要不要先出「设置 PIN」那一屏（main.js 的启动分支判据）。
+ *
+ * 两个条件缺一不可，不是重复保险：
+ *   · `lockSetupSeen()`  —— 挡"跳过的人下次启动又被问一遍"
+ *   · `!lockEnabled()`   —— 挡"1.2.0 之前就建过账户、但没有这个标记"的老机器
+ *     （老机器上标记一定不存在，只靠前一条的话会平白弹一屏设置）
+ */
+export function needsLockSetup() {
+  return !lockEnabled() && !lockSetupSeen()
 }
 
 /** 当前解锁的账户（未解锁返回 null）。调用方靠它同时回答"谁在用"与"本次有没有身份" */
@@ -326,6 +382,10 @@ export async function createAccount({ name, role = '', pin }) {
   const config = readConfig()
   config.accounts.push(account)
   writeConfig(config)
+  // 建账户 = 就"要不要用锁"做过选择了。写在这里而不是调用方，是因为建账户有三条路
+  // （首启的 LockSetup、设置页的"启用应用锁"、设置页的"再加一个"），漏写任何一条，
+  // 使用者都会在下一次启动时被那一屏再问一遍 —— 放在数据落点上是唯一不会漏的位置。
+  markLockSetupSeen()
   // 顺手认下"本次运行的身份"：刚设完 PIN 的人就是此刻在用这台机器的人。
   // 不认的话，设置页会停在"锁已启用、但本次运行没有身份"的状态 ——
   // 界面上显示不出谁在用，操作日志也就没了操作人。

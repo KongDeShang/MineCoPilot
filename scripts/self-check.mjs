@@ -2419,8 +2419,8 @@ function check(name, condition, detail = '') {
  * 这一组测的是"锁的判定逻辑"，测不到"界面有没有真的把锁装上" ——
  * 后者归 e2e（启用锁后刷新必须只出锁屏，且业务数据不装载）。
  *
- * 本段自己造状态：开头的 localStorage 是干净的（前面各段不用这个键），
- * 结尾也把 ks:app-lock 清掉，不留状态给以后新增的段。
+ * 本段自己造状态：开头的 localStorage 是干净的（前面各段不用这两个键），
+ * 结尾把 ks:app-lock 与 ks:lock-setup-seen 一起清掉，不留状态给以后新增的段。
  */
 {
   const LOCK_KEY = 'ks:app-lock'
@@ -2503,6 +2503,41 @@ function check(name, condition, detail = '') {
   check('删掉最后一个账户 = 锁停用，本次身份也一并清掉',
     appLock.lockEnabled() === false && appLock.currentAccount() === null)
 
+  // ---- 首启设锁屏那一屏的判据（lockSetupSeen / needsLockSetup，2026-09-28）----
+  /**
+   * 这一屏是"首启先出一屏让人设 PIN，也可跳过"那条要求的判据。
+   * 三条边界都要守住，任何一条反了，现场就是"每次启动都被问一遍"或
+   * "升级完平白弹一屏" —— 两种都很难看。
+   */
+  const SETUP_KEY = 'ks:lock-setup-seen'
+  // 上面的 createAccount 已经顺手把标记写进去了 —— 这正是第一条：建过账户就是
+  // "做过选择"，之后即便把锁停用，也不该再冒出一屏"要不要设 PIN"。
+  check('建过账户 ⇒ 即便之后把锁停用，首启那一屏也不再出现（不是"没账户就弹"）',
+    appLock.lockSetupSeen() === true && appLock.needsLockSetup() === false,
+    `seen=${appLock.lockSetupSeen()} needs=${appLock.needsLockSetup()}`)
+
+  // 反过来：标记拿掉、账户也没有，才是真正的首启
+  localStorage.removeItem(SETUP_KEY)
+  check('既没账户、也没做过选择 ⇒ 首启该出「设置 PIN」那一屏',
+    appLock.lockSetupSeen() === false && appLock.needsLockSetup() === true,
+    `seen=${appLock.lockSetupSeen()} needs=${appLock.needsLockSetup()}`)
+
+  // 显式跳过：只写标记，**绝不偷偷建账户**（跳过的意思就是"先不设锁"）
+  const skipped = appLock.markLockSetupSeen()
+  check('点过「跳过」之后不再问，且一个账户都没建（跳过不是偷偷替他设一把锁）',
+    skipped.ok === true && appLock.lockSetupSeen() === true &&
+      appLock.needsLockSetup() === false && appLock.lockEnabled() === false &&
+      appLock.listAccounts().length === 0,
+    `ok=${skipped.ok} needs=${appLock.needsLockSetup()} 账户 ${appLock.listAccounts().length} 个`)
+
+  // 老机器的情形：1.2.0 之前建的账户，从没写过这个键。
+  // 只靠标记判的话，那些机器升级后会平白弹一屏"要不要设 PIN" —— 这条就是拦它的。
+  await appLock.createAccount({ name: '老机器', role: '', pin: '1357' })
+  localStorage.removeItem(SETUP_KEY)
+  check('账户在、标记不在（老机器升级上来的样子）⇒ 仍不出首启那一屏',
+    appLock.needsLockSetup() === false, `needs=${appLock.needsLockSetup()}`)
+  appLock.disableLock()
+
   // ---- 清空自救：清的键集合必须恰好是被作废的那几个 ----
   // 夹具先就位再断言（否则"什么都没清"也会让"键都不在"成立 —— P3-3 踩过的那个假绿）
   await appLock.createAccount({ name: '自救测试', role: '', pin: '4321' })
@@ -2527,6 +2562,7 @@ function check(name, condition, detail = '') {
     appLock.lockEnabled() === false && appLock.currentAccount() === null)
 
   // 收尾：不留状态给后面的段
+  localStorage.removeItem(SETUP_KEY)
   localStorage.removeItem('ks:undo-stack')
   localStorage.removeItem('ai_chat_messages')
   localStorage.removeItem('ks:theme')

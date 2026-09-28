@@ -24,7 +24,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ensureServer, resolveCleanBase, stopServer, seedTourSeen } from './devServer.mjs'
+import { ensureServer, resolveCleanBase, stopServer, seedFirstRun } from './devServer.mjs'
 
 // 顶层 await 定地址：外部服务器若被 HMR 污染就换端口自起干净的（详见 devServer.mjs）
 const BASE = await resolveCleanBase(process.env.E2E_BASE_URL || 'http://localhost:5173')
@@ -427,8 +427,9 @@ async function main() {
     await send('Runtime.enable')
     await send('Page.enable')
     await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false })
-    // 首启引导演示的遮罩会盖住要取色的内容（取到的是遮罩而不是页面底色）；本套件不验引导，种上标记跳过
-    await seedTourSeen({ send })
+    // 首启那两屏都会盖住要取色的内容：引导演示的遮罩（取到的是遮罩而不是页面底色），
+    // 以及首启「设置 PIN」整屏（主应用压根挂不上来）。本套件不验它们，种上标记跳过。
+    await seedFirstRun({ send })
     // 深色模式：文档创建早期注入（覆盖首次导航；SPA 内 hash 导航不重建文档，无影响）
     if (isDark) {
       await send('Page.addScriptToEvaluateOnNewDocument', { source: DARK_INJECT })
