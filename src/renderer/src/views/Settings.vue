@@ -298,6 +298,34 @@
       </div>
     </el-card>
 
+    <!-- ===== 恢复到出厂设置 =====
+         排在「数据备份与迁移」之后：想留数据的人，上面那张卡就是退路，
+         顺序上先给退路再给不可撤销的那一个。关于本软件仍是最末一张（它不是设置项）。 -->
+    <el-card shadow="never" style="margin-top: 16px">
+      <template #header>
+        <div class="card-header">
+          <span><el-icon><Delete /></el-icon> 恢复到出厂设置</span>
+          <el-tag size="small" type="danger" effect="plain">不可撤销</el-tag>
+        </div>
+      </template>
+
+      <div class="factory-note">
+        <el-icon><WarningFilled /></el-icon>
+        <span>把本机恢复到<b>刚装好、还没用过</b>的样子，连同本机数据库里的全部业务数据一起清除：设备台账、维保记录、工单、健康快照、知识库、文档资料、操作日志、聊天记录，以及{{ factoryScopeSummary }}。完成后应用会自动重启，重新生成一套演示数据，并回到首次使用时的「设置应用锁」那一屏。</span>
+      </div>
+      <div class="factory-note">
+        <el-icon><InfoFilled /></el-icon>
+        <span>两处如实说明：随包的<b>本地模型</b>与示例手册不会被删除（它们属于安装内容，不是你的数据）；这一步本身<b>不留操作日志</b> —— 日志就存在要被清掉的那个库里。锁屏上的「清空本机数据并解锁」是另一件事：那个只清数据、保留你的界面偏好。</span>
+      </div>
+
+      <div class="factory-row">
+        <el-button type="danger" plain :loading="factoryBusy" @click="doFactoryReset">
+          <el-icon style="margin-right: 4px"><Delete /></el-icon>恢复到出厂设置
+        </el-button>
+        <div class="backup-desc">要保留数据，请先用上面那张卡「一键导出备份」—— 这一步做完，本机数据无法找回</div>
+      </div>
+    </el-card>
+
     <!-- ===== 关于本软件（开发者署名与版权） =====
          放在最后一张卡：它不是设置项，改不了任何东西，摆在"数据备份"之后
          才不打断前面那几张真正能调的卡片。 -->
@@ -340,6 +368,9 @@ import {
   removeAccount, setIdleMinutes
 } from '../utils/appLock'
 import * as db from '../utils/database'
+// 恢复到出厂设置。清单（FACTORY_RESET_SCOPE）与确认框文案同源，都在那个模块里 ——
+// 卡片上**不要**再抄一份清理项枚举，那就成了第二个会漂的真相源。
+import { factoryReset, factoryResetSummary } from '../utils/factoryReset'
 
 /**
  * 「关于」卡片里的版本号。与 App.vue 侧栏底部**同一个来源** —— vite define 注入的
@@ -358,6 +389,11 @@ const exporting = ref(false)
 const importing = ref(false)
 const dbPath = ref('')
 const dbSize = ref('')
+
+// ---------- 恢复到出厂设置 ----------
+const factoryBusy = ref(false)
+/** 确认框里那句枚举与 utils/factoryReset.js 的清单同源，卡片上也用它（别再抄一份） */
+const factoryScopeSummary = factoryResetSummary()
 
 // ---------- AI 助手（老师傅人设 + 排查思路表） ----------
 const masterMode = ref(masterEnabled())
@@ -807,6 +843,59 @@ async function doDisableLock() {
   reloadIfIdentityChanged(before)
 }
 
+/**
+ * 恢复到出厂设置。
+ *
+ * 与上面几个危险操作有三处不同，都是这个功能固有的：
+ *   ① 确认框那句话**由清单渲染出来**（factoryResetSummary），不手写 ——
+ *      手写就有"文案少写一项、实际多清一项"的空间，而这个操作不可撤销。
+ *   ② 成功提示是"正在重启"：清完之后**必须重载**才落到首启那一屏
+ *      （锁判据、身份、主题都是启动时读一次的）。走的是本文件既有的
+ *      「重载即重算」那条路（见 reloadIfIdentityChanged 上面那段注释），
+ *      留 800ms 让提示露个面。
+ *   ③ **不写操作日志**：日志存在被清掉的那个库里，写了也会被自己删掉。
+ *      这是这个功能的固有性质，不假装留痕 —— 如实写在卡片说明里。
+ */
+async function doFactoryReset() {
+  if (factoryBusy.value) return
+  try {
+    await ElMessageBox.confirm(
+      `将把本机恢复到刚装好的状态：清空本机数据库里的全部业务数据，并清除${factoryScopeSummary}。此操作不可撤销，本机数据无法找回。`,
+      '恢复到出厂设置',
+      { type: 'warning', confirmButtonText: '确认恢复到出厂设置', cancelButtonText: '取消' }
+    )
+  } catch {
+    return // 用户按了取消：什么都不做（不是失败）
+  }
+  factoryBusy.value = true
+  try {
+    const r = await factoryReset()
+    if (!r.ok) {
+      ElMessage.error(r.error || '恢复出厂设置失败')
+      return
+    }
+    /**
+     * 两类"没清掉"要分开说，别笼统地都叫"未能清除"：
+     *   · `r.failed` = 主进程真的没删掉（文件被占用等）—— 这是失败，得用告警色。
+     *   · `r.idbFailed` = IndexedDB 那边**有连接正在使用**，删除请求被挡住。
+     *     这种在浏览器里是 pending 而不是失败：页面一换（下面的 reload）连接就没了，
+     *     请求随即完成。把它写成"未能清除"，用户会在明明成功的时候看到一句吓人的话。
+     */
+    const 真失败 = r.failed || []
+    const 待重启清完 = r.idbFailed || []
+    if (真失败.length) {
+      ElMessage.warning(`已恢复出厂设置，但有 ${真失败.length} 项未能清除：${真失败.join('；')}`)
+    } else if (待重启清完.length) {
+      ElMessage.success(`已恢复到出厂设置，正在重启…（另有 ${待重启清完.length} 项缓存要等重启后才清完）`)
+    } else {
+      ElMessage.success('已恢复到出厂设置，正在重启…')
+    }
+    setTimeout(() => location.reload(), 800)
+  } finally {
+    factoryBusy.value = false
+  }
+}
+
 // 展示数据库文件位置（Electron 桌面版）
 async function loadDbInfo() {
   try {
@@ -1002,8 +1091,11 @@ loadDbInfo()
   margin-bottom: 10px;
 }
 
-/* 如实说明那条：给个底色，让人一眼看出这是"边界声明"而不是又一段功能说明 */
-.lock-honest {
+/* 如实说明那条：给个底色，让人一眼看出这是"边界声明"而不是又一段功能说明。
+   .factory-note 是出厂重置卡上的同类说明块（"不可撤销" / "模型与示例手册不删"），
+   与它共用一套外观 —— 同一种语气不该长出两种样子。 */
+.lock-honest,
+.factory-note {
   padding: 8px 10px;
   background: var(--card-2);
   border: 1px solid var(--line);
@@ -1013,16 +1105,27 @@ loadDbInfo()
   line-height: 1.7;
 }
 
+/* 两张说明块之间留一点缝：紧贴着读起来会当成同一段 */
+.factory-note + .factory-note {
+  margin-top: 8px;
+}
+
 /*
  * 图标走 inline + vertical-align，**不要**把这一块做成 flex：
  * 段子里有行内 <b>（"界面锁，不是文件加密"），一旦父级是 flex，
  * 每个文本节点和 <b> 都会各自变成一个 flex 项，句子被拆成几段并排，
  * 实测渲染成"这是一 把 / 界面锁，不是文件加 密"这种夹着空隙的碎片。
  */
-.lock-honest .el-icon {
+.lock-honest .el-icon,
+.factory-note .el-icon {
   margin-right: 4px;
   vertical-align: -2px;
   color: var(--danger-ink);
+}
+
+/* 出厂重置卡里的按钮 + 一句退路提示。块级上下排，不是 flex —— 说明文字要能整段换行 */
+.factory-row {
+  margin-top: 14px;
 }
 
 .card-header {

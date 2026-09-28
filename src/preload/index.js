@@ -23,7 +23,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // ⚠️ 仅允许打开 documents/ 目录内的文件（主进程做边界校验，传越界路径会被拒）
     openPath: (p) => ipcRenderer.invoke('app:openPath', p),
     // sql.js WASM 二进制（打包版用：渲染层 fetch 读不了 file://，主进程 fs 读后注入）
-    readWasm: () => ipcRenderer.invoke('app:readWasm')
+    readWasm: () => ipcRenderer.invoke('app:readWasm'),
+    // 恢复到出厂设置：抹掉 userData 下的应用文件。**不收参数** ——
+    // 删除范围硬编码在主进程，渲染层无从指定路径（见 main/index.js 那条 IPC 的注释）
+    factoryReset: () => ipcRenderer.invoke('app:factoryReset')
   },
 
   // 数据备份与迁移（一键换机）

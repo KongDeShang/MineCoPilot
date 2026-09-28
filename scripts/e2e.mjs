@@ -3342,6 +3342,165 @@ async function main() {
       落定 === true && afterSkip.设置屏 === false && afterSkip.进了应用 === true,
       `落定=${落定} 视图=${afterSkip.视图 || '(无)'} 设置屏=${afterSkip.设置屏}`)
 
+
+    // ---------- 17. 恢复到出厂设置：点一下回到"刚装好"（用户报障的端到端守卫） ----------
+    /**
+     * 用户原话：「卸载后重新安装，但是密码锁仍然在、设置仍然在，并不是从零开始」。
+     * 根因是锁配置与偏好落在 userData 里的 localStorage，而卸载器**刻意不删** userData
+     * （src/main/index.js 顶部那条注释就是它的挡箭牌）。于是"从零"只能由应用内这个入口负责。
+     *
+     * 起点：第 16 段收尾时机器上是「没账户、不设防、标记=1、库已播种」。先造出一台"用过的"
+     * 机器（一把锁 + 一堆改过的偏好 + 一条对话），再**从界面上**点恢复出厂。
+     *
+     * 为什么必须走界面而不是直接 import utils/factoryReset.js 调一下：直接调只能证明
+     * "函数删得对"（那归 self-check 管），证明不了"设置页那张卡真的接上了它、确认框真的弹得
+     * 出来、点完真的重载、重载后真的回到首启那一屏"。这一段要的是后者。
+     */
+    const factorySeed = await session.eval(`(async () => {
+      const m = await import('/src/utils/appLock.js')
+      const created = await m.createAccount({ name: '出厂前账户', role: '维修工', pin: '8642' })
+      localStorage.setItem('ks:master-mode', '1')
+      localStorage.setItem('ks:tour-seen', '1')
+      localStorage.setItem('ks:theme', 'dark')
+      localStorage.setItem('ai_chat_messages', '[{"role":"user","content":"出厂前的话"}]')
+      localStorage.setItem('mining-nav-pinned', '["equipment"]')
+      return { created: created.ok === true, lockOn: m.lockEnabled() === true }
+    })()`)
+
+    // 账户是模块层建的，而设置页的 lockOn / accounts 是 onMounted 读一次的快照：
+    // 靠"设一下 hash"触发重挂的前提是那一跳**真的是个路由变化**（这一段注释在模板串里，
+    // 不能出现反引号），所以先绕看板再回来。
+    await session.eval(`(async () => {
+      location.hash = '#/dashboard'
+      await new Promise(r => setTimeout(r, 800))
+      location.hash = '#/settings'
+      await new Promise(r => setTimeout(r, 1800))
+    })()`)
+    /**
+     * 用 `withLockHelper` 而不是裸 `session.eval`：上一段的收尾是 `reloadUntil`（16 段最后那条
+     * 「跳过一次之后再启动不再问」），它会把页面换一茬，而 `__clickText` 是挂在 `window` 上的
+     * ——`LOCK_HELPER` 自己的注释就写着"页面每刷新一次就得重新注入一次"。
+     *
+     * 第一版这里漏了重注入，实测的失败形态值得记一笔：**不是红，是崩**。前 228 条全绿、0 失败，
+     * 然后 `TypeError: window.__clickText is not a function` 把整轮打断，我自己这 7 条一条都没跑。
+     * 「228 条全过」看着像验收通过，其实这一段是空白 —— 崩溃冒充绿，比红更难看出来。
+     */
+    const factoryAsk = await withLockHelper(`(async () => {
+      const clicked = window.__clickText('恢复到出厂设置')
+      await new Promise(r => setTimeout(r, 900))
+      const box = document.querySelector('.el-message-box')
+      return {
+        clicked,
+        title: box ? (box.querySelector('.el-message-box__title') || {}).textContent.trim() : '',
+        body: box ? (box.querySelector('.el-message-box__message') || {}).textContent.replace(/\\s+/g, ' ') : ''
+      }
+    })()`)
+    check('恢复出厂：设置页那张卡点得动，二次确认如实写明清什么、且不可撤销',
+      factorySeed.created === true && factoryAsk.clicked === true &&
+        factoryAsk.title === '恢复到出厂设置' &&
+        /本机数据库里的全部业务数据/.test(factoryAsk.body) && /不可撤销/.test(factoryAsk.body),
+      `账户已建=${factorySeed.created} 点了=${factoryAsk.clicked} 标题「${factoryAsk.title}」正文 ${factoryAsk.body.slice(0, 60)}…`)
+    /**
+     * 确认框里那句枚举是**清单渲染出来的**，所以这条顺带钉住了"文案 ≠ 实际清的东西"这种漂移：
+     * 三处细节（应用锁与账户 / AI 对话记录 / 界面偏好）分别来自清单里三个不同的分组。
+     */
+    check('恢复出厂：确认框里的枚举来自清理清单本身（应用锁、对话记录、界面偏好都在）',
+      /应用锁与账户/.test(factoryAsk.body) && /AI 对话记录/.test(factoryAsk.body) &&
+        /界面偏好/.test(factoryAsk.body),
+      `正文 ${factoryAsk.body.slice(0, 120)}…`)
+
+    /**
+     * 点确认之后：清库 + 清 IndexedDB + 抹 userData，然后**应用自己**在 800ms 后重载。
+     * 这里不能紧跟一句 Page.reload —— 那会和上面那步抢跑（重置还没做完就把文档换掉）。
+     * 改成埋标记 + 轮询等它落定：标记是旧文档里的，新文档必然没有。
+     */
+    const confirmClick = await session.eval(`(() => {
+      window.__e2eOldDoc = 1
+      const btn = Array.from(document.querySelectorAll('.el-message-box button'))
+        .find(b => b.textContent.trim() === '确认恢复到出厂设置')
+      if (!btn) return { error: '确认框里找不到「确认恢复到出厂设置」按钮' }
+      btn.click()
+      return { clicked: true }
+    })()`)
+    /**
+     * 抢一眼那颗提示。为什么要在 Node 侧轮询、而不是在页面里 await：提示消失的那一刻
+     * 正是应用自己 `location.reload()` 的那一刻，页面里的 await 会随上下文一起被销毁
+     * （求值抛异常 ⇒ 整轮 e2e 被打断，只剩一句 TypeError）。这里改成"每 120ms 问一次，
+     * 问不到或文档已换新就停" —— 换新时求值会抛，那是导航的正常现象，break 即可。
+     *
+     * 这条要抓的是"假警报"：重置明明成功了，却因为 IndexedDB 那边有连接在用而报一句
+     * "未能清除"。抢不到提示不算失败（可能它一转眼就被重载盖掉了），所以文案里写明。
+     */
+    let 出厂提示 = '(没抢到，可能一转眼就被重载盖掉)'
+    const 提示期限 = Date.now() + 4000
+    while (Date.now() < 提示期限) {
+      try {
+        const t = await session.eval(
+          `(() => { const m = document.querySelector('.el-message'); return m ? m.textContent.replace(/\\s+/g, ' ').trim() : null })()`
+        )
+        if (t) { 出厂提示 = t; break }
+      } catch { break }
+      await sleep(120)
+    }
+    check('恢复出厂：成功之后不冒"未能清除"这类假警报（真失败与"等重启清完"分开说）',
+      !/未能清除|失败/.test(出厂提示), `提示「${出厂提示}」`)
+
+    const factorySettled = await waitForFreshDoc(session, '.lock-screen .lock-btn-ghost', 40000)
+    const factoryState = await session.eval(`(async () => {
+      const d = await import('/src/utils/database.js')
+      const root = document.querySelector('.lock-screen')
+      const get = (k) => { try { return localStorage.getItem(k) } catch { return '不可读' } }
+      return {
+        view: root ? (root.getAttribute('data-lock-view') || '') : '',
+        sub: (document.querySelector('.lock-sub') || {}).textContent || '',
+        锁配置: get('ks:app-lock'), 首启标记: get('ks:lock-setup-seen'),
+        老师傅: get('ks:master-mode'), 引导: get('ks:tour-seen'), 主题: get('ks:theme'),
+        对话: get('ai_chat_messages'), 钉住: get('mining-nav-pinned'),
+        dbReady: d.isReady() === true
+      }
+    })()`)
+    check('恢复出厂：点完真的重载并回到首启那一屏（锁配置与首启标记一起被清 —— 本缺陷的正主）',
+      confirmClick.clicked === true && factorySettled === true &&
+        factoryState.view === 'setup' && /首次使用/.test(factoryState.sub) &&
+        factoryState.锁配置 === null && factoryState.首启标记 === null,
+      confirmClick.error ||
+        `落定=${factorySettled} 视图=${factoryState.view || '(无)'} 锁配置=${factoryState.锁配置} 标记=${factoryState.首启标记}`)
+    check('恢复出厂：偏好与对话记录一并回默认（这正是与锁屏「清空自救」最大的区别 —— 自救留着偏好）',
+      factoryState.老师傅 === null && factoryState.引导 === null && factoryState.主题 === null &&
+        factoryState.对话 === null && factoryState.钉住 === null,
+      `老师傅=${factoryState.老师傅} 引导=${factoryState.引导} 主题=${factoryState.主题} 对话=${factoryState.对话} 钉住=${factoryState.钉住}`)
+    check('恢复出厂：这一屏上数据库还没起来（结构保证 —— 走完设锁才装载，不是"先播种再挡一层"）',
+      factoryState.dbReady === false, `isReady=${factoryState.dbReady}`)
+
+    // 走完首启那一屏 ⇒ 库重新播种。不点跳过的话后面没有可断言的"主界面"。
+    await session.eval(LOCK_HELPER)
+    const afterWipe = await withLockHelper(`(async () => {
+      const ghost = document.querySelector('.lock-btn-ghost')
+      if (!ghost) return { ok: false, why: '出厂后那一屏上没有「跳过」按钮' }
+      ghost.click()
+      const deadline = Date.now() + 30000
+      while (Date.now() < deadline && !document.querySelector('.app-main')) {
+        await new Promise(r => setTimeout(r, 300))
+      }
+      const d = await import('/src/utils/database.js')
+      location.hash = '#/dashboard'
+      await new Promise(r => setTimeout(r, 2200))
+      const first = document.querySelector('.stat-value')
+      const ready = d.isReady() === true
+      return {
+        ok: true,
+        dbReady: ready,
+        // 库没起来就别去 count（会抛，把整轮打断只剩一句 TypeError）—— 交给断言报红
+        equipCount: ready ? d.count('equipment') : -1,
+        firstStat: first ? first.textContent.trim() : ''
+      }
+    })()`)
+    check('恢复出厂：走完首启那一屏后演示数据重新播种（不是留下一台空库）',
+      afterWipe.ok === true && afterWipe.dbReady === true && afterWipe.equipCount > 0 &&
+        afterWipe.firstStat === String(afterWipe.equipCount),
+      afterWipe.why ||
+        `台账 ${afterWipe.equipCount} 台 / 看板显示「${afterWipe.firstStat}」 isReady=${afterWipe.dbReady}`)
+
     // ---------- 汇总 ----------
     console.log('')
     for (const c of checks) {

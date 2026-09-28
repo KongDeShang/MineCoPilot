@@ -14,7 +14,7 @@
  *
  * 运行：npm run main-check
  */
-import { readFileSync, writeFileSync, mkdirSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, mkdtempSync, rmSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -411,7 +411,74 @@ const untrustedEvent = { senderFrame: { url: 'https://evil.example/attack.html' 
     ModelRegistry.autoSelectTier(ModelRegistry.TIERS.map(t => ({ ...t, installed: false }))) === 'light')
 }
 
-// ============ 7. 接线：上面那套能力必须真的被挂到应用上 ============
+// ============ 7. 恢复出厂设置：删除范围与"不接参数"契约 ============
+{
+  /**
+   * 这条 IPC 管的是"把这台机器交出去之前清干净"，做错了不可挽回，所以两条性质都要真验：
+   *   ① 删除范围对不对（该清的清、models/ 绝不碰）—— **行为**验证，不扫源码；
+   *   ② 一个入参都不认（删除范围硬编码）—— 收路径就等于开了
+   *      "渲染层让我删什么我就删什么"的口子。
+   *
+   * 为什么删除逻辑单独放在 userDataReset.js：就是为了这里能 require 进来直接调用。
+   * 扫 index.js 源码猜"它应该没读第二个参数"，正是 main-check 头注释里反省过的那种
+   * 检查方式（src/main 长期只有正则，于是「切换到该档」能 100% 失败而验收全绿）。
+   */
+  const { wipeUserData } = require(join(root, 'src', 'main', 'userDataReset.js'))
+
+  // 夹具：该在的都在（含 models/ 里那个"绝不能被删"的模型），目录外再放一个诱饵
+  const outsideDir = mkdtempSync(join(tmpdir(), 'ks-main-check-outside-'))
+  const decoy = join(outsideDir, '重要文件.txt')
+  writeFileSync(decoy, '在 userData 之外，任何情况下都不该被碰')
+  mkdirSync(join(userDataDir, 'documents'), { recursive: true })
+  mkdirSync(join(userDataDir, 'backups'), { recursive: true })
+  mkdirSync(join(userDataDir, 'models'), { recursive: true })
+  writeFileSync(join(userDataDir, 'documents', 'bundled-a.pdf'), 'x')
+  writeFileSync(join(userDataDir, 'backups', 'old.mbak'), 'x')
+  writeFileSync(join(userDataDir, 'model-pref.json'), '{"tierId":"standard"}')
+  writeFileSync(join(userDataDir, 'llm-verify.json'), '{}')
+  writeFileSync(join(userDataDir, 'models', 'qwen2.5-0.5b.bin'), 'x')
+
+  // 多喂一个参数：函数签名若真的收"要删哪些"，这个诱饵就会被带走
+  const r = await wipeUserData(userDataDir, decoy, [decoy], { paths: [decoy] })
+
+  check('wipeUserData 形参只有一个（"删除范围硬编码"在签名上就成立，不靠自觉）',
+    wipeUserData.length === 1, `arity=${wipeUserData.length}`)
+  check('目录外的文件一根汗毛都没动（多喂的参数一概不认，删除只发生在本目录内）',
+    existsSync(decoy), `诱饵还在=${existsSync(decoy)}`)
+  check('documents/ 与 backups/ 的内容被清空、目录本身留着（下次启动照常往里写）',
+    readdirSync(join(userDataDir, 'documents')).length === 0 &&
+      readdirSync(join(userDataDir, 'backups')).length === 0,
+    `documents=${readdirSync(join(userDataDir, 'documents')).length} 项、backups=${readdirSync(join(userDataDir, 'backups')).length} 项`)
+  check('model-pref.json / llm-verify.json 被删掉（否则下次启动会拿着旧偏好去找已删的档位）',
+    !existsSync(join(userDataDir, 'model-pref.json')) && !existsSync(join(userDataDir, 'llm-verify.json')))
+  check('models/ 原封不动（离线包的全部价值就在这儿，删了等于把装好的软件弄坏）',
+    existsSync(join(userDataDir, 'models', 'qwen2.5-0.5b.bin')))
+  check('返回值如实说明"保留了 models 以及为什么"（不让渲染层以为全清光了）',
+    r && r.ok === true && Array.isArray(r.kept) && r.kept.some(s => /models/.test(s)),
+    r ? JSON.stringify({ ok: r.ok, removed: r.removed, kept: r.kept }) : '没拿到返回值')
+
+  /**
+   * 上面验的是"模块删得对"，这里验"应用真的把它接上了"，且接线只有一行：
+   * `assertTrusted(event)` 打头（删数据的口子必须先拦来源），紧接着
+   * `wipeUserData(app.getPath('userData'))` —— 实参里**只有** userData，
+   * 没有第二个字节能被渲染层左右。这行必须只能是源码断言（加载 index.js 要连
+   * BrowserWindow/protocol 一起桩，得不偿失），但它盯的是一个一行的调用，
+   * 比盯一段三十五行的函数体靠得住得多。
+   */
+  const idx = readFileSync(join(root, 'src', 'main', 'index.js'), 'utf8')
+  const at = idx.indexOf("ipcMain.handle('app:factoryReset'")
+  const call = at >= 0 ? idx.slice(at, at + 400) : ''
+  check('index.js 注册了 app:factoryReset', at >= 0)
+  check('handler 第一句就是 assertTrusted(event)（不可信来源先拦掉，再谈删什么）',
+    /ipcMain\.handle\('app:factoryReset',\s*async \(event\) => \{\s*assertTrusted\(event\)/.test(call),
+    call.split('\n').slice(0, 3).join(' / '))
+  check('接线的实参只有 app.getPath(\'userData\')，不多传一个参数（渲染层无从指定删什么）',
+    /wipeUserData\(\s*app\.getPath\('userData'\)\s*\)/.test(call),
+    (call.match(/wipeUserData\([^)]*\)[^)]*\)/) || ['未找到调用'])[0])
+  rmSync(outsideDir, { recursive: true, force: true })
+}
+
+// ============ 8. 接线：上面那套能力必须真的被挂到应用上 ============
 {
   /**
    * 第 6 节验的是"modelManager 支持这么做"，这一节验"应用真的这么接了"。

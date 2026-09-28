@@ -34,7 +34,7 @@ mkdirSync(mirrorDir, { recursive: true })
 // knowledgeBase / reportGenerator 开始 import 它之后，镜像里没有对应文件，
 // self-check 抛 ERR_MODULE_NOT_FOUND 整个中断（verify 的前置步骤，全链路失败）。
 // 以后再往 utils 加纯函数模块，记得同步加到这里。
-for (const name of ['dates', 'html', 'htmlIcons', 'appIcons', 'storage', 'database', 'excelParser', 'synonyms', 'knowledgeBase', 'health', 'equipmentCatalog', 'equipmentPhoto', 'fleetData', 'healthReport', 'faultStats', 'alertRules', 'aliases', 'seedGate', 'nlCommand', 'llmClient', 'narrate', 'reportGenerator', 'dictionaries', 'bundledDocs', 'faultCaseDraft', 'demoTour', 'appLock']) {
+for (const name of ['dates', 'html', 'htmlIcons', 'appIcons', 'storage', 'database', 'excelParser', 'synonyms', 'knowledgeBase', 'health', 'equipmentCatalog', 'equipmentPhoto', 'fleetData', 'healthReport', 'faultStats', 'alertRules', 'aliases', 'seedGate', 'nlCommand', 'llmClient', 'narrate', 'reportGenerator', 'dictionaries', 'bundledDocs', 'faultCaseDraft', 'demoTour', 'appLock', 'factoryReset']) {
   const code = readFileSync(join(srcDir, `${name}.js`), 'utf8')
     .replace(/(from\s+['"]\.\/[a-zA-Z0-9_-]+)(['"])/g, '$1.mjs$2')
   writeFileSync(join(mirrorDir, `${name}.mjs`), code, 'utf8')
@@ -52,7 +52,12 @@ const fakeStorage = new Map()
 globalThis.localStorage = {
   getItem: (k) => (fakeStorage.has(k) ? fakeStorage.get(k) : null),
   setItem: (k, v) => fakeStorage.set(k, String(v)),
-  removeItem: (k) => fakeStorage.delete(k)
+  removeItem: (k) => fakeStorage.delete(k),
+  // key(i) / length 是 Storage 接口的成员，出厂重置的 `ks:` 前缀兜底扫要用它们。
+  // 这两条必须补上：少了它们，那条兜底路径会在特性探测那一步静默跳过 ——
+  // 测试照样是绿的，而它其实半点没验（假绿比红更难发现）。
+  key: (i) => Array.from(fakeStorage.keys())[i] ?? null,
+  get length() { return fakeStorage.size }
 }
 globalThis.window = globalThis.window || {}
 globalThis.indexedDB = undefined
@@ -2567,6 +2572,208 @@ function check(name, condition, detail = '') {
   localStorage.removeItem('ai_chat_messages')
   localStorage.removeItem('ks:theme')
   localStorage.removeItem('mining-nav-pinned')
+}
+
+// ============ Q2 恢复到出厂设置（键清单对账 + 键级行为，2026-09-28） ============
+/**
+ * 这个功能的要害有两条，各配一组断言。
+ *
+ *   ① **清单不能漏**。应用写在本机的存储键散在十几个文件里，有的藏在常量后面，
+ *      还有几个**没有 `ks:` 前缀**（`ai_chat_messages` / `mining-nav-pinned` /
+ *      `kuangshan-zhigong:database`）。将来加一个新键、忘了登记进出厂清单，
+ *      用户看到的就是"重置完还剩一点"这种半干净 —— 而他自己没法查。
+ *      所以这里拿**源码里扫到的键**去对账（静态、双向），而不是逐个手写用例 ——
+ *      手写的那几个永远追不上新增的。
+ *
+ *   ② **`ks:lock-setup-seen` 必须被清掉**。它是用户那句
+ *      「我卸载后重新安装，但是密码锁任然在设置任然在，并不是从零开始啊」的直接原因：
+ *      清空自救**刻意保留**它（那样才能"安静地进主界面"，见 appLock.js:87-90），
+ *      出厂重置**必须清它** —— 少了它，重启后不会出现首启那一屏。
+ *      **这一条是那个报障的回归守卫，别删。**
+ */
+{
+  const factory = await import(mirror('factoryReset'))
+
+  /**
+   * 源码里扫到的"键"里，这几个**不是** localStorage 键，各有理由。
+   *
+   * 这张表是**实测**出来的：先跑一遍收集器（看它捞到什么），再逐条给理由。
+   * 别凭印象往里加 —— 豁免表是给真键开后门最方便的地方，加一条就等于少验一处。
+   */
+  const EXEMPT = {
+    alert_done: '库 meta 表的键（stores/settingsDomain.js），随库字节一起清',
+    theme_pref: '库 meta 表的键（utils/theme.js 的权威值，ks:theme 只是它的镜像），随库字节一起清',
+    database: 'IndexedDB 内部的对象仓库键名（utils/storage.js 的 IDB_KEY），整个库已被 deleteDatabase'
+  }
+
+  /** 从一段源码里收集"疑似存储键"：剥注释后按三条规则捞 */
+  const collect = (code) => {
+    const src = code
+      .replace(/<!--[\s\S]*?-->/g, ' ')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/(^|\s)\/\/[^\n]*/g, ' ')
+    const out = new Set()
+    // ① 任何 ks: 字面量
+    for (const m of src.matchAll(/'(ks:[a-z0-9-]+)'/g)) out.add(m[1])
+    // ② localStorage.XItem('...') 的实参（无前缀的那几个靠这条）
+    for (const m of src.matchAll(/localStorage\s*\.\s*(?:get|set|remove)Item\s*\(\s*'([^']+)'/g)) out.add(m[1])
+    // ③ 名字里带 KEY 的常量 = 字符串字面量（键藏起来最常见的方式）
+    for (const m of src.matchAll(/const\s+[A-Za-z_$]*KEY[A-Za-z_$]*\s*=\s*'([^']+)'/g)) out.add(m[1])
+    return out
+  }
+
+  const found = new Map() // key -> 出处（红的时候直接点出来，省得自己去找）
+
+  /**
+   * 扫描范围**必须排除清单文件自己**。这条是踩出来的：
+   * `utils/factoryReset.js` 里写满了 `'ks:...'` 字面量，一旦把它算进"源码里出现的键"，
+   * 下面那条反向对账（"清单里的每个键都在源码里真实存在"）就退化成**拿清单证明清单** ——
+   * 把清单里的 `ks:tour-seen` 写成 `ks:tour-seen2`，它照样绿：因为 `ks:tour-seen2`
+   * 确实"出现在源码里"，而那个"源码"就是清单本子。清单是登记簿，不是消费方。
+   * 这条教训由下面的"反向对账不是在拿清单证明清单"那条断言看住。
+   */
+  const SKIP_FROM_SCAN = 'utils/factoryReset.js'
+  const walk = (d) => {
+    for (const entry of readdirSync(join(root, 'src', 'renderer', 'src', d), { withFileTypes: true })) {
+      const rel = d ? `${d}/${entry.name}` : entry.name
+      if (entry.isDirectory()) { walk(rel); continue }
+      if (!/\.(js|mjs|vue)$/.test(entry.name)) continue
+      if (rel === SKIP_FROM_SCAN) continue
+      for (const k of collect(readFileSync(join(root, 'src', 'renderer', 'src', rel), 'utf8'))) {
+        if (!found.has(k)) found.set(k, rel)
+      }
+    }
+  }
+  walk('')
+
+  // 给上面两条对账兜底的门禁：把清单文件重新扫进来 = 反向对账变回恒真，
+  // 而且**没有任何征兆**（不会红、不会报错，只是再也抓不到写错的键名）。
+  const scannedOrigins = new Set(found.values())
+  check('反向对账不是在拿清单证明清单（收集器把清单文件本身排除在外了）',
+    !scannedOrigins.has(SKIP_FROM_SCAN),
+    scannedOrigins.has(SKIP_FROM_SCAN)
+      ? `扫描范围里出现了 ${SKIP_FROM_SCAN}，反向对账会恒真`
+      : `已排除 ${SKIP_FROM_SCAN}`)
+
+  // 前缀常量自身（`ks:`）不算键：它必然是某个真键的前缀（`factoryReset.js` 的 KEY_PREFIX）。
+  // 判据刻意写成「恰好等于」而不是「是别人的前缀」：后者会把**真键**一起吞掉 ——
+  // 曾经写成 `allKeys.some(o => o !== k && o.startsWith(k))`，于是 `ks:tour-seen`
+  // 因为刚好是 `ks:tour-seen2` 的前缀被静默剔除，正向对账再也看不见它
+  // （"漏一个键 = 重置完还剩一点"正是这条要抓的东西）。宁可比对时多认一个键，
+  // 也不要少认一个 —— 多认会红、少认会静静地放过。
+  const allKeys = [...found.keys()]
+  const keys = allKeys.filter(k => k !== 'ks:')
+  const accounted = new Set([...factory.FACTORY_RESET_KEYS, ...Object.keys(EXEMPT)])
+  const orphans = keys.filter(k => !accounted.has(k))
+  check('出厂清单覆盖了源码里出现的每一个存储键（漏一个 = 重置完还剩一点）',
+    orphans.length === 0,
+    orphans.length
+      ? `没登记的键：${orphans.map(k => `${k}（在 ${found.get(k)}）`).join('、')}`
+      : `${keys.length} 个键全部有归属（清单 ${factory.FACTORY_RESET_KEYS.length} + 豁免 ${Object.keys(EXEMPT).length}）`)
+
+  // 反向也要查：清单里写错一个字母的键名，那条 removeItem 会**静静地什么都不清**，
+  // 而正向对账完全查不出来（它只问"源码里的键有没有漏"，不问"清单里的键存不存在"）。
+  const ghosts = factory.FACTORY_RESET_KEYS.filter(k => !found.has(k))
+  check('出厂清单里的每个键都在源码里真实存在（防写错字母后静静地不清）',
+    ghosts.length === 0,
+    ghosts.length ? `源码里找不到：${ghosts.join('、')}` : `${factory.FACTORY_RESET_KEYS.length} 个键逐个对上`)
+
+  check('确认框那句枚举与清理清单同源（文案不手写，免得与实际清的东西分家）',
+    factory.factoryResetSummary() === factory.FACTORY_RESET_SCOPE.map(s => s.label).join('、') &&
+      factory.FACTORY_RESET_SCOPE.every(s => s.keys.length > 0 && s.keys.every(k => factory.FACTORY_RESET_KEYS.includes(k))),
+    `${factory.FACTORY_RESET_SCOPE.length} 组、${factory.FACTORY_RESET_KEYS.length} 个键，摘要 ${factory.factoryResetSummary().length} 字`)
+
+  // ---- 键级行为（夹具先就位再断言：否则"什么都没清"也会让"键都不在"成立）----
+  await appLock.createAccount({ name: '出厂测试', role: '', pin: '2468' })
+  localStorage.setItem('ks:undo-stack', '[{"x":1}]')
+  localStorage.setItem('ai_chat_messages', '[{"role":"user"}]')
+  localStorage.setItem('ks:theme', 'dark')
+  localStorage.setItem('ks:master-mode', '1')
+  localStorage.setItem('mining-nav-pinned', '["equipment"]')
+  const beforeKeys = factory.FACTORY_RESET_KEYS.filter(k => localStorage.getItem(k) !== null)
+  check('出厂前的夹具就位（锁启用、首启标记已写、偏好也在）',
+    appLock.lockEnabled() === true && appLock.needsLockSetup() === false && beforeKeys.length >= 5,
+    `就位的键 ${beforeKeys.length} 个：${beforeKeys.join('、')}`)
+
+  const wiped = await factory.factoryReset()
+  check('恢复出厂设置执行成功', wiped.ok === true, wiped.error || 'ok')
+
+  const left = factory.FACTORY_RESET_KEYS.filter(k => localStorage.getItem(k) !== null)
+  check('出厂把清单里的键全部清掉（含偏好与首启标记 —— 这正是与"清空自救"最大的区别）',
+    left.length === 0,
+    left.length ? `还留着：${left.join('、')}` : `${factory.FACTORY_RESET_KEYS.length} 个键全清`)
+
+  check('出厂之后首启那一屏必须重新出现（ks:lock-setup-seen 被清 ⇒ needsLockSetup 为真）',
+    appLock.lockSetupSeen() === false && appLock.needsLockSetup() === true && appLock.lockEnabled() === false,
+    `setupSeen=${appLock.lockSetupSeen()} needs=${appLock.needsLockSetup()} lockEnabled=${appLock.lockEnabled()}`)
+
+  /**
+   * 会话（appLock 模块内存里的 unlockedAccountId）清 localStorage 是清不掉的，
+   * 必须显式清 —— 否则它变成指向"已删账户"的悬空 id，而 createAccount 里那句
+   * `if (!unlockedAccountId)` 于是不再认下后来建的账户，界面会停在"本次运行没有身份"。
+   *
+   * 判据为什么不是 `currentAccount() === null`：账户都清光了，那个断言**无论如何都成立**，
+   * 抓不住这个缺陷。要害在"再建一个账户时认不认" —— 所以这里真建一个来看。
+   * （这个缺陷最早是 R 段的 lockNow 用例照出来的，那条红得有道理。）
+   */
+  const fresh = await appLock.createAccount({ name: '出厂后新账户', role: '', pin: '3579' })
+  check('出厂之后不留悬空会话：再建账户时本次会话会认下它（否则界面上没有身份）',
+    fresh.ok === true && appLock.currentAccount() !== null && appLock.currentAccount().name === '出厂后新账户',
+    `currentAccount=${appLock.currentAccount() ? appLock.currentAccount().name : 'null'}`)
+  // 收尾：把这一节建的账户与空闲设置清干净，别留给后面的段（R 段会自己建账户测 lockNow）
+  appLock.disableLock()
+  localStorage.removeItem('ks:app-lock')
+
+  // ---- 前缀兜底：清单里没有的 ks: 键也要清；且不能越界到别人的命名空间 ----
+  localStorage.setItem('ks:将来新增的键', '1')
+  localStorage.setItem('别的命名空间', '1')
+  await factory.factoryReset()
+  check('ks: 前缀兜底扫生效：清单里没有的 ks: 键也被清掉（防将来新增却忘登记）',
+    localStorage.getItem('ks:将来新增的键') === null,
+    `ks:将来新增的键 = ${localStorage.getItem('ks:将来新增的键') === null ? '已清' : '还在'}`)
+  check('前缀兜底不越界：别的命名空间的键一动不动（清的是应用自己的状态，不是整个 localStorage）',
+    localStorage.getItem('别的命名空间') !== null,
+    `别的命名空间 = ${localStorage.getItem('别的命名空间') === null ? '被清了（越界）' : '还在'}`)
+  localStorage.removeItem('别的命名空间')
+
+  // ---- 主进程那条 IPC：注册在 index.js，删除清单在 userDataReset.js ----
+  const mainSrc = readFileSync(join(root, 'src', 'main', 'index.js'), 'utf8')
+  const handlerAt = mainSrc.indexOf("ipcMain.handle('app:factoryReset'")
+  check('主进程注册了 app:factoryReset 这条 IPC',
+    handlerAt >= 0, handlerAt >= 0 ? '已注册' : '没找到')
+
+  /**
+   * 扫的是 **userDataReset.js**，不是 index.js。删除逻辑从 index.js 抽出去之后，
+   * 这条断言如果还盯着 index.js 的函数体，就变成"扫一段压根没有清单的代码、
+   * 然后宣布清单里没有 models" —— 典型的假绿。文件搬了，断言必须跟着搬
+   * （行为上的那一份在 main-check：真把 models/ 删掉会让它红）。
+   */
+  const wipeCode = readFileSync(join(root, 'src', 'main', 'userDataReset.js'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|\s)\/\/[^\n]*/g, ' ')
+  check('出厂删除清单里没有 models（删了离线包就没有本地模型了，等于把装好的软件弄坏）',
+    !/['"]models['"]/.test(wipeCode),
+    /['"]models['"]/.test(wipeCode)
+      ? '⚠️ userDataReset.js 里出现了带引号的 models' : 'userDataReset.js 未涉及 models 这个目录名')
+
+  // ---- preload 白名单 ----
+  const preloadSrc = readFileSync(join(root, 'src', 'preload', 'index.js'), 'utf8')
+  check('preload 白名单暴露了 factoryReset（否则渲染层根本调不到）',
+    /factoryReset:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('app:factoryReset'\)/.test(preloadSrc),
+    /factoryReset:/.test(preloadSrc) ? '有 factoryReset 一行' : '没有这一行')
+
+  // ---- 设置页：文案来自清单，且卡片里没有硬编码的 storage 键 ----
+  const settingsSrc = readFileSync(join(root, 'src', 'renderer', 'src', 'views', 'Settings.vue'), 'utf8')
+  const settingsCode = settingsSrc
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|\s)\/\/[^\n]*/g, ' ')
+  check('设置页的出厂卡片用清单渲染出来的文案（不自己再抄一份枚举）',
+    /factoryResetSummary/.test(settingsCode) && /from '\.\.\/utils\/factoryReset'/.test(settingsCode),
+    /factoryResetSummary/.test(settingsCode) ? '有引用' : '没引用 factoryResetSummary')
+  const hardKeys = settingsCode.match(/'ks:[a-z0-9-]+'/g)
+  check('设置页里没有硬编码的存储键（键只在 utils/factoryReset.js 一处维护）',
+    !hardKeys, hardKeys ? `出现了 ${hardKeys.join('、')}` : '无 ks: 字面量')
 }
 
 // ============ R 空闲自动锁（判定纯函数 + 设置读写，P4-2） ============

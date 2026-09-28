@@ -3,6 +3,7 @@ const path = require('path')
 const fs = require('fs')
 const { registerLlmIpc, runSelfVerify, disposeSession, releaseTierForRemoval } = require('./llmEngine')
 const { registerModelsIpc } = require('./modelManager')
+const { wipeUserData } = require('./userDataReset')
 
 let mainWindow
 
@@ -148,6 +149,23 @@ function registerIpc() {
     } catch (error) {
       return { path: file, exists: false, size: 0, error: error.message }
     }
+  })
+
+  /**
+   * 恢复到出厂设置：抹掉 userData 下**除模型之外**的全部应用数据。
+   *
+   * ── 为什么必须由主进程做 ────────────────────────────────────────────────
+   * `documents/` 与 `backups/` 只有主进程够得着 —— 资料库只认 DOCS_DIR 这个边界，
+   * 渲染进程既拿不到这个路径，也无权往里写文件。渲染层点一下要能真清干净，就得有这条 IPC。
+   *
+   * ── 为什么只留这两行 ────────────────────────────────────────────────────
+   * 删除逻辑在 ./userDataReset.js：放在那个模块里才能被 main-check **调用**着验证
+   * （删数据的范围不能只靠扫源码）。这里只做两件事：校验来源 + 把 userData 递进去
+   * （**不多传一个参数**，断言在 main-check 里盯着）。
+   */
+  ipcMain.handle('app:factoryReset', async (event) => {
+    assertTrusted(event)
+    return wipeUserData(app.getPath('userData'))
   })
 
   ipcMain.handle('app:version', (event) => { assertTrusted(event); return app.getVersion() })
