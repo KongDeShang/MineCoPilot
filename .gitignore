@@ -20,3 +20,17 @@ release-online/
 resources/models/
 资料/
 释放演示数据/
+
+# 产品说明书的**派生物**。docx 与 pdf 都由 docs/产品说明.html 生成：
+#   python docs/tools/html2docx.py                     # HTML -> docx
+#   chrome --headless=new --no-pdf-header-footer \
+#     --print-to-pdf=docs/产品说明.pdf docs/产品说明.html   # HTML -> pdf
+# 源头（HTML）与素材（docs/说明书配图/）入库，派生物不入库 —— 与 release/ 同一条口径。
+docs/产品说明.docx
+docs/产品说明.pdf
+
+# 开发期的临时工作区（探针脚本、实跑日志、截图、变异测试备份）。
+# 一直靠"没人 git add -A"保持未跟踪，和上面 release-online/ 是同一类隐患：
+# 一旦被扫进去，日志与截图进了历史就再也拿不出来。2026-09-28 收口时补上这一条，
+# 把"靠运气"换成"靠规则"。
+.workbuddy/
