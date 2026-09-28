@@ -8,7 +8,7 @@
         <!-- 品牌区：BrandMark 与侧栏、exe、标签页是同一份造型，
              这里只是把它放进设计稿那颗金底圆角方块里 -->
         <div class="lock-brand">
-          <div class="lock-mark"><BrandMark :size="22" /></div>
+          <div class="lock-mark"><BrandMark :size="21" /></div>
           <div class="lock-brand-txt">
             <div class="lock-title">矿山智工</div>
             <div class="lock-sub">{{ subtitle }}</div>

@@ -175,7 +175,10 @@ async function rescue() {
   align-items: flex-start;
   gap: 2px;
   padding: 7px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  /* 用与输入框同一条描边令牌（--lk-field-border）：这是一颗**可选中的控件**，
+     边界要求同 WCAG 1.4.11；稿子里没有这个块（一个账户时不出现），
+     所以没有"照稿"的值可抄，就沿用它旁边那个控件的。 */
+  border: 1px solid var(--lk-field-border);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.07);
   cursor: pointer;
@@ -188,19 +191,20 @@ async function rescue() {
 }
 
 .lock-account.is-on {
-  border-color: #f0a94e;
+  border-color: var(--lk-accent);
   background: rgba(240, 169, 78, 0.16);
 }
 
 .lock-account-name {
   font-size: 13px;
   font-weight: 600;
-  color: #f6f1e8;
+  color: var(--lk-ink);
 }
 
 .lock-account-role {
   font-size: 10.5px;
-  color: rgba(246, 241, 232, 0.66);
+  /* 稿子的 muted 档就是 0.68，别在这两处再发明一个 0.66 */
+  color: var(--lk-muted);
 }
 
 .lock-who {
@@ -218,11 +222,11 @@ async function rescue() {
 .lock-who-name {
   font-size: 14px;
   font-weight: 600;
-  color: #f6f1e8;
+  color: var(--lk-ink);
 }
 
 .lock-who-role {
   font-size: 12px;
-  color: rgba(246, 241, 232, 0.66);
+  color: var(--lk-muted);
 }
 </style>

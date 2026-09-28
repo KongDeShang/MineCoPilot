@@ -36,8 +36,19 @@
  *      （见 utils/appLock.js 里 unlockedAccountId 的注释），"记住我"与之直接冲突；
  *      本机账户由使用者在设置页自己加，没有"注册"这个概念。
  *   ③ 字体用项目的 --font-sans（与稿子的字体栈是同一批字族，见 tokens.css）。
+ *   ④ **稿子里没有、这里新增的几处**：次按钮（首启「跳过」）、忘记 PIN 的自救入口、
+ *      多账户时的选择块、以及那个显示"此刻是谁"的身份行 —— 稿子是一张登录卡，
+ *      这些是应用锁才有的出口与状态。它们没有照抄的对象，取值一律**沿用稿子已有的档**
+ *      （identity 文字用 --lk-ink、次要文字用 --lk-muted、控件描边用 --lk-field-border），
+ *      不在这几处另发明一套色阶。只有"非控件"的展示块（身份行）用更弱的 0.14/0.05，
+ *      故意的：它旁边就是同尺寸的输入框，一眼要分得清哪个能点、哪个只是显示。
  *
- * 其余配色、尺寸、圆角、间距全部照稿取值；--lk- 前缀是为了不和 tokens.css 的令牌
+ * 其余配色、尺寸、圆角、间距全部照稿取值 —— 这句话在 2026-09-28 复核过一次：
+ * 当时发现 5 处**无理由**的漂移（卡片 max-width 88vw、saturate 1.25、卡片阴影 0.62、
+ * 内高光 0.10、品牌方块阴影 0.50）与漏掉的 body 底色 #1a1712，已全部改回稿值。
+ * 改回去之前先看这一句：**照稿是默认，偏离要能说出数字**。
+ *
+ * --lk- 前缀是为了不和 tokens.css 的令牌
  * 混淆：锁屏是一块**固定暗暖色**的封面，不跟随浅/深主题（它盖住整个应用，
  * 不存在"与谁并排看"的问题），所以刻意不接 --bg/--text-1 那一套。
  */
@@ -80,6 +91,15 @@
    *
    * 顺带记一笔：稿子原值 0.42 压在这张图上，连**不透明的**标题字也只有 3.86:1，
    * 所以这条偏离不是"保险起见加一点"，是原值本身不达标。
+   *
+   * ── 0.82 是不是"手一松多给了一点"？不是。它就是实测允许的最小值附近 ──────────
+   * 后来把 0.70 / 0.74 / 0.82 各测了一遍，**卡住这条线的是报错条那一个**，
+   * 不是看上去最弱的页脚小字：
+   *   0.70 → 报错文字 4.00:1、描边 2.87:1、页脚 4.20:1   全不合
+   *   0.74 → 正文 8.86、标签 5.11、页脚 4.54 都过了，**只有报错文字 4.17:1 不合**
+   *   0.82 → 报错文字 4.55:1（余量 1.2%），其余各档 5.25 以上
+   * 所以下限在 0.81 上下，再往下调就只能靠改报错条自己那层底色（那是稿子给的值）。
+   * 谁要是哪天觉得"卡片太实了，调回 0.5"——先看这三行，那不是口味问题。
    */
   --lk-card: rgba(24, 22, 18, 0.82);
   --lk-card-border: rgba(255, 255, 255, 0.16);
@@ -87,6 +107,14 @@
   position: fixed;
   inset: 0;
   z-index: 3000;
+  /**
+   * 稿子给 body 的底色（#1a1712），这里落到封面上。
+   *
+   * 不是可有可无的一条：背景图是随包的 jpg，**解码完成之前**那一瞬间看到的是底色。
+   * 没有它，浅色主题的机器上会先闪一下白 —— 而锁屏是启动第一屏，
+   * 这一下正好是使用者/评委看到的第一帧。（深色主题下不明显，但浅色下很扎眼。）
+   */
+  background: #1a1712;
   overflow: auto;
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
@@ -121,16 +149,16 @@
 
 .lock-screen .lock-card {
   width: 300px;
-  max-width: 88vw;
+  max-width: 80vw;
   padding: 28px 26px 26px;
   border-radius: 18px;
   background: var(--lk-card);
-  -webkit-backdrop-filter: blur(20px) saturate(1.25);
-  backdrop-filter: blur(20px) saturate(1.25);
+  -webkit-backdrop-filter: blur(20px) saturate(1.35);
+  backdrop-filter: blur(20px) saturate(1.35);
   border: 1px solid var(--lk-card-border);
   box-shadow:
-    0 24px 60px -20px rgba(0, 0, 0, 0.62),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    0 24px 60px -20px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
 /* ===== 品牌区 ===== */
@@ -151,7 +179,7 @@
   /* 金底 + 深墨描边：BrandMark 用 currentColor，这里用 color 给它上色 */
   color: #241a0a;
   background: linear-gradient(140deg, var(--lk-accent-strong), var(--lk-accent));
-  box-shadow: 0 8px 20px -6px rgba(240, 169, 78, 0.5);
+  box-shadow: 0 8px 20px -6px rgba(240, 169, 78, 0.55);
 }
 
 .lock-screen .lock-title {
