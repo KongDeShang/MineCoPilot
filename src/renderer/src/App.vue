@@ -85,11 +85,15 @@
           重置演示数据
         </el-button>
         <div class="version">v{{ appVersion }}</div>
-        <!-- 开发者署名与版权。与 package.json 的 author / build.copyright、
-             根目录 LICENSE、index.html 的两条 meta 共五处保持同一口径。
+        <!-- 开发者署名。**不带 © 与年份**（2026-09-28 用户口径）：
+             这里是「谁做的」那一句署名，不是版权声明。版权声明在
+             package.json 的 build.copyright、根目录 LICENSE、index.html 的两条 meta、
+             以及设置页「关于本软件」卡里，那几处保留 "版权所有 © 2026" 的完整写法。
+             两类别混：署名去掉年份、声明留着年份，各按各的规矩 ——
+             原先那句「五处保持同一口径」从这一刻起不再成立，别照着它去"对齐"。
              刻意**不在这里写版本号字面量** —— self-check 扫 App.vue 里的
              `v\d+\.\d+\.\d+`，写了就红；版本号只由上面那行绑定的 appVersion 提供。 -->
-        <div class="copyright">© 2026 石家庄铁道大学 · 孔德尚</div>
+        <div class="copyright">石家庄铁道大学 · 孔德尚</div>
       </div>
     </el-aside>
 
