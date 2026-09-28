@@ -21,16 +21,15 @@ resources/models/
 资料/
 释放演示数据/
 
-# 两份说明书的**派生物**。docx 与 pdf 都由同名 HTML 生成，生成器是同一个：
-#   python docs/tools/html2docx.py                     # 产品说明.html -> 产品说明.docx
-#   python docs/tools/html2docx.py 作品说明书            # 作品说明书.html -> 作品说明书.docx
+# 说明书的**派生物**。docx 与 pdf 都由同一份 HTML 生成：
+#   python docs/tools/html2docx.py                        # 产品说明.html -> 产品说明.docx
 #   chrome --headless=new --no-pdf-header-footer \
-#     --print-to-pdf=docs/产品说明.pdf docs/产品说明.html   # HTML -> pdf（作品说明书同理）
-# 源头（两份 HTML）与素材（docs/说明书配图/）入库，派生物不入库 —— 与 release/ 同一条口径。
+#     --print-to-pdf=docs/产品说明.pdf docs/产品说明.html     # HTML -> pdf
+# 源头（docs/产品说明.html）与素材（docs/说明书配图/）入库，派生物不入库 —— 与 release/ 同一条口径。
+# 2026-09-28：原来还有一份《作品说明书》，与产品说明约四成内容重复（同一批文字与同一批截图），
+# 已合并进产品说明这一份，四件套一并删除。
 docs/产品说明.docx
 docs/产品说明.pdf
-docs/作品说明书.docx
-docs/作品说明书.pdf
 
 # 开发期的临时工作区（探针脚本、实跑日志、截图、变异测试备份）。
 # 一直靠"没人 git add -A"保持未跟踪，和上面 release-online/ 是同一类隐患：

@@ -48,11 +48,11 @@ body{
 .cover .meta b{color:#fff;font-weight:600}
 /* .row / .k / .sig 这三个类不是排版的装饰，是**生成器的接口**：
    docs/tools/html2docx.py 按类名认封面的字段（meta>row 取「标签＋值」、meta>sig 取落款），
-   份量对等的第二份文档（作品说明书）复用同一个生成器，靠的就是这套标记。
+   改封面时别把这些类名删掉，否则 docx 的封面会空。
    值里那个全角空格由生成器补，不写在源码里（源码里的全角空格会触发 lint）。 */
 /* margin-right 是标签与取值之间的那道缝。生成器给 docx 补的是全角空格，
    而 PDF 是 Chrome 直接从这份 HTML 打的、读不到生成器那一步 —— 少了这句，
-   封面上就是「当前版本v1.2.0」「运行要求无 GPU」这样糊成一团（实测踩到）。 */
+   封面上就是「当前版本vX.Y.Z」「运行要求无 GPU」这样糊成一团（实测踩到）。 */
 .cover .meta .row .k{color:#bcd2ef;margin-right:9px}
 .cover .meta .sig{margin-top:14px;color:#8fb0dc;font-size:12px}
 /* align-self:flex-start 不是可有可无的：.cover 是 flex 纵列，默认 align-items:stretch
@@ -217,7 +217,7 @@ ul.feat li b{color:var(--text-1)}
     <b style="color:#fff">本地 AI 工作台</b>。
   </div>
   <div class="meta">
-    <div class="row"><span class="k">当前版本</span><b>v1.2.0</b></div>
+    <div class="row"><span class="k">当前版本</span><b>v1.2.1</b></div>
     <div class="row"><span class="k">产品形态</span><b>Windows 桌面版（Electron）· 单机离线</b></div>
     <div class="row"><span class="k">核心理念</span><b>规则引擎出数字，本地大模型只说人话</b></div>
     <div class="row"><span class="k">运行要求</span><b>无 GPU · 无服务器 · 无网络</b></div>
@@ -229,10 +229,40 @@ ul.feat li b{color:var(--text-1)}
   </div>
 </section>
 
-<!-- ==================== 项目概况 ==================== -->
+<!-- ==================== 〇 一页速览 ==================== -->
 <section class="page" data-foot="矿山智工 · 产品说明书">
-  <h2 class="sec">项目概况</h2>
-  <div class="sec-lead">一台笔记本、不联网、不需要 GPU，跑完矿山设备从台账到复诊的全流程运维。</div>
+  <h2 class="sec"><span class="n">〇</span>一页速览</h2>
+  <div class="sec-lead">一台笔记本、不联网、不需要 GPU，跑完矿山设备从台账到复诊的全流程运维。后面每一章都是这一页的展开。</div>
+
+  <div class="call sig">
+    <div class="t">本文数字的规则</div>
+    <p>本说明书中的每一个数字都可追溯——来自验收脚本实测、代码常量或构建产物。凡属推算而非实测的，单独标注。</p>
+  </div>
+
+  <table class="tight">
+    <thead><tr><th style="width:20%">项</th><th>内容</th></tr></thead>
+    <tbody>
+      <tr><td><b>产品名称</b></td><td>矿山智工 · 设备健康智能体（Counselor for Machines）</td></tr>
+      <tr><td><b>形态</b></td><td>单机离线桌面应用（Electron），装机即用 —— 无需服务器、无需 GPU、无需联网</td></tr>
+      <tr><td><b>一句话定位</b></td><td>矿工自己的设备账本：数据不出本机，给不给厂家由矿上决定</td></tr>
+      <tr><td><b>核心主张</b></td><td><b>规则引擎出数字，本地大模型只说人话；每个数字都能追溯到来源</b></td></tr>
+      <tr><td><b>服务对象</b></td><td>矿山现场设备工程师、班组、设备科</td></tr>
+      <tr><td><b>功能规模</b></td><td>15 个页面 / 5 个功能组（见 §四）；12 张数据表</td></tr>
+      <tr><td><b>演示数据</b></td><td>60 台设备 / 69 张工单 / 352 条维保记录 / 290 条健康快照 / 18 张故障案例卡（固定种子 <code>20260912</code>，可复现，见 §6.3）</td></tr>
+      <tr><td><b>交付物</b></td><td>Windows 离线安装包（内含 468 MB 模型，实测 628 MiB），双击安装即用，无需联网激活</td></tr>
+      <tr><td><b>质量门禁</b></td><td><code>npm run verify</code> 一条命令跑完 10 道验收：静态检查 / 本地逻辑 / 主进程契约 / 状态层 / 打包闭包 / 能力矩阵 / 构建 / 端到端 ×2 / 对比度审计（见 §5.4）</td></tr>
+      <tr><td><b>能力边界</b></td><td>19 条当前版本确实没有的能力，逐条列出供核验（见 §7.2）</td></tr>
+    </tbody>
+  </table>
+
+  <div class="cards">
+    <div class="card"><div class="k">本地 AI</div><div class="v">Qwen2.5-0.5B 纯 CPU 推理<br>468 MB · 无需 GPU</div></div>
+    <div class="card"><div class="k">数据可溯源</div><div class="v">每个数字给出<br>扣分 / 计算式 / 数据来源</div></div>
+    <div class="card"><div class="k">离线可用</div><div class="v">零网络请求 · 零云端 Key<br>断网照常工作</div></div>
+    <div class="card"><div class="k">业务覆盖</div><div class="v">15 个页面 · 5 个功能组<br>12 张数据表</div></div>
+    <div class="card"><div class="k">工程质量</div><div class="v">10 道验收门禁<br>5000 台规模压测</div></div>
+    <div class="card"><div class="k">部署成本</div><div class="v">装机即用 · 零运维<br>无需服务器</div></div>
+  </div>
 
   <p><b>矿山智工</b>是面向矿山一线设备运维工程师的<b>本地 AI 工作台</b>。它把散落在多个部门 Excel 里的设备台账、靠人脑记忆的保养周期、写在纸笔上再二次录入的巡检记录，收拢成一套自带 AI 的桌面应用，装机即用。</p>
 
@@ -247,42 +277,15 @@ ul.feat li b{color:var(--text-1)}
     <div class="stat"><div class="n">86</div><div class="l">页随包手册</div></div>
   </div>
 
-  <h3>三条设计取舍</h3>
-  <ul class="feat">
-    <li><b>数字与语言分家</b>——规则引擎算全部数字，本地大模型只负责把结论说成口语。模型没加载、或输出没过闸门，功能照常，只是少一层解读。</li>
-    <li><b>出口硬校验，不靠提示词</b>——不去请求模型"别编数字"，而是校验生成文本里的每个数字都必须原结论里有，否则整段丢弃。</li>
-    <li><b>数据主权归客户</b>——src 内零对外网络请求、零云端 Key；一键整库导出，给不给厂家由矿上决定。</li>
-  </ul>
-
-  <h3>交付与验证</h3>
-  <p>交付物是可直接安装的 Windows 离线安装包：首次启动自动播种一套确定性演示数据（固定随机种子），打开即是完整可用的工作台，不需要配环境、不需要连网。<b>10 道验收门禁</b>一条命令按序跑完，覆盖架构不变量、出口校验、撤销栈与数据一致性；规模侧以 5000 台设备 + 5 万条维保记录实测。</p>
-
   <div class="call sig">
     <div class="t">一句话概括</div>
     <p>把矿山老师傅的判断方式，做成一台笔记本上可审计、可追溯、可离线的 AI 工作台。</p>
   </div>
 </section>
 
-<!-- ==================== 项目名片 + 背景 ==================== -->
+<!-- ==================== 一 项目背景 ==================== -->
 <section class="page" data-foot="矿山智工 · 产品说明书">
-  <h2 class="sec"><span class="n">〇</span>项目名片</h2>
-  <div class="sec-lead">六个维度，一眼看清这个产品是什么、能做什么。</div>
-
-  <div class="cards">
-    <div class="card"><div class="k">本地 AI</div><div class="v">Qwen2.5-0.5B 纯 CPU 推理<br>468 MB · 无需 GPU</div></div>
-    <div class="card"><div class="k">数据可溯源</div><div class="v">每个数字给出<br>扣分 / 计算式 / 数据来源</div></div>
-    <div class="card"><div class="k">离线可用</div><div class="v">零网络请求 · 零云端 Key<br>断网照常工作</div></div>
-    <div class="card"><div class="k">业务覆盖</div><div class="v">15 个页面 · 5 个功能组<br>12 张数据表</div></div>
-    <div class="card"><div class="k">工程质量</div><div class="v">10 道验收门禁<br>5000 台规模压测</div></div>
-    <div class="card"><div class="k">部署成本</div><div class="v">装机即用 · 零运维<br>无需服务器</div></div>
-  </div>
-
-  <div class="call sig">
-    <div class="t">本文数字的规则</div>
-    <p>本说明书中的每一个数字都可追溯——来自验收脚本实测、代码常量或构建产物。凡属推算而非实测的，单独标注。</p>
-  </div>
-
-  <h2 class="sec" style="margin-top:30px"><span class="n">一</span>项目背景：矿山设备运维的效率困境</h2>
+  <h2 class="sec"><span class="n">一</span>项目背景：矿山设备运维的效率困境</h2>
 
   <h3>1.1 现场的真实工作方式</h3>
   <p>矿山设备运维工程师管着几十台挖掘机、装载机和矿卡。他们的工作现状是：</p>
@@ -351,26 +354,42 @@ ul.feat li b{color:var(--text-1)}
   <h3>2.3 三条立场：我们选择站在哪一边</h3>
   <p>定位不是"我们做了什么"，而是"我们选择站在哪一边"。这三条立场决定了后面所有的功能取舍。</p>
 
-  <table>
-    <thead><tr><th style="width:24%">立场</th><th>含义</th><th style="width:30%">现实参照</th></tr></thead>
-    <tbody>
-      <tr>
-        <td><b>数据的主人是矿上</b></td>
-        <td>数据从设计上不出本机；给不给厂家，由矿上决定——不是"技术不行上不了云"，是设计选择</td>
-        <td>约翰迪尔曾用软件锁限制农民访问自有农机数据，引发全美 Right to Repair 运动，多州立法</td>
-      </tr>
-      <tr>
-        <td><b>用回报替代法规</b></td>
-        <td>航空业靠适航法规强制记录；矿山没有这条法规，所以只能靠回报。产品把回报放进流程本身</td>
-        <td>2009 年美国 HITECH Act：政府发现医生就是不用电子病历，结论是直接补贴，而非"系统不够好"</td>
-      </tr>
-      <tr>
-        <td><b>可审计优先于更聪明</b></td>
-        <td>放弃"模型更聪明"的叙事，换取每个数字都能倒推回台账</td>
-        <td>矿山决策场景里，一个不可复算的数字是不可接受的</td>
-      </tr>
-    </tbody>
-  </table>
+  <h4>立场一：数据的主人是矿上</h4>
+  <p>工程机械行业有一个长期存在的矛盾：<b>厂家想知道自己卖出去的机器怎么坏的，矿上不愿意给。</b></p>
+  <ul class="feat">
+    <li>矿上的顾虑是真实的：维修频次与费用反映管理水平，影响二手机残值，出事故时还是责任证据。</li>
+    <li>厂家的诉求也是真实的：不知道"人怎么修的"，产品改进就只能靠经销商转述和召回。</li>
+  </ul>
+  <p>本项目在架构上站在矿上这一边：<b>数据从设计上就不出本机。</b></p>
+  <ul class="feat">
+    <li>无任何对外网络请求，无任何云端 API Key（唯一例外是开发模式加载本地 Vite 服务）</li>
+    <li>数据落在本机 SQLite 单文件，<code>.mbak</code> 一键整库导出，随时可搬走</li>
+    <li><b>共享是客户的选项，不是产品的默认行为</b></li>
+  </ul>
+  <div class="call">
+    <p>这不是技术限制（"我们上不了云"），是<b>设计选择</b>。</p>
+    <p>现实参照：约翰迪尔曾用软件锁限制农民访问自有农机的数据，引发全美 Right to Repair 运动，多个州立法限制。<b>数据归属上站错边，用户会反抗，然后立法介入。</b></p>
+  </div>
+
+  <h4>立场二：用回报替代法规</h4>
+  <p>维修记录为什么留不下来？<b>不是没有工具，是没有动机。</b></p>
+  <ul class="feat">
+    <li>航空业的维修数据是完整的——因为适航法规强制要求，不记飞机不能放行。</li>
+    <li>矿山没有这条法规，<b>所以只能靠回报。</b></li>
+    <li>更具体地说：<b>需要记录的是矿上，动手的是工程师</b>，而工程师从中得不到任何东西。</li>
+  </ul>
+  <p>本项目把"回报"放进产品本身：口述一句话，当场拿到处置结论；<b>记录是这件事的副产品</b>。</p>
+  <div class="call">
+    <p>现实参照：2009 年美国 HITECH Act——政府发现医生就是不用电子病历，结论不是"系统不够好"，而是<b>直接补贴</b>。光有系统不够，必须让人有回报。</p>
+  </div>
+
+  <h4>立场三：可审计优先于更聪明</h4>
+  <p>小参数模型（0.5B）直接做数值推理不可靠，会自信地编出一个看起来很像的停机损失。</p>
+  <p>本项目的取舍是：<b>不让它算。</b>所有数字由确定性规则引擎产生，模型只负责把已核实的结论改写成口语中文；出口处两道校验，不通过就整段丢弃、回退原文。</p>
+  <div class="call sig">
+    <p><b>大模型的失败模式是"少说"，不是"说错"。</b></p>
+    <p>这条立场的代价是放弃了"模型更聪明"的叙事；收益是每一个数字都能倒推回台账，而这是矿山决策场景的硬要求。</p>
+  </div>
 
   <h3>2.4 我们的语言：一个老师傅</h3>
   <div class="call sig big">
@@ -392,8 +411,9 @@ ul.feat li b{color:var(--text-1)}
   </table>
   <div class="call warn">
     <div class="t">如实说明</div>
-    <p>这是一个界面隐喻，不是技术声明。系统不声称有人格或意识。它的"关心"目前以告警中心与数据看板的形式呈现，<b>尚未做到开机主动提示</b>（详见 §九 能力边界）。</p>
+    <p>这是一个<b>界面隐喻，不是技术声明</b>。系统不声称有人格或意识。它的"关心"目前以<b>告警中心与数据看板</b>的形式呈现，<b>尚未做到开机主动提示</b>（见 §7.2 第 13 条）。它的"记性"就是那份数据库。</p>
   </div>
+  <p><b>它和立场三是同一件事的两面</b>：老师傅最大的美德是"他说的话你信"；而本项目让每句话都能被追问"凭什么"并答得上来——<b>一个说不清依据的老师傅，没人敢信。</b></p>
 </section>
 
 <!-- ==================== 核心特色一：AI ==================== -->
@@ -659,7 +679,16 @@ ul.feat li b{color:var(--text-1)}
     <figcaption><b>图 16　操作日志。</b>全部写入留痕，每条标出类型标签（AI / 设置 / 体检 / 备件 / 口述 / 知识库）、时间与操作人。AI 问答同样入库——"AI 助手回答：发动机过热怎么排查？"这类记录也在其中。</figcaption>
   </figure>
 
-  <h3>4.5 数据整合能力</h3>
+  <h3>4.5 系统组</h3>
+  <table class="tight">
+    <thead><tr><th style="width:24%">模块</th><th>核心能力</th></tr></thead>
+    <tbody>
+      <tr><td><b>设置</b></td><td>应用锁与身份（多账户 / PIN / 空闲自动锁）、主题、数据重置、<code>.mbak</code> 备份导入导出</td></tr>
+    </tbody>
+  </table>
+  <p>这一组只有 1 个页面，却是前面四组的前提——数据归谁、能不能搬走，都由这里决定。锁与身份的细节见 §4.9，备份与离线边界见 §4.10。</p>
+
+  <h3>4.6 数据整合能力</h3>
   <p>一次拖入多份表头写法不一致的 Excel，自动对齐合并入库。</p>
   <ul class="feat">
     <li><b>14 个标准字段</b>映射（设备名称 / 型号 / 购置日期 / 状态 …）</li>
@@ -667,8 +696,9 @@ ul.feat li b{color:var(--text-1)}
     <li>内置 <b>5 份格式各异的示例模板</b>（设备清单 / 维保记录 / 巡检记录 / 配件库存 / 资产表），可一键下载对照</li>
     <li>导入前预览与校验，异常行明确报出</li>
   </ul>
+  <p><b>为什么这样设计</b>：现场的真实情况是生产部、采购部、维修部各发一份表，表头各写各的。<b>要求客户先统一格式，等于要求客户先做一遍我们已经做的事。</b></p>
 
-  <h3>4.6 闭环：完成不是终点</h3>
+  <h3>4.7 闭环：完成不是终点</h3>
   <div class="flow">
     <div class="step"><span class="n">1</span>工单完成</div>
     <div class="arw">→</div>
@@ -683,8 +713,8 @@ ul.feat li b{color:var(--text-1)}
 
 <!-- ==================== 健康评估 ==================== -->
 <section class="page" data-foot="矿山智工 · 产品说明书">
-  <h3 style="margin-top:0">4.7 健康评估：可解释、可复算、不掩盖现场事实</h3>
-  <p>健康分不是一颗黑盒分数，它由四个因子相加，<b>每一步都能倒推</b>。</p>
+  <h3 style="margin-top:0">4.8 健康评估：可解释、可复算、不掩盖现场事实</h3>
+  <p>健康分不是一颗黑盒分数，它由四个因子相加，<b>每一步都能倒推</b>。实现见 <code>src/renderer/src/utils/health.js</code>。</p>
 
   <table>
     <thead><tr><th style="width:22%">因子</th><th>规则</th><th style="width:16%">扣分上限</th></tr></thead>
@@ -718,7 +748,7 @@ ul.feat li b{color:var(--text-1)}
   <p><code>停机损失 = 风险系数 × 日产出 × 预估停时</code></p>
   <p>日产出按机型取值：矿卡 12 万 / 天、破碎机 9 万 / 天、挖掘机 8 万 / 天。风险系数与场景参数可按矿种预设切换，修改后全量重算。</p>
 
-  <h3>4.8 可审计与留痕</h3>
+  <h3>4.9 可审计与留痕</h3>
   <table class="tight">
     <thead><tr><th style="width:28%">能力</th><th>说明</th></tr></thead>
     <tbody>
@@ -731,7 +761,7 @@ ul.feat li b{color:var(--text-1)}
     </tbody>
   </table>
 
-  <h3>4.9 离线与安全加固</h3>
+  <h3>4.10 离线与安全加固</h3>
   <table class="tight">
     <thead><tr><th style="width:30%">措施</th><th>实现</th></tr></thead>
     <tbody>
@@ -815,7 +845,25 @@ ul.feat li b{color:var(--text-1)}
   <h4>创新三：数字主权成为架构属性，而不是承诺</h4>
   <p>数据不出本机不是一条隐私政策，而是<b>架构上做不到</b>——src 内没有任何对外网络请求，没有云端 Key。给不给厂家，是客户导出时的选择。</p>
 
-  <h3>5.3 工程可信度：能力是被验证过的</h3>
+  <h3>5.3 技术规格与选型</h3>
+  <p>每一项都能说清"为什么是它"。</p>
+  <table class="tight">
+    <thead><tr><th style="width:18%">组件</th><th style="width:34%">选型</th><th>理由</th></tr></thead>
+    <tbody>
+      <tr><td>前端框架</td><td>Vue 3 + Element Plus + Pinia</td><td>组件完整，开发效率高</td></tr>
+      <tr><td>桌面框架</td><td>Electron</td><td>跨平台；渲染进程三重隔离 + preload 白名单</td></tr>
+      <tr><td>构建</td><td>Vite</td><td>快速热更新</td></tr>
+      <tr><td>数据库</td><td>sql.js（纯 JS SQLite），12 张表</td><td>零部署、单文件；Electron 落盘 <code>userData/*.db</code>，浏览器环境走 IndexedDB</td></tr>
+      <tr><td>Excel 解析</td><td>SheetJS</td><td>前端直接解析，无需后端</td></tr>
+      <tr><td>本地推理</td><td>node-llama-cpp + Qwen2.5-0.5B-Instruct Q4_K_M</td><td><b>纯 CPU，装机即用</b></td></tr>
+      <tr><td>PDF 解析</td><td>pdfjs-dist</td><td>手册本地解析，回答带页码出处</td></tr>
+      <tr><td>图表 / 动效</td><td>ECharts（按需注册）、GSAP</td><td>按需引入控制体积</td></tr>
+      <tr><td>引导</td><td>driver.js</td><td>12 步主线开箱可播</td></tr>
+    </tbody>
+  </table>
+  <p class="sec-lead">全部选型都服从同一条约束：<b>不引入任何需要联网或需要服务端的组件</b>——这是 §2.3 立场一的直接后果。</p>
+
+  <h3>5.4 工程可信度：能力是被验证过的</h3>
   <p><code>npm run verify</code> 一条命令按序跑完 10 道验收，各网专责：</p>
   <table class="tight">
     <thead><tr><th style="width:20%">命令</th><th>管什么</th></tr></thead>
@@ -832,7 +880,10 @@ ul.feat li b{color:var(--text-1)}
       <tr><td><code>audit:contrast</code></td><td>文字对比度达 WCAG AA（浅色令牌）</td></tr>
     </tbody>
   </table>
-  <p class="sec-lead">断言条数以脚本末行「合计 N 项」为准。另有一条不在门禁链里的深色主题审计 <code>npm run audit:contrast:dark</code>。</p>
+  <p class="sec-lead">断言条数以脚本末行「合计 N 项」为准。另有一条不在门禁链里的深色主题审计 <code>npm run audit:contrast:dark</code>（深色令牌下审同样 15 条路由）——<b>改深色样式时必须单独跑</b>。</p>
+
+  <h4>引导演示</h4>
+  <p>右上角一键播放的 12 步主线（看板 → 台账 → 病历 → 工单 → AI 助手 → 规程库 → 复诊 → 本地模型），默认手动点一步走一步、可切自动，首启自动弹一次。这让评审不必先读手册就知道从哪里看起。</p>
 </section>
 
 <!-- ==================== 规模与成熟度 ==================== -->
@@ -875,9 +926,14 @@ ul.feat li b{color:var(--text-1)}
     <li><b>18 张故障案例卡 + 3 份随包示例手册</b>，开箱即可完整体验</li>
     <li><b>机型取自公开可查的真实型号目录</b>（32 个型号 / 10 个类别，含徐工与他牌混编）</li>
     <li><b>矿区名使用"云南××矿区"这类脱敏写法，不含任何真实客户数据</b></li>
-    <li>规模与分布每次重置都一样，演示不会"这次和上次不一样"——实测把时钟整体平移 ±400 天，五项计数与 A/B/C/D 分档都不变</li>
+    <li>规模与分布每次重置都一样，演示不会"这次和上次不一样"——实测把时钟整体平移 ±400 天，全部计数与 A/B/C/D 分档都不变</li>
+    <li><b>只有日期是按"相对今天"生成的</b>，所以跨天重置后日期串会变；其余数字不变</li>
   </ul>
-  <p>内容来源可追溯。维保项目库与故障现象库来自公开手册，条目上注有手册页码（LW188 装载机维护手册的 6 级保养周期、XE210C 挖掘机操作维护手册的故障排查表）。故障案例卡由已完成的维修工单派生，<b>可逐张追溯到来源工单</b>。</p>
+  <div class="call sig">
+    <div class="t">内容来源可追溯</div>
+    <p>维保项目库与故障现象库来自公开手册（LW188 装载机维护手册的 6 级保养周期、XE210C 挖掘机操作维护手册的故障排查表，条目上注有手册页码）。</p>
+    <p>故障案例卡由"已完成的维修工单"派生——症状是工单原文，原因 / 处理取自知识库命中的条目，<b>可逐张追溯到来源工单</b>。</p>
+  </div>
 </section>
 
 <!-- ==================== 边界 ==================== -->
@@ -962,13 +1018,30 @@ ul.feat li b{color:var(--text-1)}
     <p>一台笔记本、不联网、不需要 GPU——完成从台账导入 → 健康评分 → 告警 → 工单 → 复诊闭环 → 备件扣减 → 经验沉淀的全流程，且<b>每一个数字都能追溯到它的来源</b>。</p>
   </div>
 
+  <h3>附：文件索引</h3>
+  <table class="tight">
+    <thead><tr><th style="width:44%">内容</th><th>位置</th></tr></thead>
+    <tbody>
+      <tr><td>本说明书（唯一交付件，.docx / .pdf 均由它生成）</td><td><code>docs/产品说明.html</code></td></tr>
+      <tr><td>参赛材料（作品信息 / 竞品 / 规划）</td><td><code>docs/参赛材料.md</code></td></tr>
+      <tr><td>5 分钟演示脚本（含故障预案）</td><td><code>docs/演示脚本.md</code></td></tr>
+      <tr><td>验收结论与缺陷记录</td><td><code>docs/测试报告.md</code></td></tr>
+      <tr><td>视觉规范</td><td><code>docs/视觉规范.md</code></td></tr>
+      <tr><td>项目总览</td><td><code>README.md</code></td></tr>
+      <tr><td>健康评分实现</td><td><code>src/renderer/src/utils/health.js</code></td></tr>
+      <tr><td>口述录入实现</td><td><code>src/renderer/src/utils/nlCommand.js</code></td></tr>
+      <tr><td>出口校验实现</td><td><code>src/renderer/src/utils/llmClient.js</code></td></tr>
+      <tr><td>本地推理引擎</td><td><code>src/main/llmEngine.js</code></td></tr>
+    </tbody>
+  </table>
+
   <div class="colophon" style="margin-top:4px;padding-top:8px;border-top:1px solid var(--line);font-size:11.5px;color:var(--text-3);line-height:1.55">
-    <div><b style="color:var(--text-1)">矿山智工 · 设备健康智能体</b>　v1.2.0　｜　开发者：孔德尚（石家庄铁道大学）</div>
+    <div><b style="color:var(--text-1)">矿山智工 · 设备健康智能体</b>　v1.2.1　｜　开发者：孔德尚（石家庄铁道大学）</div>
     <div style="color:var(--mute)">
       版权所有 © 2026 石家庄铁道大学 孔德尚，保留所有权利
     </div>
     <div style="color:var(--mute)">
-      相关文档：参赛材料 ｜ 演示脚本 ｜ 测试报告 ｜ 视觉规范 ｜ 作品说明书
+      相关文档：参赛材料 ｜ 演示脚本 ｜ 测试报告 ｜ 视觉规范
     </div>
   </div>
 </section>

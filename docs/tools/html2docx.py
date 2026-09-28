@@ -69,10 +69,10 @@ MONO = 'Consolas'
 
 ROOT = Path(__file__).resolve().parents[2]
 
-# 文档名：默认《产品说明书》，第二个参数可换成别的 —— 《作品说明书》用的是同一套版式，
-# 差别只在封面文案（从 HTML 的 .cover 段读）与页脚标题，所以共用这一个生成器。
+# 文档名：默认《产品说明书》。封面文案（从 HTML 的 .cover 段读）与页脚标题都从 HTML 里取，
+# 所以第二参数可以指向别的同版式 HTML，生成一份改名副本（例如按当次申报要求的标题另出一份）：
 #   python docs/tools/html2docx.py              → docs/产品说明.docx
-#   python docs/tools/html2docx.py 作品说明书     → docs/作品说明书.docx
+#   python docs/tools/html2docx.py <其它文档名>    → docs/<其它文档名>.docx（同名 HTML 须存在）
 DOC_NAME = sys.argv[1] if len(sys.argv) > 1 else '产品说明'
 SRC = ROOT / 'docs' / f'{DOC_NAME}.html'
 OUT = ROOT / 'docs' / f'{DOC_NAME}.docx'
@@ -845,10 +845,10 @@ def build_cover(doc, sec, cov):
     """整页满版封面：页边距 0 + 一张填满 A4 的深蓝单元格。
 
     封面文案**从 HTML 的 <section class="cover"> 里读**，不写在 Python 里：
-    《产品说明书》与《作品说明书》的封面结构相同、只有字不一样，写死等于把生成器
-    抄成两份，改一处必漏另一处。认字段靠 class（mark / badge / h1 / en / sub /
-    meta>row / meta>sig）。字色仍由这里定死 —— 深蓝底上的 `<b>` 不能走 inlines
-    的通用映射（它会把粗体涂成近黑，等于隐身，见 cover_runs）。
+    同版式的另一份文档只有封面字不一样，写死等于把生成器抄成两份，改一处必漏另一处。
+    认字段靠 class（mark / badge / h1 / en / sub / meta>row / meta>sig）。字色仍由
+    这里定死 —— 深蓝底上的 `<b>` 不能走 inlines 的通用映射（它会把粗体涂成近黑，
+    等于隐身，见 cover_runs）。
     """
     sec.page_width, sec.page_height = Cm(21), Cm(29.7)
     for a in ('top_margin', 'bottom_margin', 'left_margin', 'right_margin'):
