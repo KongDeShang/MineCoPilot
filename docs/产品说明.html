@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>矿山智工 · 产品说明书</title>
+<style>
+/* ============================================================
+   矿山智工 · 产品说明书
+   色值取自产品自身的令牌层 src/renderer/src/styles/tokens.css
+   ============================================================ */
+:root{
+  --accent:#0b3a82; --accent-dark:#072057; --accent-soft:#e8effb; --accent-line:#c7d6ef;
+  --signal:#0bb4c4; --signal-ink:#0a7079; --signal-soft:#e3f7f9; --signal-line:#a6e3e9;
+  --emerald:#12a06b; --emerald-soft:#e7f7f0; --emerald-line:#aee7cf;
+  --amber:#e0a020; --amber-soft:#fdf3dc; --amber-line:#f1d99a;
+  --danger:#e0413e; --danger-ink:#b33431; --danger-soft:#fdecec; --danger-line:#f6c9c8;
+  --text-1:#0a1326; --text-2:#3d4b63; --text-3:#57647a; --mute:#8a95a7;
+  --line:#e2e6ee; --line-2:#eef1f6; --bg:#ffffff; --bg-soft:#f7f9fc;
+  --r-lg:18px; --r:13px; --r-sm:10px; --r-xs:7px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{
+  font-family:"Microsoft YaHei","PingFang SC","Hiragino Sans GB","Source Han Sans SC",sans-serif;
+  font-size:14px; line-height:1.75; color:var(--text-1); background:#e8ecf3;
+  font-variant-numeric:tabular-nums;
+}
+.page{
+  width:210mm; min-height:297mm; padding:20mm 18mm; margin:0 auto 8mm; background:var(--bg);
+  box-shadow:0 2px 16px rgba(10,19,38,.10); position:relative;
+}
+.page::after{
+  content:attr(data-foot); position:absolute; left:18mm; right:18mm; bottom:9mm;
+  font-size:11px; color:var(--mute); border-top:1px solid var(--line-2); padding-top:5px;
+  display:flex; justify-content:space-between;
+}
+
+/* ---------- 封面 ---------- */
+.cover{display:flex;flex-direction:column;justify-content:center;min-height:297mm;padding:0 20mm;
+  background:linear-gradient(158deg,#072057 0%,#0b3a82 46%,#12508f 100%);color:#fff}
+.cover::after{display:none}
+.cover .mark{font-size:12px;letter-spacing:.28em;color:#7de8f2;margin-bottom:52px}
+.cover h1{font-size:46px;line-height:1.2;letter-spacing:.02em;font-weight:700;margin-bottom:10px}
+.cover .en{font-size:16px;color:#a9c6ee;letter-spacing:.12em;margin-bottom:34px}
+.cover .sub{font-size:17px;line-height:1.9;color:#dbe7f8;max-width:132mm;margin-bottom:46px}
+.cover .rule{width:64px;height:3px;background:#7de8f2;margin-bottom:34px}
+.cover .meta{font-size:13px;line-height:2.1;color:#bcd2ef}
+.cover .meta b{color:#fff;font-weight:600}
+/* align-self:flex-start 不是可有可无的：.cover 是 flex 纵列，默认 align-items:stretch
+   会把这条 inline-block 的「药丸」拉成**整页宽**的一个空框（border-radius:999px 之下
+   尤其明显）。2026-09-28 从 HTML 直接出 PDF 时才看见 —— 此前 PDF 走 Word 重建封面，
+   那版根本没画这个框，缺陷就被盖住了。 */
+.cover .badge{align-self:flex-start;display:inline-block;border:1px solid rgba(125,232,242,.5);color:#7de8f2;
+  border-radius:999px;padding:5px 15px;font-size:12px;margin-bottom:26px;letter-spacing:.06em}
+
+/* ---------- 标题 ---------- */
+h2.sec{font-size:21px;color:var(--accent-dark);margin:0 0 6px;padding-bottom:10px;
+  border-bottom:2px solid var(--accent);letter-spacing:.01em}
+h2.sec .n{color:var(--signal);font-weight:700;margin-right:9px}
+h3{font-size:15.5px;color:var(--accent);margin:24px 0 9px;font-weight:700}
+h3::before{content:"";display:inline-block;width:4px;height:15px;background:var(--signal);
+  border-radius:2px;margin-right:9px;vertical-align:-2px}
+h4{font-size:14px;color:var(--text-1);margin:16px 0 6px;font-weight:700}
+p{margin:9px 0;color:var(--text-2)}
+p.lead{color:var(--text-1)}
+.sec-lead{font-size:14px;color:var(--text-3);margin:4px 0 20px;line-height:1.8}
+
+/* ---------- 项目名片 ---------- */
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:18px 0 8px}
+.card{border:1px solid var(--line);border-radius:var(--r);padding:13px 14px;background:var(--bg-soft)}
+.card .k{font-size:11.5px;color:var(--signal-ink);font-weight:700;letter-spacing:.04em;margin-bottom:5px}
+.card .v{font-size:13px;color:var(--text-1);line-height:1.65}
+
+/* ---------- 表格 ---------- */
+table{width:100%;border-collapse:collapse;margin:13px 0;font-size:12.5px}
+th{background:var(--accent);color:#fff;text-align:left;padding:8px 10px;font-weight:600;
+  font-size:12px;letter-spacing:.02em}
+td{padding:8px 10px;border-bottom:1px solid var(--line-2);color:var(--text-2);vertical-align:top}
+tbody tr:nth-child(even) td{background:var(--bg-soft)}
+td strong,td b{color:var(--text-1);font-weight:600}
+table.tight td,table.tight th{padding:6px 9px;font-size:12px}
+
+/* ---------- 插图 ---------- */
+/* 图与题注绑成一块，不允许被分页切开；宽度撑满正文栏（16.6cm 口径） */
+figure{margin:14px 0 6px;break-inside:avoid;page-break-inside:avoid}
+figure img{display:block;width:100%;border:1px solid var(--line-2);border-radius:6px;background:#fff}
+figcaption{margin-top:6px;font-size:12px;line-height:1.7;color:var(--text-3)}
+figcaption b{color:var(--text-1)}
+
+/* ---------- 强调块 ---------- */
+.call{border-left:4px solid var(--accent);background:var(--accent-soft);border-radius:0 var(--r-sm) var(--r-sm) 0;
+  padding:13px 16px;margin:15px 0}
+.call.sig{border-left-color:var(--signal);background:var(--signal-soft)}
+.call.warn{border-left-color:var(--amber);background:var(--amber-soft)}
+.call.red{border-left-color:var(--danger);background:var(--danger-soft)}
+.call .t{font-size:12px;font-weight:700;color:var(--accent);letter-spacing:.05em;margin-bottom:5px}
+.call.sig .t{color:var(--signal-ink)}
+.call.warn .t{color:#8a6210}
+.call.red .t{color:var(--danger-ink)}
+.call p{margin:5px 0;color:var(--text-1)}
+.call.big p{font-size:15px;font-weight:600;line-height:1.7}
+
+/* ---------- 特性列表 ---------- */
+ul.feat{list-style:none;margin:10px 0}
+ul.feat li{position:relative;padding-left:20px;margin:7px 0;color:var(--text-2);font-size:13px}
+ul.feat li::before{content:"";position:absolute;left:4px;top:9px;width:6px;height:6px;
+  border-radius:2px;background:var(--signal)}
+ul.feat li b{color:var(--text-1)}
+
+/* ---------- 架构图 ---------- */
+.arch{margin:16px 0;border:1px solid var(--accent-line);border-radius:var(--r);overflow:hidden}
+.arch .layer{border-bottom:1px solid var(--line-2);padding:11px 14px}
+.arch .layer:last-child{border-bottom:none}
+.arch .lt{font-size:11.5px;font-weight:700;color:var(--accent);letter-spacing:.05em;margin-bottom:8px}
+.arch .row{display:grid;gap:7px}
+.arch .box{background:var(--bg-soft);border:1px solid var(--line);border-radius:var(--r-xs);
+  padding:8px 9px;font-size:12px;color:var(--text-1);text-align:center;line-height:1.5}
+.arch .box.sig{background:var(--signal-soft);border-color:var(--signal-line);color:var(--signal-ink);font-weight:600}
+.arch .box.acc{background:var(--accent-soft);border-color:var(--accent-line);color:var(--accent);font-weight:600}
+.arch .box.em{background:var(--emerald-soft);border-color:var(--emerald-line);color:#0b6b48;font-weight:600}
+.arch .box.red{background:var(--danger-soft);border-color:var(--danger-line);color:var(--danger-ink);font-weight:600}
+
+/* ---------- 流程 ---------- */
+.flow{display:flex;align-items:stretch;gap:0;margin:16px 0;flex-wrap:wrap}
+.flow .step{flex:1;min-width:0;background:var(--bg-soft);border:1px solid var(--line);
+  border-radius:var(--r-sm);padding:10px 11px;font-size:12px;color:var(--text-1);text-align:center;line-height:1.55}
+.flow .step .n{display:block;font-size:10.5px;color:var(--signal-ink);font-weight:700;margin-bottom:3px}
+.flow .arw{display:flex;align-items:center;padding:0 7px;color:var(--mute);font-size:14px;font-weight:700}
+
+/* ---------- 数字条 ---------- */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:15px 0}
+.stat{border:1px solid var(--line);border-radius:var(--r-sm);padding:11px 12px;text-align:center;background:var(--bg-soft)}
+.stat .n{font-size:20px;font-weight:700;color:var(--accent);line-height:1.2}
+.stat .n.sig{color:var(--signal-ink)}
+.stat .n.em{color:var(--emerald)}
+.stat .l{font-size:11px;color:var(--text-3);margin-top:4px;line-height:1.5}
+
+/* ---------- 边界表 ---------- */
+.bd td:first-child{width:26px;text-align:center;color:var(--mute);font-size:11.5px}
+.bd td:nth-child(2){width:31%;font-weight:600;color:var(--text-1)}
+
+.tag{display:inline-block;font-size:10.5px;padding:1.5px 7px;border-radius:999px;
+  font-weight:600;letter-spacing:.02em;vertical-align:1px}
+.tag.ok{background:var(--emerald-soft);color:#0b6b48}
+.tag.no{background:var(--danger-soft);color:var(--danger-ink)}
+.tag.plan{background:var(--amber-soft);color:#8a6210}
+
+/* ---------- 打印 ----------
+   排版策略：正文连续流式排版，只在封面后强制分页。
+   理由：每节平均 1.4 页，若每节都强制起新页，会有约 1/4 的纸面变成空半页；
+   连续流式则纸面填满，表格/卡片/流程块靠 break-inside 整体不拆。 */
+@page{size:A4;margin:0}
+@media print{
+  body{background:#fff;font-size:11px;line-height:1.62}
+  .page{width:auto;min-height:auto;margin:0;padding:13mm 15mm 10mm;box-shadow:none;
+    break-after:auto;page-break-after:auto}
+  .page::after{display:none}
+  .cover{min-height:auto;height:292mm;padding:0 15mm;
+    break-after:page;page-break-after:always}
+  h2.sec{break-before:auto;margin-top:22px}
+  h2.sec,h3,h4{break-after:avoid;page-break-after:avoid}
+  /* 长表格允许跨页断行（thead 会自动在续页重复），避免为保整表而留出半页空白；
+     但单行不拆。卡片组/流程块/强调块体量小且语义完整，整体不拆。 */
+  thead{display:table-header-group}
+  tr{break-inside:avoid;page-break-inside:avoid}
+  .call,.arch,.cards,.stats,.flow{break-inside:avoid;page-break-inside:avoid}
+  /* 附录级小标题不要孤零零留在页底 */
+  .sec-lead{break-after:avoid;page-break-after:avoid}
+}
+</style>
+</head>
+<body>
+
+<!-- ==================== 封面 ==================== -->
+<section class="page cover">
+  <div class="mark">MINECO PILOT</div>
+  <div class="badge">产品说明书</div>
+  <h1>矿山智工</h1>
+  <div class="en">设备健康智能体 · Counselor for Machines</div>
+  <div class="rule"></div>
+  <div class="sub">
+    不联网、不调云端大模型，<br>
+    在一台笔记本上完成矿山设备全生命周期运维的<br>
+    <b style="color:#fff">本地 AI 工作台</b>。
+  </div>
+  <div class="meta">
+    <div>当前版本　<b>v1.2.0</b></div>
+    <div>产品形态　<b>Windows 桌面版（Electron）· 单机离线</b></div>
+    <div>核心理念　<b>规则引擎出数字，本地大模型只说人话</b></div>
+    <div>运行要求　<b>无 GPU · 无服务器 · 无网络</b></div>
+    <div style="margin-top:14px;color:#8fb0dc;font-size:12px">
+      开发者：孔德尚（石家庄铁道大学）<br>
+      版权所有 © 2026 石家庄铁道大学 孔德尚，保留所有权利<br>
+      2026 年 9 月
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 项目概况 ==================== -->
+<section class="page" data-foot="矿山智工 · 产品说明书">
+  <h2 class="sec">项目概况</h2>
+  <div class="sec-lead">一台笔记本、不联网、不需要 GPU，跑完矿山设备从台账到复诊的全流程运维。</div>
+
+  <p><b>矿山智工</b>是面向矿山一线设备运维工程师的<b>本地 AI 工作台</b>。它把散落在多个部门 Excel 里的设备台账、靠人脑记忆的保养周期、写在纸笔上再二次录入的巡检记录，收拢成一套自带 AI 的桌面应用，装机即用。</p>
+
+  <p>它要回答的不是"能不能用上 AI"，而是 <b>AI 说的话可不可以被追责</b>。矿山设备停机按日计价，一个编出来的数字比没有数字更危险。因此本产品把职责切开：<b>数字由规则引擎算，本地大模型只把结论说成人话</b>；模型输出再过两道出口闸门，不过关就整段丢弃、回退到规则引擎的原始结论。</p>
+
+  <p>工作方式很直接：<b>问是查库，说是改库——说一句"1 号挖掘机液压油压力偏低"，它当场建好一张工单。</b></p>
+
+  <div class="stats">
+    <div class="stat"><div class="n">60</div><div class="l">台设备台账</div></div>
+    <div class="stat"><div class="n sig">30</div><div class="l">条可溯源规程</div></div>
+    <div class="stat"><div class="n em">147</div><div class="l">条故障案例</div></div>
+    <div class="stat"><div class="n">86</div><div class="l">页随包手册</div></div>
+  </div>
+
+  <h3>三条设计取舍</h3>
+  <ul class="feat">
+    <li><b>数字与语言分家</b>——规则引擎算全部数字，本地大模型只负责把结论说成口语。模型没加载、或输出没过闸门，功能照常，只是少一层解读。</li>
+    <li><b>出口硬校验，不靠提示词</b>——不去请求模型"别编数字"，而是校验生成文本里的每个数字都必须原结论里有，否则整段丢弃。</li>
+    <li><b>数据主权归客户</b>——src 内零对外网络请求、零云端 Key；一键整库导出，给不给厂家由矿上决定。</li>
+  </ul>
+
+  <h3>交付与验证</h3>
+  <p>交付物是可直接安装的 Windows 离线安装包：首次启动自动播种一套确定性演示数据（固定随机种子），打开即是完整可用的工作台，不需要配环境、不需要连网。<b>10 道验收门禁</b>一条命令按序跑完，覆盖架构不变量、出口校验、撤销栈与数据一致性；规模侧以 5000 台设备 + 5 万条维保记录实测。</p>
+
+  <div class="call sig">
+    <div class="t">一句话概括</div>
+    <p>把矿山老师傅的判断方式，做成一台笔记本上可审计、可追溯、可离线的 AI 工作台。</p>
+  </div>
+</section>
+
+<!-- ==================== 项目名片 + 背景 ==================== -->
+<section class="page" data-foot="矿山智工 · 产品说明书">
+  <h2 class="sec newpage"><span class="n">〇</span>项目名片</h2>
+  <div class="sec-lead">六个维度，一眼看清这个产品是什么、能做什么。</div>
+
+  <div class="cards">
+    <div class="card"><div class="k">本地 AI</div><div class="v">Qwen2.5-0.5B 纯 CPU 推理<br>468 MB · 无需 GPU</div></div>
+    <div class="card"><div class="k">数据可溯源</div><div class="v">每个数字给出<br>扣分 / 计算式 / 数据来源</div></div>
+    <div class="card"><div class="k">离线可用</div><div class="v">零网络请求 · 零云端 Key<br>断网照常工作</div></div>
+    <div class="card"><div class="k">业务覆盖</div><div class="v">15 个页面 · 5 个功能组<br>12 张数据表</div></div>
+    <div class="card"><div class="k">工程质量</div><div class="v">10 道验收门禁<br>5000 台规模压测</div></div>
+    <div class="card"><div class="k">部署成本</div><div class="v">装机即用 · 零运维<br>无需服务器</div></div>
+  </div>
+
+  <div class="call sig">
+    <div class="t">本文数字的规则</div>
+    <p>本说明书中的每一个数字都可追溯——来自验收脚本实测、代码常量或构建产物。凡属推算而非实测的，单独标注。</p>
+  </div>
+
+  <h2 class="sec" style="margin-top:30px"><span class="n">一</span>项目背景：矿山设备运维的效率困境</h2>
+
+  <h3>1.1 现场的真实工作方式</h3>
+  <p>矿山设备运维工程师管着几十台挖掘机、装载机和矿卡。他们的工作现状是：</p>
+
+  <table>
+    <thead><tr><th style="width:22%">痛点</th><th style="width:44%">具体场景</th><th>后果</th></tr></thead>
+    <tbody>
+      <tr><td><b>多部门 Excel 混乱</b></td><td>生产部、采购部、维修部各发一份 Excel，表头写法不统一、字段冲突</td><td>人工整合耗时，易出错</td></tr>
+      <tr><td><b>维保靠人脑记忆</b></td><td>上百台设备的保养周期、历史故障、配件更换全凭经验</td><td>遗漏即停机，停机损失按日产出计价</td></tr>
+      <tr><td><b>工业数据不能上云</b></td><td>设备参数、产量、故障记录属商业机密与矿山安全数据</td><td>公有云 AI 服务用不了</td></tr>
+      <tr><td><b>现场纸笔 → 二次录入</b></td><td>巡检手写记录，回办公室再录系统</td><td>效率低、易出错、信息滞后</td></tr>
+    </tbody>
+  </table>
+
+  <h3>1.2 一次漏保养的代价</h3>
+  <p>一个真实感的场景：某矿山漏了一台挖掘机的液压油更换，<b>停机 3 天</b>。</p>
+  <p>按本产品公开的停机损失公式（挖掘机日产出 8 万元）测算：<b>3 × 8 = 24 万元</b>。</p>
+  <p class="sec-lead" style="margin-top:6px">而这台设备在系统里留下的记录，往往只是微信群里一句"3 号机搞定了"——没有故障现象、没有更换配件、没有判断依据。</p>
+
+  <h3>1.3 为什么云端 AI 在这里用不了</h3>
+  <p>不是"不想用"，而是三条硬约束同时成立：</p>
+  <ul class="feat">
+    <li><b>数据不能出矿</b>——设备参数与故障记录涉及商业机密与安全生产数据</li>
+    <li><b>现场没有网</b>——矿区、井下、野外作业面普遍无稳定网络</li>
+    <li><b>算力不能要求</b>——一线工程师只有办公笔记本，没有 GPU、没有服务器</li>
+  </ul>
+  <div class="call">
+    <div class="t">倒逼出的设计</div>
+    <p>本产品不是"把云端方案搬下来"，而是先接受这三条约束，再从约束反推架构——这决定了后面全部的技术选择。</p>
+  </div>
+</section>
+
+<!-- ==================== 定位 ==================== -->
+<section class="page" data-foot="矿山智工 · 产品说明书">
+  <h2 class="sec"><span class="n">二</span>产品定位</h2>
+
+  <h3>2.1 一句话定位</h3>
+  <div class="call big">
+    <p>矿工自己的设备账本 —— 数据不出本机，给不给厂家由矿上决定。</p>
+  </div>
+  <p>健康分不是一颗黑盒分数，而是一个可以当场倒推的结论；AI 说的话不是"大概可能"，而是<b>每一句都能追溯来源</b>。</p>
+
+  <h3>2.2 四条核心设计理念</h3>
+
+  <h4>理念一：数字归规则引擎，语言归大模型</h4>
+  <p>小参数模型直接做数值推理并不可靠——它会自信地编出一个看起来很像的停机损失。本产品的做法是把职责切开：</p>
+  <div class="flow">
+    <div class="step"><span class="n">确定性</span>规则引擎<br><small>算出全部数字</small></div>
+    <div class="arw">→</div>
+    <div class="step"><span class="n">叙述</span>本地大模型<br><small>只把结论说成人话</small></div>
+    <div class="arw">→</div>
+    <div class="step"><span class="n">闸门</span>出口校验<br><small>不通过就丢弃</small></div>
+    <div class="arw">→</div>
+    <div class="step"><span class="n">兜底</span>回退原文<br><small>功能不降级</small></div>
+  </div>
+
+  <h4>理念二：每个结论都可审计</h4>
+  <p>健康分由四个可解释因子相加。每个因子同时输出 <code>{扣分, 计算式, 数据来源}</code>，界面上与导出的体检报告里都能看到完整算式。</p>
+
+  <h4>理念三：数据主权归客户</h4>
+  <p>数据从设计上就不出本机：无任何对外网络请求、无云端 API Key。数据落在本机单文件数据库，可一键整库导出搬走。<b>共享是客户的选项，不是产品的默认行为。</b></p>
+
+  <h4>理念四：开箱即用，零学习成本</h4>
+  <p>不需要先搭系统、不需要先配字段、不需要先学流程。首次启动自动播种一套确定性演示数据（固定随机种子），打开就是完整可用的工作台。右上角还有 12 步引导演示。</p>
+
+  <h3>2.3 三条立场：我们选择站在哪一边</h3>
+  <p>定位不是"我们做了什么"，而是"我们选择站在哪一边"。这三条立场决定了后面所有的功能取舍。</p>
+
+  <table>
+    <thead><tr><th style="width:24%">立场</th><th>含义</th><th style="width:30%">现实参照</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>数据的主人是矿上</b></td>
+        <td>数据从设计上不出本机；给不给厂家，由矿上决定——不是"技术不行上不了云"，是设计选择</td>
+        <td>约翰迪尔曾用软件锁限制农民访问自有农机数据，引发全美 Right to Repair 运动，多州立法</td>
+      </tr>
+      <tr>
+        <td><b>用回报替代法规</b></td>
+        <td>航空业靠适航法规强制记录；矿山没有这条法规，所以只能靠回报。产品把回报放进流程本身</td>
+        <td>2009 年美国 HITECH Act：政府发现医生就是不用电子病历，结论是直接补贴，而非"系统不够好"</td>
+      </tr>
+      <tr>
+        <td><b>可审计优先于更聪明</b></td>
+        <td>放弃"模型更聪明"的叙事，换取每个数字都能倒推回台账</td>
+        <td>矿山决策场景里，一个不可复算的数字是不可接受的</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>2.4 我们的语言：一个老师傅</h3>
+  <div class="call sig big">
+    <p>矿山的经验，一直存在一个人的脑子里。它能解决几乎所有问题，<br>唯独解决不了两件事：<b>他会退休，而且他只有一个。</b></p>
+  </div>
+  <p>这个隐喻不是装饰，它对应产品里已经存在的每一个模块：</p>
+  <table class="tight">
+    <thead><tr><th style="width:34%">已有功能</th><th>在这个隐喻里的角色</th></tr></thead>
+    <tbody>
+      <tr><td>健康评分 / 体检报告</td><td>他给机器做体检</td></tr>
+      <tr><td>设备病历</td><td>他记得每一台机器的病史</td></tr>
+      <tr><td>故障案例库</td><td>他见过的病例</td></tr>
+      <tr><td>维修规程库</td><td>他的经验</td></tr>
+      <tr><td>告警中心 / 维保日历</td><td>他提醒你该管哪一台</td></tr>
+      <tr><td>口述录入</td><td>你跟他说话，不用填表</td></tr>
+      <tr><td>复诊管理</td><td>他记得回访</td></tr>
+      <tr><td>操作日志 + 身份</td><td>他认得是谁在干活</td></tr>
+    </tbody>
+  </table>
+  <div class="call warn">
+    <div class="t">如实说明</div>
+    <p>这是一个界面隐喻，不是技术声明。系统不声称有人格或意识。它的"关心"目前以告警中心与数据看板的形式呈现，<b>尚未做到开机主动提示</b>（详见 §九 能力边界）。</p>
+  </div>
+</section>
+
+<!-- ==================== 核心特色一：AI ==================== -->
+<section class="page" data-foot="矿山智工 · 产品说明书">
+  <h2 class="sec"><span class="n">三</span>核心特色一：可信的本地 AI</h2>
+  <div class="sec-lead">这是本产品与常见做法的分界线——不是"能用 AI"，而是"<b>AI 说的话可以被追责</b>"。</div>
+
+  <h3>3.1 AI 智能问答：先查台账，再查规程</h3>
+  <p><b>AI 助手只有一个输入框。</b>问句走查询——以本机全部业务数据为知识库，系统基于真实台账回答：</p>
+  <ul class="feat">
+    <li>"3 号挖掘机水温高怎么处理？" → 命中规程条目 + 处置步骤 + 手册页码出处</li>
+    <li>"哪些设备维保超期了？" → 列出超期清单与超期天数</li>
+    <li>"3 号机现在健康分多少？" → 四因子拆解 + 计算式 + 数据来源</li>
+    <li>"这个月有多少张工单？" → 按状态分类统计</li>
+  </ul>
+  <p>同一个框里换一种说法——把"要办的事"讲成人话——它就直接改本机数据库：下工单、记维修与保养记录、改设备状态、写知识库。<b>这是同一个对话框的两种用法，不是两个功能</b>，见 3.2。</p>
+  <div class="call">
+    <div class="t">关键一击：它敢说"我不知道"</div>
+    <p>故意问一个知识库覆盖不到的问题，它会明确回答"本地知识库中没有检索到……"并列出覆盖范围，<b>而不是编一个答案</b>。在矿山现场，一个会编答案的助手是有害的。</p>
+  </div>
+
+  <figure>
+    <img src="说明书配图/fig01-ai-qa.png" alt="AI 智能问答的一次完整回答">
+    <figcaption><b>图 1　AI 智能问答的一次完整回答。</b>提问"徐工 XDE130 矿卡-08 健康怎么样？"，回答上方展开<b>智工分析过程</b>：查询台账 → 计算四因子健康评分 → 分析健康趋势 → 检索知识库（30 条可溯源规程）→ 生成诊断结论。中间灰框是本地模型按结论改写的口语化解读，右下角标注"本地模型生成 · 数据未出本机"；下方是规则引擎的确定性结论——健康分 24/100（D 严重），四个因子各自标出扣分，末行注明依据"本地台账"。</figcaption>
+  </figure>
+
+  <h3>3.2 口述录入：对着同一个框说话，它就改库</h3>
+  <p>现场工程师不可能坐下来填表格。所以他直接在 AI 助手的对话框里说一句人话——<b>就是 3.1 那个问问题的框，不是另开一个录入页</b>。系统先按"要办的事"解析，解析不出写入动作，才退回去当问答。</p>
+  <div class="flow">
+    <div class="step"><span class="n">1</span>对话框里说一句</div>
+    <div class="arw">→</div>
+    <div class="step"><span class="n">2</span>7 类意图识别</div>
+    <div class="arw">→</div>
+    <div class="step"><span class="n">3</span>设备指代 6 级匹配</div>
+    <div class="arw">→</div>
+    <div class="step"><span class="n">4</span>理解卡（不写库）</div>
+    <div class="arw">→</div>
+    <div class="step"><span class="n">5</span>确认落库</div>
+  </div>
+  <table class="tight">
+    <thead><tr><th style="width:44%">对着 AI 助手说（现场口语）</th><th>本机数据库里发生的事</th></tr></thead>
+    <tbody>
+      <tr><td>"1 号挖掘机今天液压油压力偏低"</td><td>新建维修工单，自动定优先级、带故障描述</td></tr>
+      <tr><td>"3 号挖掘机检修完成了"</td><td>工单置为已完成 → 归档设备病历 + 生成 7 天后复诊任务</td></tr>
+      <tr><td>"6 号钻机做完保养了，换了机油和机滤"</td><td>写入维保记录 + 更新上次维保日期 + 落一版健康快照</td></tr>
+      <tr><td>"5 号矿卡先停机，别排产"</td><td>设备状态改为故障停机</td></tr>
+      <tr><td>"记一条经验：水温高多半是节温器卡滞"</td><td>写入知识库，下次检索能命中</td></tr>
+      <tr><td>"哪些设备维保已超期？"</td><td><b>只读，不写库</b>——问句不会误触发写入</td></tr>
+    </tbody>
+  </table>
+  <p>这 6 句是实测跑过的原话，意图识别分别落到新建工单 / 完成工单 / 记录维保 / 改设备状态 / 写知识库 / 只读查询，无一误判。</p>
+  <table class="tight">
+    <thead><tr><th style="width:30%">能力</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td><b>7 类意图</b></td><td>报故障 / 完成工单 / 记录维保 / 改设备状态 / 做复诊 / 新增知识 / 查询</td></tr>
+      <tr><td><b>设备指代 6 级匹配</b></td><td>全名 → 简称 → 编号 → 序号 → 型号 → 模糊，逐级降级</td></tr>
+      <tr><td><b>歧义必问</b></td><td>指代不唯一时列出候选，<b>确认按钮置灰</b>——在有歧义的情况下拒绝写入。这是安全边界，不是功能缺失</td></tr>
+      <tr><td><b>写库前预检</b></td><td>例如"完成工单"会先查该设备是否真有未完成工单，没有则拦截并说明原因</td></tr>
+      <tr><td><b>理解卡</b></td><td>写入前展示"将要发生什么"（新建工单 / 归档病历 / 生成复诊 / 扣减备件），确认后才执行</td></tr>
+      <tr><td><b>一键撤销</b></td><td>撤销栈跨刷新持久化（最多 20 步），带 CAS——写入后又被改过的记录<b>拒绝</b>自动回退，不做静默覆盖</td></tr>
+    </tbody>
+  </table>
+
+  <h3>3.3 本地模型叙述层</h3>
+  <p>把规则引擎已经核实的结论，交给本地模型改写成口语化中文。模型规格：</p>
+  <table class="tight">
+    <thead><tr><th style="width:26%">项</th><th>值</th></tr></thead>
+    <tbody>
+      <tr><td>模型</td><td>Qwen2.5-0.5B-Instruct</td></tr>
+      <tr><td>量化</td><td>Q4_K_M</td></tr>
+      <tr><td>体积</td><td>468.6 MB（491,400,032 字节）</td></tr>
+      <tr><td>推理后端</td><td>node-llama-cpp，<b>纯 CPU，无需 GPU</b></td></tr>
+      <tr><td>上下文 / 生成参数</td><td>contextSize 1024 ｜ maxTokens 128 ｜ temperature 0.2 ｜ topP 0.9</td></tr>
+      <tr><td>角色</td><td><b>仅叙述层润色，不参与任何数值计算</b></td></tr>
+      <tr><td>模型档位</td><td>内置 0.5B；1.5B 为可选下载档位，多源回退（HuggingFace / hf-mirror / ModelScope / GitHub Releases）并校验 SHA</td></tr>
+      <tr><td>装机自检</td><td>加载 + 生成 + 校验数字不变量，结果落盘 <code>userData/llm-verify.json</code></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ==================== 出口校验 ==================== -->
+<section class="page" data-foot="矿山智工 · 产品说明书">
+  <h3 style="margin-top:0">3.4 出口校验：本作品的核心机制</h3>
+  <p>模型输出后，要过两道闸门。两道判据分开写、都拦——它们管的是两件不同的事。</p>
+
+  <table>
+    <thead><tr><th style="width:20%">校验</th><th style="width:32%">判据</th><th>拦住什么</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>数字不变量</b><br><code>verifyNumbersSubset()</code></td>
+        <td>生成文本中的每一个数字，必须 ⊆ 原结论的数字集合</td>
+        <td>模型<b>新造的数字</b>——例如编出一个看起来很像的停机损失</td>
+      </tr>
+      <tr>
+        <td><b>形状</b><br><code>verifyNarrationShape()</code></td>
+        <td>这段文本必须<b>真的在复述结论</b></td>
+        <td>数字全对但整段答非所问——实测会回反问句、复读提示词、把问题推回给用户</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="call red big">
+    <div class="t">这套架构的结论</div>
+    <p>大模型的失败模式是"<b>少说</b>"，不是"<b>说错</b>"。</p>
+  </div>
+
+  <p>任何一环失败——模型未加载 / 生成失败 / 数字对不上 / 形状不对——都会<b>回退到规则引擎的原始结论</b>。回退时在界面上如实说明原因，绝不把可疑输出作为最终结果放给用户。</p>
+
+  <div class="call warn">
+    <div class="t">这一层的边界（详见 §7.2 第 17–19 条）</div>
+    <p>两道闸门都在生成结束时判定。因此逐字输出的过程中，模型的原始措辞会先显示出来，回退只替换最终结果；形状校验也只拦措辞可识别的跑题形态。这是本产品目前<b>最需要继续加固</b>的一层，不掩饰。</p>
+  </div>
+
+  <figure>
+    <img src="说明书配图/fig02-ai-gate.png" alt="出口校验回退时的界面">
+    <figcaption><b>图 2　出口校验生效时，界面长什么样。</b>叙述层这轮没通过数字一致性校验，界面在回答顶部如实标出<b>"本次叙述未通过数字一致性校验，已回退 · 数据未出本机"</b>，用户最终看到的仍是规则引擎的原始结论——可疑措辞不会被当作结果放出来。</figcaption>
+  </figure>
+
+  <div class="stats">
+    <div class="stat"><div class="n">2</div><div class="l">道出口闸门</div></div>
+    <div class="stat"><div class="n sig">0</div><div class="l">数字可被编造</div></div>
+    <div class="stat"><div class="n em">100%</div><div class="l">失败可降级</div></div>
+    <div class="stat"><div class="n">50</div><div class="l">条结果 LRU 缓存</div></div>
+  </div>
+
+  <h3>3.5 AI 隐私与数据主权</h3>
+  <table class="tight">
+    <thead><tr><th style="width:30%">防护层</th><th>具体措施</th></tr></thead>
+    <tbody>
+      <tr><td><b>零云端</b></td><td>src 内无任何对外网络请求、无任何云端 API Key（唯一例外是开发模式加载本地 Vite 服务）</td></tr>
+      <tr><td><b>零账号</b></td><td>不需要注册、不需要登录云端账号</td></tr>
+      <tr><td><b>数据不出机</b></td><td>数据落在本机单文件数据库，<code>.mbak</code> 一键整库导出，随时可搬走</td></tr>
+      <tr><td><b>模型不理解数据以外的事</b></td><td>模型的唯一输入是规则引擎已核实的结论文本，且上下文仅 1024</td></tr>
+      <tr><td><b>可关闭</b></td><td>AI 助手头部有润色开关，关闭后直接展示规则引擎原文——慢机器上避免等待感</td></tr>
+    </tbody>
+  </table>
+
+  <h3>3.6 AI 技术实现</h3>
+  <ul class="feat">
+    <li><b>推理引擎</b>：node-llama-cpp（GGUF / llama.cpp 系），纯 CPU</li>
+    <li><b>提示词硬约束写在引擎层</b>，不在界面层——<code>SYSTEM_PROMPT</code> 定义在 <code>src/main/llmEngine.js</code></li>
+    <li><b>进程隔离</b>：模型跑在主进程，渲染进程通过 IPC 白名单调用，接口只接受 <code>{prompt}</code></li>
+    <li><b>流式输出</b>：逐字返回，边生成边看</li>
+    <li><b>缓存</b>：同人设同原文的叙述结果 LRU 缓存 50 条，避免"同一台设备反复问"时重复生成</li>
+    <li><b>多档位</b>：0.5B 内置随包；1.5B 可选下载，多源回退并校验 SHA</li>
+  </ul>
+</section>
+
+<!-- ==================== 核心特色二：业务覆盖 ==================== -->
+<section class="page" data-foot="矿山智工 · 产品说明书">
+  <h2 class="sec"><span class="n">四</span>核心特色二：全场景业务覆盖</h2>
+  <div class="sec-lead">AI 的价值建立在完整的数据之上。<b>15 个页面 / 5 个功能组 / 12 张数据表</b>把现场数据统一收拢，为 AI 提供燃料。</div>
+
+  <h3>4.1 设备健康组</h3>
+  <table class="tight">
+    <thead><tr><th style="width:24%">模块</th><th>核心能力</th></tr></thead>
+    <tbody>
+      <tr><td><b>数据看板</b></td><td>车队总览：设备数、健康分档分布、高风险清单、高频故障 TOP、停机损失估算</td></tr>
+      <tr><td><b>设备台账</b></td><td>全量设备增删改查、多条件筛选、虚拟滚动、照片、批量体检、导出</td></tr>
+      <tr><td><b>设备病历</b></td><td>单台设备完整体检报告与历史：健康曲线、四因子拆解、维修史、复诊记录、设备护照打印</td></tr>
+    </tbody>
+  </table>
+
+  <figure>
+    <img src="说明书配图/fig03-dashboard.png" alt="数据看板">
+    <figcaption><b>图 3　数据看板。</b>顶部三条：预计停机损失 ¥428.9 万/日、8 台需立即处置、数据本地不出网。三张指标卡为设备可用率 88.3%（53 / 60 台运行中）、维保执行率 71.7%、故障集中度 74.1%（TOP3 占 109/147 次）。健康等级分布 A 27 台 / B 16 台 / C 9 台 / D 8 台，下方"重点关注设备"按健康分升序排出 D 级设备并直接标出每台的预计停机损失。</figcaption>
+  </figure>
+
+  <figure>
+    <img src="说明书配图/fig04-equipment.png" alt="设备台账">
+    <figcaption><b>图 4　设备台账。</b>顶部按 A / B / C / D 四档统计 60 台设备的分布；主区是带实拍照片的卡片列表，每张标出健康分与等级、运行状态、所属矿区、上次维保日期与超期天数，卡片上直接给出"详情 / 记录维保 / 体检 / 编辑"四个动作，不必先进详情页再找入口。</figcaption>
+  </figure>
+
+  <figure>
+    <img src="说明书配图/fig05-medical.png" alt="设备病历">
+    <figcaption><b>图 5　设备病历（徐工 XDE130 矿卡-08）。</b>顶部是四因子健康条与健康分 24、趋势"恶化中"；中部左栏是可打印导出的《设备体检报告》——四因子拆解、体检结论、可追溯的维修史与费用；右栏"健康病历"是每次体检自动落档的历史快照（24 → 29 → 30 → 32 → 34 → 36），越攒越厚。</figcaption>
+  </figure>
+
+  <h3>4.2 运维执行组</h3>
+  <table class="tight">
+    <thead><tr><th style="width:24%">模块</th><th>核心能力</th></tr></thead>
+    <tbody>
+      <tr><td><b>告警中心</b></td><td>自动扫描维保超期 / 故障状态 / 健康降级，按严重度排序；<b>处置状态随库持久化，刷新不丢</b></td></tr>
+      <tr><td><b>维保日历</b></td><td>按日期视图排出保养排期与到期预警，可直接转工单</td></tr>
+      <tr><td><b>工单管理</b></td><td>工单全流程（待处理 / 处理中 / 已完成），支持口述建单；完成后自动归档病历 + 生成 7 天复诊</td></tr>
+      <tr><td><b>复诊管理</b></td><td>7 天后回访：确认修复效果，仍异常则再开工单，形成闭环</td></tr>
+    </tbody>
+  </table>
+
+  <figure>
+    <img src="说明书配图/fig06-alert.png" alt="告警中心">
+    <figcaption><b>图 6　告警中心。</b>顶部三格：未处置告警 39 条、高危 8 条（D 级 / 超期 45 天+ / 极高频故障）、已处置率 7%。下方是按风险从高到低排列的告警时间线，每条给出等级标签、设备、健康分或超期天数与建议动作；右侧"生成工单 / 标记已处理 / 忽略"三个动作可直接进闭环，<b>处置状态随库持久化，刷新不丢</b>。</figcaption>
+  </figure>
+
+  <figure>
+    <img src="说明书配图/fig07-calendar.png" alt="维保日历">
+    <figcaption><b>图 7　维保日历。</b>2026 年 9 月的月视图，每格排出当天到期的设备；图例区分已超期 / 今日到期 / 即将到期 / 计划维保 / 无维保记录，日期格放不下的自动收成"+14 更多"。排期与到期预警在同一个视图里看全，可直接转工单。</figcaption>
+  </figure>
+
+  <figure>
+    <img src="说明书配图/fig08-workorder.png" alt="工单管理">
+    <figcaption><b>图 8　工单管理。</b>按待派单 7 / 已派单 14 / 处理中 21 / 已完成 28 分列；表格逐行给出工单号、关联设备、类型（维修 / 维保）、优先级、状态、复诊标记与<b>来源</b>（告警 / 复诊 / 手动 / Excel），每行右侧是按当前状态给的动作（派单 / 开始处理 / 完成）。</figcaption>
+  </figure>
+
+  <figure>
+    <img src="说明书配图/fig09-recheck.png" alt="复诊管理">
+    <figcaption><b>图 9　复诊管理。</b>应复诊 24、已完成复诊 19、待复诊 5、闭环率 79%。每条给出设备、复诊内容、复诊日期与是否到期；三个动作里"未通过"是关键——复查没通过就重新开一张维修工单，闭环继续往下走。</figcaption>
+  </figure>
+
+  <h3>4.3 AI 智能组</h3>
+  <table class="tight">
+    <thead><tr><th style="width:24%">模块</th><th>核心能力</th></tr></thead>
+    <tbody>
+      <tr><td><b>AI 助手</b></td><td>统一入口，<b>读与写同框</b>：自然语言提问（查台账 / 规程 / 统计），口述录入（<b>对话即改库</b>——下工单、记维保、改设备状态、写知识库，确认后落库、可撤销）＋ Excel 导入 + 周报生成 + 会话导出</td></tr>
+      <tr><td><b>本地模型</b></td><td>模型档位管理、状态、装机自检结果</td></tr>
+      <tr><td><b>维修规程库</b></td><td>30 条规程 / 12 分类 / 34 组同义词，相关度打分检索；<b>同设备同系统故障 ≥3 次自动提炼知识草稿</b></td></tr>
+      <tr><td><b>手册资料库</b></td><td>PDF 本地解析，随包 3 份真手册开箱可看、可问答，回答带「第 N 页」出处</td></tr>
+    </tbody>
+  </table>
+
+  <figure>
+    <img src="说明书配图/fig10-ai-xlsx.png" alt="AI 助手 · Excel 智能解析">
+    <figcaption><b>图 10　AI 助手 · Excel 智能解析。</b>一次拖入 5 个部门的表头写法完全不同的表（设备清单 / 维保记录 / 巡检记录 / 配件库存 / 设备资产表），解析统计给出 5 文件 / 5 工作表 / 29 行 / 15 字段；右侧"数据质量体检"列出 8 台去重后设备、28 个识别到的不同字段名、15 个需合并的同义字段、6 行无设备名（将跳过），并逐条列出字段归并规则。</figcaption>
+  </figure>
+
+  <figure>
+    <img src="说明书配图/fig11-modelhub.png" alt="本地模型">
+    <figcaption><b>图 11　本地模型。</b>页面上方画出可审计的 AI 链路：规则引擎算数字 → 规程库检索（命中可溯源规程 + 手册原文，带出处页码）→ 本地模型叙述（逐字校验数字，新增数字即回退）。模型档位区列出三档（Qwen2.5-0.5B / 1.5B / Qwen3-4B）的体积、内存要求与用途，当前档位为 1.5B，并给出量化格式 Q4_K_M、2048 token 上下文、加载耗时与运行环境（纯本机 CPU，无 GPU 需求）。</figcaption>
+  </figure>
+
+  <figure>
+    <img src="说明书配图/fig12-kb.png" alt="维修规程库">
+    <figcaption><b>图 12　维修规程库。</b>共 30 条可溯源规程 / 12 个分类 / 全部存储在本机。列表逐条给出标题、分类、关键词（同义词组，例如液压系统那条挂了"液压、压力、偏低、液压油、油压、无力、动作慢、憋车"）、来源与频次，支持"全部 / 已确认 / AI 草稿"三态筛选与新增、编辑、删除。</figcaption>
+  </figure>
+
+  <figure>
+    <img src="说明书配图/fig13-docs.png" alt="手册资料库">
+    <figcaption><b>图 13　手册资料库。</b>随包 3 份真手册：QY25K5D 汽车起重机技术规格书（18 页）、XCA60E 全地面起重机技术规格书（32 页）、SQ10SK3Q 随车起重机操作维护手册（36 页），累计 86 页，全部标为"可问答"。下方脚注如实写明边界：文件只存本机、单份手册文字层最多入库 300 页、扫描件自动降级为"仅查看"，<b>不拿 PDF 总页数冒充</b>。</figcaption>
+  </figure>
+
+  <h3>4.4 数据资产组</h3>
+  <table class="tight">
+    <thead><tr><th style="width:24%">模块</th><th>核心能力</th></tr></thead>
+    <tbody>
+      <tr><td><b>故障案例库</b></td><td>18 张案例卡，由已完成的维修工单派生，<b>可逐张追溯到来源工单</b></td></tr>
+      <tr><td><b>备件库存</b></td><td>库存台账；维保记录里填的配件<b>真的扣减</b>库存并留流水</td></tr>
+      <tr><td><b>操作日志</b></td><td>全部写入留痕，每条标出操作人；滑动窗口保留最近 500 条</td></tr>
+    </tbody>
+  </table>
+
+  <figure>
+    <img src="说明书配图/fig14-cases.png" alt="故障案例库">
+    <figcaption><b>图 14　故障案例库。</b>自动分类样本 147 条、系统分类 5 类、TOP1 为液压系统。案例卡按"症状 → 原因 → 处理"三行给出，每张右下角标出来源（如"来源工单 #1039"），<b>可逐张追溯到来源工单</b>；下方是高频故障排行：液压系统 47 次 32% / 电气系统 32 次 21.8% / 动力系统 30 次 20.4% / 底盘行走 28 次 19% / 其他 10 次 6.8%。</figcaption>
+  </figure>
+
+  <figure>
+    <img src="说明书配图/fig15-parts.png" alt="备件库存">
+    <figcaption><b>图 15　备件库存。</b>库存 176 件 / 17 种；缺料预警 4 种并与告警中心联动，预警卡直接把"库存 / 安全库存"摆在一起（如空气滤芯 2 / 8 件）并给出"立即入库"。下方备件台账逐行给出库存与安全库存、状态（缺料 / 充足）、单价以及入库 / 出库 / 流水操作——维保记录里填的配件真的会扣减这里的库存并留流水。</figcaption>
+  </figure>
+
+  <figure>
+    <img src="说明书配图/fig16-logs.png" alt="操作日志">
+    <figcaption><b>图 16　操作日志。</b>全部写入留痕，每条标出类型标签（AI / 设置 / 体检 / 备件 / 口述 / 知识库）、时间与操作人。AI 问答同样入库——"AI 助手回答：发动机过热怎么排查？"这类记录也在其中。</figcaption>
+  </figure>
+
+  <h3>4.5 数据整合能力</h3>
+  <p>一次拖入多份表头写法不一致的 Excel，自动对齐合并入库。</p>
+  <ul class="feat">
+    <li><b>14 个标准字段</b>映射（设备名称 / 型号 / 购置日期 / 状态 …）</li>
+    <li><b>两轮表头识别</b>：先精确匹配，再模糊匹配（"设备名称"/"名称"/"机器名" 归一到同一字段）</li>
+    <li>内置 <b>5 份格式各异的示例模板</b>（设备清单 / 维保记录 / 巡检记录 / 配件库存 / 资产表），可一键下载对照</li>
+    <li>导入前预览与校验，异常行明确报出</li>
+  </ul>
+
+  <h3>4.6 闭环：完成不是终点</h3>
+  <div class="flow">
+    <div class="step"><span class="n">1</span>工单完成</div>
+    <div class="arw">→</div>
+    <div class="step"><span class="n">2</span>自动归档设备病历</div>
+    <div class="arw">→</div>
+    <div class="step"><span class="n">3</span>自动生成 7 天复诊任务</div>
+    <div class="arw">→</div>
+    <div class="step"><span class="n">4</span>复诊仍异常 → 再开工单</div>
+  </div>
+  <p>很多系统的"闭环"停在把工单标成完成。本产品的闭环真的往下走：维保记录里填了配件，<b>备件库存会真的扣减并留下流水</b>。</p>
+</section>
+
+<!-- ==================== 健康评估 ==================== -->
+<section class="page" data-foot="矿山智工 · 产品说明书">
+  <h3 style="margin-top:0">4.7 健康评估：可解释、可复算、不掩盖现场事实</h3>
+  <p>健康分不是一颗黑盒分数，它由四个因子相加，<b>每一步都能倒推</b>。</p>
+
+  <table>
+    <thead><tr><th style="width:22%">因子</th><th>规则</th><th style="width:16%">扣分上限</th></tr></thead>
+    <tbody>
+      <tr><td><b>维保及时性</b></td><td>每超期 1 天扣 2 分；无维保记录扣 30 分</td><td>≤ 45</td></tr>
+      <tr><td><b>设备机龄</b></td><td>超过 5 年后，每多 1 年扣 5 分</td><td>≤ 45</td></tr>
+      <tr><td><b>故障状态</b></td><td>当前处于故障状态扣 30 分</td><td>—</td></tr>
+      <tr><td><b>数据完整度</b></td><td>购置日期 / 上次维保 / 设备型号 每缺一项扣 5 分</td><td>—</td></tr>
+    </tbody>
+  </table>
+
+  <h4>分档</h4>
+  <p>A ≥ 85 ｜ B 70–84 ｜ C 55–69 ｜ D &lt; 55</p>
+
+  <h4>强制升级：不允许"分数好看"盖过现场事实</h4>
+  <table class="tight">
+    <thead><tr><th style="width:42%">条件</th><th>最低等级</th></tr></thead>
+    <tbody>
+      <tr><td>维保超期 &gt; 30 天</td><td>至少 <b>C 级</b></td></tr>
+      <tr><td>维保超期 &gt; 45 天</td><td>至少 <b>D 级</b></td></tr>
+      <tr><td>处于故障状态</td><td>直接 <b>D 级</b></td></tr>
+    </tbody>
+  </table>
+
+  <div class="call">
+    <div class="t">界面上能看到的完整算式</div>
+    <p>距上次维保 140 天 − 周期 90 天 = 超期 50 天，每超期 1 天扣 2 分 → 扣 100 分，单因子上限 45 分，<b>实际扣 45 分</b>。</p>
+  </div>
+
+  <h4>停机损失测算（公开公式）</h4>
+  <p><code>停机损失 = 风险系数 × 日产出 × 预估停时</code></p>
+  <p>日产出按机型取值：矿卡 12 万 / 天、破碎机 9 万 / 天、挖掘机 8 万 / 天。风险系数与场景参数可按矿种预设切换，修改后全量重算。</p>
+
+  <h3>4.8 可审计与留痕</h3>
+  <table class="tight">
+    <thead><tr><th style="width:28%">能力</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td><b>操作日志</b></td><td>全部写入留痕并落库，滑动窗口保留最近 500 条</td></tr>
+      <tr><td><b>身份留痕</b></td><td>启用应用锁后，每条日志标出操作人；侧边栏底部常显当前身份</td></tr>
+      <tr><td><b>应用锁</b></td><td>多账户（姓名 + 4–6 位数字 PIN），PIN 走 <b>PBKDF2-SHA256 + 每账户随机盐</b>，不存明文</td></tr>
+      <tr><td><b>空闲自动锁</b></td><td>默认闲置 10 分钟回锁屏（指针 / 按键 / 滚轮 / 触摸都算活动）；可关闭或改为 1/5/10/15/30 分钟，改完当次生效</td></tr>
+      <tr><td><b>未解锁不装载数据</b></td><td>锁屏状态下主应用根本没被创建，台账数字不会先闪一下</td></tr>
+      <tr><td><b>撤销栈</b></td><td>跨刷新持久化，带 CAS——写入后又被改过的记录拒绝自动回退</td></tr>
+    </tbody>
+  </table>
+
+  <h3>4.9 离线与安全加固</h3>
+  <table class="tight">
+    <thead><tr><th style="width:30%">措施</th><th>实现</th></tr></thead>
+    <tbody>
+      <tr><td><b>无网络依赖</b></td><td>src 内无任何对外网络请求、无云端 API Key</td></tr>
+      <tr><td><b>进程隔离</b></td><td><code>contextIsolation: true</code> + <code>nodeIntegration: false</code> + <code>sandbox: true</code></td></tr>
+      <tr><td><b>能力白名单</b></td><td>preload 只经 <code>contextBridge</code> 暴露具名方法，<b>不透传 ipcRenderer</b></td></tr>
+      <tr><td><b>IPC 来源校验</b></td><td>主进程校验调用来源，非可信来源直接拒绝</td></tr>
+      <tr><td><b>文档目录约束</b></td><td>文档读写限制在受控根目录内</td></tr>
+      <tr><td><b>外部链接</b></td><td>一律交由系统浏览器打开</td></tr>
+      <tr><td><b>数据可搬走</b></td><td><code>.mbak</code> 一键整库导出 / 导入（含对话历史）</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ==================== 技术架构 ==================== -->
+<section class="page" data-foot="矿山智工 · 产品说明书">
+  <h2 class="sec"><span class="n">五</span>技术架构与创新点</h2>
+
+  <h3>5.1 整体架构</h3>
+  <div class="arch">
+    <div class="layer">
+      <div class="lt">用户入口</div>
+      <div class="row" style="grid-template-columns:repeat(4,1fr)">
+        <div class="box">Excel 导入</div>
+        <div class="box">口述录入</div>
+        <div class="box">自然语言问答</div>
+        <div class="box">手册 / PDF</div>
+      </div>
+    </div>
+
+    <div class="layer" style="background:var(--bg-soft)">
+      <div class="lt">① 规则引擎（确定性）—— 所有数字都由这里产生</div>
+      <div class="row" style="grid-template-columns:repeat(3,1fr)">
+        <div class="box acc">健康四因子评分</div>
+        <div class="box acc">停机损失测算</div>
+        <div class="box acc">告警扫描</div>
+        <div class="box acc">工单流转</div>
+        <div class="box acc">复诊闭环</div>
+        <div class="box acc">备件扣减</div>
+      </div>
+    </div>
+
+    <div class="layer">
+      <div class="lt">② 本地知识检索</div>
+      <div class="row" style="grid-template-columns:1fr">
+        <div class="box sig">维修规程库 30 条 / 12 分类 / 34 组同义词 · 相关度打分检索 · 手册 PDF 本地解析</div>
+      </div>
+    </div>
+
+    <div class="layer">
+      <div class="lt">③ 本地大模型（Qwen2.5-0.5B，纯 CPU）—— 只做措辞润色</div>
+      <div class="row" style="grid-template-columns:1fr">
+        <div class="box">把已核实的结论改写成 2–4 句口语化中文</div>
+      </div>
+    </div>
+
+    <div class="layer" style="background:var(--danger-soft)">
+      <div class="lt" style="color:var(--danger-ink)">④ 出口校验 —— 不通过就整段丢弃</div>
+      <div class="row" style="grid-template-columns:1fr 1fr">
+        <div class="box red">数字不变量：生成文本的数字 ⊆ 原结论数字</div>
+        <div class="box red">形状：必须真的在复述结论</div>
+      </div>
+    </div>
+
+    <div class="layer" style="background:var(--emerald-soft)">
+      <div class="lt" style="color:#0b6b48">⑤ 落盘（本机，零上传）</div>
+      <div class="row" style="grid-template-columns:1fr">
+        <div class="box em">SQLite（sql.js）· 12 张表 · 单文件 · 可一键整库导出</div>
+      </div>
+    </div>
+  </div>
+
+  <h3>5.2 三个创新点</h3>
+
+  <h4>创新一：把 AI 的失败模式设计成"少说"而不是"说错"</h4>
+  <p>常见做法是<b>在提示词里约束</b>（"不要编造数字"）。本产品的做法是<b>在出口处硬校验</b>——生成文本里的每个数字必须原结论里有，否则整段丢弃。提示词约束是"请求模型别犯错"，出口校验是"无论模型做了什么，错的东西都出不去"。</p>
+
+  <h4>创新二：让"AI 不可用"不等于"功能不可用"</h4>
+  <p>模型没加载、生成失败、校验不过——任何一种情况下，系统都回退到规则引擎的原始结论，功能不降级。这意味着模型是<b>增强项而非依赖项</b>，可以随时关闭。</p>
+
+  <h4>创新三：数字主权成为架构属性，而不是承诺</h4>
+  <p>数据不出本机不是一条隐私政策，而是<b>架构上做不到</b>——src 内没有任何对外网络请求，没有云端 Key。给不给厂家，是客户导出时的选择。</p>
+
+  <h3>5.3 工程可信度：能力是被验证过的</h3>
+  <p><code>npm run verify</code> 一条命令按序跑完 10 道验收，各网专责：</p>
+  <table class="tight">
+    <thead><tr><th style="width:20%">命令</th><th>管什么</th></tr></thead>
+    <tbody>
+      <tr><td><code>lint</code></td><td>静态检查（含 <code>vue/no-undef-properties</code>——本项目吃过大亏的规则）</td></tr>
+      <tr><td><code>self-check</code></td><td>本地核心逻辑：日期、数据库落盘往返、Excel 解析、知识库检索</td></tr>
+      <tr><td><code>main-check</code></td><td>主进程契约：IPC 注册与来源校验、切档失败不得改变当前档位、拉不到远端清单时回退内置</td></tr>
+      <tr><td><code>store-check</code></td><td>状态层：首启播种闸门、字段白名单回读、落盘失败必须仍是脏状态、重置后撤销栈清空</td></tr>
+      <tr><td><code>pack-check</code></td><td>打包依赖闭包——运行期依赖有没有被排掉、原生库有没有解包。<b>这类缺陷只在装完包才现形</b></td></tr>
+      <tr><td><code>coverage</code></td><td>口述指代消解的<b>能力覆盖矩阵</b>（明确不是代码覆盖率）</td></tr>
+      <tr><td><code>build</code></td><td>生产构建</td></tr>
+      <tr><td><code>e2e</code></td><td>无头浏览器走真实交互</td></tr>
+      <tr><td><code>e2e:nl</code></td><td>口述录入链路：理解卡 → 歧义必问 → 确认 → 落库 → 刷新仍在 → 撤销 → 纯查询不误写</td></tr>
+      <tr><td><code>audit:contrast</code></td><td>文字对比度达 WCAG AA（浅色令牌）</td></tr>
+    </tbody>
+  </table>
+  <p class="sec-lead">断言条数以脚本末行「合计 N 项」为准。另有一条不在门禁链里的深色主题审计 <code>npm run audit:contrast:dark</code>。</p>
+</section>
+
+<!-- ==================== 规模与成熟度 ==================== -->
+<section class="page" data-foot="矿山智工 · 产品说明书">
+  <h2 class="sec"><span class="n">六</span>性能与规模</h2>
+
+  <h3>6.1 规模压测（单机）</h3>
+  <p><code>npm run bench:scale</code> 在 Node 里真装配状态层，灌入 <b>5000 台设备 + 5 万条维保记录</b>，实测：</p>
+  <div class="stats">
+    <div class="stat"><div class="n">246<small style="font-size:12px"> ms</small></div><div class="l">满库首启</div></div>
+    <div class="stat"><div class="n sig">56<small style="font-size:12px"> ms</small></div><div class="l">看板重算</div></div>
+    <div class="stat"><div class="n em">22<small style="font-size:12px"> ms</small></div><div class="l">检索一次提问</div></div>
+    <div class="stat"><div class="n">5000</div><div class="l">设备规模</div></div>
+  </div>
+  <div class="call warn">
+    <div class="t">如实说明</div>
+    <p>这三项属"看得见的"规模数据，<b>不是门禁</b>——耗时测量会随机器抖动，不该让验收链变红。</p>
+  </div>
+
+  <h3>6.2 分发形态</h3>
+  <table>
+    <thead><tr><th style="width:30%">形态</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td><b>离线安装包</b></td><td>内含 468 MB 模型，安装包实测 <b>628 MiB</b>，双击安装即用，无需联网激活</td></tr>
+      <tr><td><b>在线轨安装包</b></td><td>不含模型，模型可后续下载</td></tr>
+      <tr><td><b>应用本体</b></td><td><code>app.asar</code> 实测 <b>21.3 MiB</b>——代码本身很小，体积大头是模型与原生推理后端</td></tr>
+      <tr><td><b>已配置目标</b></td><td>Windows NSIS（x64）｜ macOS dmg ｜ Linux AppImage</td></tr>
+    </tbody>
+  </table>
+
+  <h3>6.3 演示数据说明</h3>
+  <p>演示台账由程序确定性生成（固定种子 <code>20260912</code>）：</p>
+  <div class="stats">
+    <div class="stat"><div class="n">60</div><div class="l">设备</div></div>
+    <div class="stat"><div class="n">69</div><div class="l">工单</div></div>
+    <div class="stat"><div class="n">352</div><div class="l">维保记录</div></div>
+    <div class="stat"><div class="n">290</div><div class="l">健康快照</div></div>
+  </div>
+  <ul class="feat">
+    <li><b>18 张故障案例卡 + 3 份随包示例手册</b>，开箱即可完整体验</li>
+    <li><b>机型取自公开可查的真实型号目录</b>（32 个型号 / 10 个类别，含徐工与他牌混编）</li>
+    <li><b>矿区名使用"云南××矿区"这类脱敏写法，不含任何真实客户数据</b></li>
+    <li>规模与分布每次重置都一样，演示不会"这次和上次不一样"——实测把时钟整体平移 ±400 天，五项计数与 A/B/C/D 分档都不变</li>
+  </ul>
+  <p>内容来源可追溯。维保项目库与故障现象库来自公开手册，条目上注有手册页码（LW188 装载机维护手册的 6 级保养周期、XE210C 挖掘机操作维护手册的故障排查表）。故障案例卡由已完成的维修工单派生，<b>可逐张追溯到来源工单</b>。</p>
+</section>
+
+<!-- ==================== 边界 ==================== -->
+<section class="page" data-foot="矿山智工 · 产品说明书">
+  <h2 class="sec"><span class="n">七</span>适用边界（如实）</h2>
+  <div class="sec-lead">本节不是"未来规划"，是<b>当前版本确实没有</b>的东西。列出来是为了让评审可以按图索骥地验证。</div>
+
+  <h3>7.1 定位边界</h3>
+  <table>
+    <thead><tr><th style="width:34%">它不是</th><th>它是</th></tr></thead>
+    <tbody>
+      <tr><td>云端 SaaS / 多租户平台</td><td>单机离线桌面应用，装机即用</td></tr>
+      <tr><td>企业级 EAM / CMMS（含权限分级、集中管控）</td><td>面向现场工程师与班组的工作台</td></tr>
+      <tr><td>预测性维护系统</td><td>基于已录入数据的健康评估与预警</td></tr>
+      <tr><td>故障诊断系统</td><td>"现象 → 规程条目"的检索匹配</td></tr>
+    </tbody>
+  </table>
+
+  <h3>7.2 当前版本限制</h3>
+  <table class="bd">
+    <thead><tr><th>#</th><th>限制</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>无基于角色的权限分级</td><td>账户里的"角色"<b>只是标识</b>（界面显示 + 进操作日志），没有"维修工不能删设备"这类拦截</td></tr>
+      <tr><td>2</td><td>锁的是界面不是文件</td><td>数据库文件仍可被任何 SQLite 工具直接打开；锁配置在 localStorage，清掉即绕过。<b>防的是旁人随手翻看与误操作，不是技术人员</b></td></tr>
+      <tr><td>3</td><td>日志身份不回填</td><td>启用应用锁之前写下的日志（含随包演示数据）操作人显示「未署名」</td></tr>
+      <tr><td>4</td><td>无语音识别</td><td>未实现</td></tr>
+      <tr><td>5</td><td>无真实 OCR</td><td>拍照识别为<b>演示用的模拟结果</b>，未接入真实识别引擎</td></tr>
+      <tr><td>6</td><td>撤销覆盖范围有限</td><td>只有口述录入 / AI 助手的写入可撤销。工单完成、复诊、备件出入库、设备增改、Excel 导入、备份导入<b>都没有撤销</b></td></tr>
+      <tr><td>7</td><td>部分失败不回滚到底</td><td>撤销逐条执行，失败项会明确报出原因，但已回退的部分不会自动复原</td></tr>
+      <tr><td>8</td><td>无测点实时数据接入</td><td>IoT 未实现。数据来自导入与手工 / 口述录入</td></tr>
+      <tr><td>9</td><td>无多终端同步</td><td>企业版私有化部署属规划内容，未实现</td></tr>
+      <tr><td>10</td><td>模型资源占用未实测</td><td>仅有"纯 CPU、无需 GPU"的定性结论</td></tr>
+      <tr><td>11</td><td>无并发控制</td><td>单机单进程设计</td></tr>
+      <tr><td>12</td><td>触摸路径未测</td><td>定位为<b>桌面工作台</b>，移动端与触摸操作未验证</td></tr>
+      <tr><td>13</td><td>"主动提示"尚以看板形式存在</td><td>设备预警目前以告警中心 + 数据看板呈现，<b>尚未做到开机主动提示</b></td></tr>
+      <tr><td>14</td><td>规程检索不是诊断</td><td>知识库 30 条，覆盖有限，查不到会明说</td></tr>
+      <tr><td>15</td><td>档案可被修改</td><td>数据库文件未加密，因此维修档案<b>不可作为法律意义上的不可篡改证据</b></td></tr>
+      <tr><td>16</td><td>视觉回归靠人工</td><td>未自动化</td></tr>
+      <tr><td>17</td><td><b>流式输出期间用户仍会先看到模型原话</b></td><td>两道闸门都在<b>生成结束时</b>判定，逐字打字的过程中模型的原始措辞会先显示出来；回退只会替换掉最终结果</td></tr>
+      <tr><td>18</td><td>形状校验覆盖有限</td><td>只拦<b>措辞可识别</b>的跑题形态（结尾反问 / 指代提示词 / 把问题推回用户 / 空壳）。输出中间夹反问但不含这些特征的，仍可能漏过</td></tr>
+      <tr><td>19</td><td>叙述层未经真实模型回归</td><td>自动化验收跑的是浏览器模式，该模式下模型不可用、直接走回退，<b>因此 10 道门禁结构上测不到模型的真实输出</b>，这一层目前靠打包版手工复测</td></tr>
+    </tbody>
+  </table>
+
+  <h3>7.3 未来展望</h3>
+  <table class="tight">
+    <thead><tr><th style="width:22%">阶段</th><th>方向</th></tr></thead>
+    <tbody>
+      <tr><td><b>近期</b></td><td>补齐语音录入与真实 OCR；测点数据接入（标准协议适配）</td></tr>
+      <tr><td><b>中期</b></td><td>多终端同步与企业版；模型档位可配置（0.5B / 3B / 7B）</td></tr>
+      <tr><td><b>远期</b></td><td>行业扩展（港口机械、隧道装备）；备件供应链对接</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ==================== 收尾 ==================== -->
+<section class="page" data-foot="矿山智工 · 产品说明书">
+  <h2 class="sec"><span class="n">八</span>结语</h2>
+
+  <div class="call big" style="border-left-color:var(--signal);background:var(--signal-soft)">
+    <p>矿山的经验，一直存在一个人的脑子里。<br>
+    它能解决几乎所有问题，唯独解决不了两件事：<b>他会退休，而且他只有一个。</b></p>
+  </div>
+
+  <p>矿山智工不是"把云端方案搬到本地"，也不是"给传统软件加一个 AI 按钮"。它从三条约束出发——<b>数据不能出矿、现场没有网、算力不能要求</b>——倒推出一个完整的架构，并在这个架构里回答了一个更根本的问题：</p>
+
+  <div class="call red">
+    <div class="t">这个产品回答的问题</div>
+    <p>当 AI 开始参与生产决策，<b>它说的话由谁负责？</b></p>
+  </div>
+
+  <ul class="feat">
+    <li><b>数字不由模型产生</b>——规则引擎算，模型只说人话</li>
+    <li><b>模型说错出不去</b>——出口两道闸门，不通过就整段丢弃</li>
+    <li><b>模型没了功能还在</b>——任何失败都回退原始结论，功能不降级</li>
+  </ul>
+
+  <p>于是这个 AI 的失败方式是"<b>少说</b>"，而不是"<b>说错</b>"。</p>
+
+  <div class="call">
+    <div class="t">一句话</div>
+    <p>一台笔记本、不联网、不需要 GPU——完成从台账导入 → 健康评分 → 告警 → 工单 → 复诊闭环 → 备件扣减 → 经验沉淀的全流程，且<b>每一个数字都能追溯到它的来源</b>。</p>
+  </div>
+
+  <div class="colophon" style="margin-top:4px;padding-top:8px;border-top:1px solid var(--line);font-size:11.5px;color:var(--text-3);line-height:1.55">
+    <div><b style="color:var(--text-1)">矿山智工 · 设备健康智能体</b>　v1.2.0　｜　开发者：孔德尚（石家庄铁道大学）</div>
+    <div style="color:var(--mute)">
+      版权所有 © 2026 石家庄铁道大学 孔德尚，保留所有权利
+    </div>
+    <div style="color:var(--mute)">
+      相关文档：参赛材料 ｜ 演示脚本 ｜ 测试报告 ｜ 视觉规范 ｜ 作品说明书
+    </div>
+  </div>
+</section>
+
+</body>
+</html>
