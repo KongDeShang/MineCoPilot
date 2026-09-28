@@ -1,6 +1,7 @@
 {
   "appId": "com.kuangshan.zhigong",
   "productName": "矿山智工",
+  "copyright": "Copyright © 2026 石家庄铁道大学 孔德尚　保留所有权利",
   "directories": {
     "output": "release",
     "buildResources": "build"

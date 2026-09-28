@@ -1,0 +1,68 @@
+矿山智工 · 设备健康智能体（MineCoPilot）
+版权所有 © 2026 石家庄铁道大学 孔德尚
+保留所有权利。
+
+────────────────────────────────────────────────────────────
+
+一、权利归属
+
+本软件及其全部源代码、文档、界面设计、随包资料（以下合称「本作品」）
+的著作权归 石家庄铁道大学 孔德尚 所有，受《中华人民共和国著作权法》
+及相关国际著作权公约保护。
+
+二、许可范围
+
+未经著作权人事先书面许可，任何单位或个人不得：
+
+  1. 复制、发表、传播、公开展示本作品的全部或任何部分；
+  2. 修改、翻译、改编、汇编本作品，或创作其衍生作品；
+  3. 将本作品或其衍生作品用于任何商业目的，包括但不限于销售、
+     许可、出租、以本作品提供付费服务；
+  4. 反向工程、反编译、反汇编本作品，或绕过其任何技术保护措施；
+  5. 移除、遮蔽或篡改本作品中的著作权声明、作者署名或权利标识。
+
+三、不受限制的行为
+
+以下行为无需另行取得许可：
+
+  1. 为学习、研究、评论、新闻报道目的而合理使用本作品，并注明出处；
+  2. 赛事评审、验收、答辩等场景下，由著作权人提交或授权的查阅与演示；
+  3. 著作权人本人及其书面授权的合作方对作品的使用。
+
+四、第三方组件
+
+本作品中包含的第三方开源组件（详见 package.json 的 dependencies 与
+package-lock.json）各自适用其原有许可证，本声明不改变、不限制、
+不替代该等许可证所赋予的权利与义务。随包的工程机械手册等资料
+来源于公开渠道，其著作权归原权利人所有，此处仅作技术演示之用。
+
+五、免责声明
+
+本作品按「现状」提供，不附带任何明示或默示的担保。因使用或无法
+使用本作品而产生的任何损失，著作权人不承担责任。
+
+六、终止
+
+违反本声明任一条款，本声明授予的一切权利自动终止，使用者应立即
+停止使用并销毁本作品的所有副本。
+
+────────────────────────────────────────────────────────────
+
+Copyright © 2026  Kong Deshang, Shijiazhuang Tiedao University.
+All rights reserved.
+
+This software and all associated source code, documentation, UI designs
+and bundled materials (the "Work") are the exclusive property of the
+copyright holder. No part of the Work may be copied, modified,
+distributed, sublicensed, publicly displayed, or used for any commercial
+purpose without the prior written permission of the copyright holder.
+Reverse engineering and removal of copyright notices are prohibited.
+
+Third-party open-source components are governed by their respective
+licenses. The Work is provided "AS IS", without warranty of any kind.
+
+────────────────────────────────────────────────────────────
+
+联系方式 / Contact
+  开发者：孔德尚
+  单位：石家庄铁道大学
