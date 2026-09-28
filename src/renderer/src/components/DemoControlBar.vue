@@ -39,18 +39,19 @@
       <el-tooltip content="重来（回到第一步）" placement="top">
         <el-button size="small" circle @click="api.reset()"><el-icon><RefreshLeft /></el-icon></el-button>
       </el-tooltip>
-      <el-tooltip content="退出演示" placement="top">
-        <el-button
-          size="small"
-          type="danger"
-          plain
-          circle
-          aria-label="退出"
-          @click="api.destroy(); emit('close')"
-        >
-          <el-icon><CircleClose /></el-icon>
-        </el-button>
-      </el-tooltip>
+      <!-- 「跳过引导」带字，不做成一颗 ✕ 圆形按钮：
+           首启这条路是**应用自己弹出来的**，人不一定想看完，而一颗 ✕ 要盯两秒
+           才敢确定它是"关掉"还是"删除"。带字之后一眼就知道是能走的出口。
+           图标按钮只留这颗「重来」——它是演示的人自己找的功能，不承担"逃生口"职责。 -->
+      <el-button
+        size="small"
+        type="danger"
+        plain
+        aria-label="跳过引导"
+        @click="api.destroy(); emit('close')"
+      >
+        <el-icon><CircleClose /></el-icon><span>跳过引导</span>
+      </el-button>
     </div>
   </div>
 </template>
@@ -90,7 +91,11 @@ function onPlayPause() {
   right: 24px;
   bottom: 24px;
   z-index: 100000;
-  width: 320px;
+  /* 宽度自适应并设上限：加了「跳过引导」那颗带字的按钮之后，写死 320px 会把它挤换行。
+     上限用 min() 兜住窄屏（右 24px + 左至少留 24px），不让它贴到屏幕外。 */
+  width: auto;
+  min-width: 320px;
+  max-width: min(420px, calc(100vw - 48px));
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -140,5 +145,9 @@ function onPlayPause() {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+  align-items: center;
 }
+
+/* 带字那颗按钮里，图标与字的间距交给 Element Plus 自己的
+   `.el-button [class*=el-icon]+span { margin-left: 6px }`，不在这里再叠一层。 */
 </style>
