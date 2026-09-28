@@ -46,6 +46,15 @@ body{
 .cover .rule{width:64px;height:3px;background:#7de8f2;margin-bottom:34px}
 .cover .meta{font-size:13px;line-height:2.1;color:#bcd2ef}
 .cover .meta b{color:#fff;font-weight:600}
+/* .row / .k / .sig 这三个类不是排版的装饰，是**生成器的接口**：
+   docs/tools/html2docx.py 按类名认封面的字段（meta>row 取「标签＋值」、meta>sig 取落款），
+   份量对等的第二份文档（作品说明书）复用同一个生成器，靠的就是这套标记。
+   值里那个全角空格由生成器补，不写在源码里（源码里的全角空格会触发 lint）。 */
+/* margin-right 是标签与取值之间的那道缝。生成器给 docx 补的是全角空格，
+   而 PDF 是 Chrome 直接从这份 HTML 打的、读不到生成器那一步 —— 少了这句，
+   封面上就是「当前版本v1.2.0」「运行要求无 GPU」这样糊成一团（实测踩到）。 */
+.cover .meta .row .k{color:#bcd2ef;margin-right:9px}
+.cover .meta .sig{margin-top:14px;color:#8fb0dc;font-size:12px}
 /* align-self:flex-start 不是可有可无的：.cover 是 flex 纵列，默认 align-items:stretch
    会把这条 inline-block 的「药丸」拉成**整页宽**的一个空框（border-radius:999px 之下
    尤其明显）。2026-09-28 从 HTML 直接出 PDF 时才看见 —— 此前 PDF 走 Word 重建封面，
@@ -81,10 +90,22 @@ td strong,td b{color:var(--text-1);font-weight:600}
 table.tight td,table.tight th{padding:6px 9px;font-size:12px}
 
 /* ---------- 插图 ---------- */
-/* 图与题注绑成一块，不允许被分页切开；宽度撑满正文栏（16.6cm 口径） */
-figure{margin:14px 0 6px;break-inside:avoid;page-break-inside:avoid}
+/* 图与题注绑成一块，不允许被分页切开。
+   宽度钉死 12cm（不是 100% 通栏），这是**分页**倒逼出来的，不是审美。
+   正文栏高 27.4cm，而一张 1600×1000 的截图在栏宽 W 下高 0.625W：
+   W=18cm（通栏）时图 11.25cm，连题注整块 ≈ 13.4cm；W=13.5cm 时图 8.4cm，
+   整块 10.2cm（实测：p11 图上沿 37.5 → 下一张 325.5，pitch 288pt）。
+   两种都塞不进「表格后面剩下的 7~9cm 缝」，于是每页只落得下 2 张，
+   第 3 张整块跳页，页底空掉 7.9cm（p09/p11/p13/p15 各空四分之一）。
+   12cm 时图 7.5cm、题注 9px 约三行，整块 ≈ 8.9cm —— 27.4 ÷ 8.9 = 3.08，
+   正好三张一页，那些洞才收得掉。这是唯一能同时保住 16 张图、
+   保住题注全文（100~212 字，是截图细节的唯一出口）又填满页面的解。
+   写 cm 而不是百分比：屏幕预览的栏宽 17.4cm、打印 18cm，百分比会让
+   两边的物理尺寸对不上，而 Word 那边（html2docx.py 的 FIG_W）也是 12cm，
+   三处必须是同一个数。 */
+figure{margin:11px auto 5px;width:12cm;break-inside:avoid;page-break-inside:avoid}
 figure img{display:block;width:100%;border:1px solid var(--line-2);border-radius:6px;background:#fff}
-figcaption{margin-top:6px;font-size:12px;line-height:1.7;color:var(--text-3)}
+figcaption{margin-top:4px;font-size:11px;line-height:1.6;color:var(--text-3)}
 figcaption b{color:var(--text-1)}
 
 /* ---------- 强调块 ---------- */
@@ -149,16 +170,28 @@ ul.feat li b{color:var(--text-1)}
    排版策略：正文连续流式排版，只在封面后强制分页。
    理由：每节平均 1.4 页，若每节都强制起新页，会有约 1/4 的纸面变成空半页；
    连续流式则纸面填满，表格/卡片/流程块靠 break-inside 整体不拆。 */
-@page{size:A4;margin:0}
+/* 页边距定在 @page 上，不要做成 .page 的 padding。
+   包裹层的 padding 只在元素**开头**生效（CSS 分片规则），于是：
+     (a) 跨页的续页完全没有上边距，正文顶到纸边 —— 实测 p05 首块 y=7pt、p19 y=11pt；
+     (b) 每个 <section class="page"> 的边界白吃 13mm+10mm；更糟的是这 2.3cm
+         把整节挤到下一页 —— 11 个 section **全部**另起一页，p02 因此空掉 8.5cm。
+   改由 @page 承担之后，续页有边距、section 之间连续流式。
+   `:first` 放行封面，让它满版出血。 */
+@page{size:A4;margin:13mm 15mm 10mm}
+@page :first{margin:0}
 @media print{
   body{background:#fff;font-size:11px;line-height:1.62}
-  .page{width:auto;min-height:auto;margin:0;padding:13mm 15mm 10mm;box-shadow:none;
+  .page{width:auto;min-height:auto;margin:0;padding:0;box-shadow:none;
     break-after:auto;page-break-after:auto}
   .page::after{display:none}
-  .cover{min-height:auto;height:292mm;padding:0 15mm;
+  /* 296mm 而不是 297mm：正好等于页高时四舍五入会多顶出一张白纸 */
+  .cover{min-height:auto;height:296mm;padding:0 15mm;
     break-after:page;page-break-after:always}
   h2.sec{break-before:auto;margin-top:22px}
   h2.sec,h3,h4{break-after:avoid;page-break-after:avoid}
+  /* 题注在印刷下要小于正文（正文 11px），与 Word 那边 7.5pt 题注对 10pt 正文同向。
+     9px 而不是 10px：题注每高三行就多 0.4cm，图块高了就凑不出「三张一页」。 */
+  figcaption{font-size:9px;line-height:1.45}
   /* 长表格允许跨页断行（thead 会自动在续页重复），避免为保整表而留出半页空白；
      但单行不拆。卡片组/流程块/强调块体量小且语义完整，整体不拆。 */
   thead{display:table-header-group}
@@ -184,11 +217,11 @@ ul.feat li b{color:var(--text-1)}
     <b style="color:#fff">本地 AI 工作台</b>。
   </div>
   <div class="meta">
-    <div>当前版本　<b>v1.2.0</b></div>
-    <div>产品形态　<b>Windows 桌面版（Electron）· 单机离线</b></div>
-    <div>核心理念　<b>规则引擎出数字，本地大模型只说人话</b></div>
-    <div>运行要求　<b>无 GPU · 无服务器 · 无网络</b></div>
-    <div style="margin-top:14px;color:#8fb0dc;font-size:12px">
+    <div class="row"><span class="k">当前版本</span><b>v1.2.0</b></div>
+    <div class="row"><span class="k">产品形态</span><b>Windows 桌面版（Electron）· 单机离线</b></div>
+    <div class="row"><span class="k">核心理念</span><b>规则引擎出数字，本地大模型只说人话</b></div>
+    <div class="row"><span class="k">运行要求</span><b>无 GPU · 无服务器 · 无网络</b></div>
+    <div class="sig">
       开发者：孔德尚（石家庄铁道大学）<br>
       版权所有 © 2026 石家庄铁道大学 孔德尚，保留所有权利<br>
       2026 年 9 月
@@ -232,7 +265,7 @@ ul.feat li b{color:var(--text-1)}
 
 <!-- ==================== 项目名片 + 背景 ==================== -->
 <section class="page" data-foot="矿山智工 · 产品说明书">
-  <h2 class="sec newpage"><span class="n">〇</span>项目名片</h2>
+  <h2 class="sec"><span class="n">〇</span>项目名片</h2>
   <div class="sec-lead">六个维度，一眼看清这个产品是什么、能做什么。</div>
 
   <div class="cards">

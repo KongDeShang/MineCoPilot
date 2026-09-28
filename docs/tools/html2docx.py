@@ -68,8 +68,14 @@ FONT = '微软雅黑'
 MONO = 'Consolas'
 
 ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / 'docs' / '产品说明.html'
-OUT = ROOT / 'docs' / '产品说明.docx'
+
+# 文档名：默认《产品说明书》，第二个参数可换成别的 —— 《作品说明书》用的是同一套版式，
+# 差别只在封面文案（从 HTML 的 .cover 段读）与页脚标题，所以共用这一个生成器。
+#   python docs/tools/html2docx.py              → docs/产品说明.docx
+#   python docs/tools/html2docx.py 作品说明书     → docs/作品说明书.docx
+DOC_NAME = sys.argv[1] if len(sys.argv) > 1 else '产品说明'
+SRC = ROOT / 'docs' / f'{DOC_NAME}.html'
+OUT = ROOT / 'docs' / f'{DOC_NAME}.docx'
 
 # 封面上的版本号取自 package.json，不写死。
 # 写死的代价很具体：改版本号时漏掉这一处，就会出现「安装包叫 1.2.0、
@@ -328,6 +334,38 @@ def inlines(p, el, size=10.5, color=TEXT2, bold=False, italic=False, mono=False)
         if ch.tail:
             add_run(p, ch.tail, size=size, color=color, bold=bold,
                     italic=italic, mono=mono)
+    return p
+
+
+def cover_runs(p, el, size, color, lstrip_first=True):
+    """封面专用行内文本：`<b>` 换成亮白粗体，而不是 inlines 的 TEXT1。
+
+    封面的底是 #072057（近黑的深蓝）。inlines 把所有 `<b>` 涂成 TEXT1＝#0a1326，
+    压在深蓝上等于隐身 —— 封面副标题里那句「本地 AI 工作台」就会看不见。
+    底色上的字色不能走通用的那套映射，只能由封面自己定。
+    """
+    state = {'first': lstrip_first}
+
+    def emit(node, col, bd):
+        if node.text:
+            t = node.text.lstrip() if state['first'] else node.text
+            state['first'] = False
+            add_run(p, t, size=size, color=col, bold=bd)
+        for ch in node:
+            tag = ch.tag.lower() if isinstance(ch.tag, str) else ''
+            if tag == 'br':
+                p.add_run().add_break()
+                # 硬断行之后即行首：源码里 <br> 后面的换行与缩进在 HTML 里会被折叠掉，
+                # 不能当成空格留在行首，否则封面上每行都缩进两个字。
+                ch.tail = (ch.tail or '').lstrip()
+            elif tag in ('b', 'strong'):
+                emit(ch, WHITE, True)
+            else:
+                emit(ch, col, bd)
+            if ch.tail:
+                add_run(p, ch.tail, size=size, color=col, bold=bd)
+
+    emit(el, color, False)
     return p
 
 
@@ -674,12 +712,24 @@ def add_arch(doc, el):
     return outer
 
 
-def add_figure(doc, el):
-    """<figure><img src=…><figcaption>…</figcaption></figure> → 通栏图 + 居中小号题注。
+FIG_W = 12.0      # cm，图宽（正文栏 16.6cm）。与 HTML 的 figure{width:12cm} 同一个数
+FIG_IND = 2.3     # cm，题注左缩进 = (16.6-12)/2，与图的左边缘对齐
 
-    图宽钉死正文栏宽 16.6cm（=21cm 页宽 - 左右各 2.2cm 边距）。题注另起一段、
-    居中对齐但左对齐读起来更顺——这里用居中，与图的轴线一致。
-    图和题注都 keep_together，且图 keep_with_next，避免题注被分页甩到下一页。
+
+def add_figure(doc, el):
+    """<figure><img src=…><figcaption>…</figcaption></figure> → 居中小号图 + 题注。
+
+    图**不通栏**（原来是 16.6cm 满宽）。原因是分页，不是美观：
+    16.6cm 宽的图高 10.4cm，加题注近 12.4cm —— 而正文栏高 25.3cm，
+    于是「图块」永远塞不进小于 11cm 的缝。表格后面留 8~10cm 是常态，
+    图被整块推到下一页，那一页底就空掉三分之一（实测 p11 空 10.5cm、
+    p16 空 9.8cm）。缩到 12cm 后图 7.5cm、整块 ≈ 8.9cm，才落得进这些缝。
+
+    代价是截图小了一半 —— 桌面 UI 截图的正文本来就在可读边缘
+    （见项目记忆：16.6cm 栏宽下正文约 3.8pt），所以图传达的是版式与
+    大字块（健康分 24、88.3% 这类），细节靠题注说；题注因此**一个字没删**。
+    题注左缩进到图的左边缘，而不是贴到栏的左边缘：图居中、题注贴栏边
+    看起来是两截；缩进 2.3cm 之后图与题注是一个块。
     """
     img = el.find('img')
     cap = el.find('figcaption')
@@ -699,18 +749,15 @@ def add_figure(doc, el):
     pic = doc.add_paragraph()
     para(pic, before=3, after=1, line=1.0, align=WD_ALIGN_PARAGRAPH.CENTER)
     pic.paragraph_format.keep_with_next = True
-    pic.add_run().add_picture(str(path), width=Cm(16.6))
+    pic.add_run().add_picture(str(path), width=Cm(FIG_W))
 
     if cap is not None:
         cp = doc.add_paragraph()
-        # 段距一压再压是为了让「图 + 题注」这一块正好塞进一页的下半栏：
-        # 块高 ≈ 10.37(图) + 0.2(段距) + 0.7(题注) + 0.15 ≈ 11.4cm，
-        # 半栏可用 12.7cm。之前 after=8/line=1.2 时块高 12.6cm，
-        # 差一点点挤不进去，Word 整块推到下一页 —— p08 因此空了一半。
-        # 题注左对齐而不是居中：两行以上的题注居中会把末行甩成孤零零的一截，
-        # 左对齐读起来才像正文的一部分。
-        para(cp, before=0, after=4, line=1.15, align=WD_ALIGN_PARAGRAPH.LEFT)
-        inlines(cp, cap, size=8.5, color=TEXT3)
+        # 题注左对齐（居中会把两行以上的末行甩成孤零零一截），行距压到 1.12、
+        # 字号 7.5pt：整块每矮一分，能落进的缝就多一分。
+        para(cp, before=0, after=4, line=1.12, align=WD_ALIGN_PARAGRAPH.LEFT,
+             indent_left=FIG_IND)
+        inlines(cp, cap, size=7.5, color=TEXT3)
 
 
 def add_table(doc, el):
@@ -794,8 +841,15 @@ def add_table(doc, el):
 # 封面
 # ============================================================
 
-def build_cover(doc, sec):
-    """整页满版封面：页边距 0 + 一张填满 A4 的深蓝单元格。"""
+def build_cover(doc, sec, cov):
+    """整页满版封面：页边距 0 + 一张填满 A4 的深蓝单元格。
+
+    封面文案**从 HTML 的 <section class="cover"> 里读**，不写在 Python 里：
+    《产品说明书》与《作品说明书》的封面结构相同、只有字不一样，写死等于把生成器
+    抄成两份，改一处必漏另一处。认字段靠 class（mark / badge / h1 / en / sub /
+    meta>row / meta>sig）。字色仍由这里定死 —— 深蓝底上的 `<b>` 不能走 inlines
+    的通用映射（它会把粗体涂成近黑，等于隐身，见 cover_runs）。
+    """
     sec.page_width, sec.page_height = Cm(21), Cm(29.7)
     for a in ('top_margin', 'bottom_margin', 'left_margin', 'right_margin'):
         setattr(sec, a, Cm(0))
@@ -818,62 +872,85 @@ def build_cover(doc, sec):
         para(p, size=n_pt, after=0, line=1.0)
         return p
 
-    blank(88)
-    p = c.add_paragraph()
-    para(p, size=10, after=0, line=1.0)
-    add_run(p, 'M I N E C O   P I L O T', size=10, color='7DE8F2', bold=True)
+    def grab(token, tag='div'):
+        return find_cls(cov, tag, token) if cov is not None else None
 
-    p = c.add_paragraph()
-    para(p, before=22, after=0, line=1.0)
-    add_run(p, '产品说明书', size=10, color='7DE8F2')
+    def txt(el):
+        """折掉源码缩进：HTML 是缩进排版的，不折的话每行都缩进两个字。"""
+        return ' '.join(''.join(el.itertext()).split()) if el is not None else ''
 
-    p = c.add_paragraph()
-    para(p, before=16, after=0, line=1.15)
-    add_run(p, '矿山智工', size=40, color=WHITE, bold=True)
+    # 上方留白：整块要落在光学中心上。原来是 88pt，实测封面下半截空出一条
+    # （内容底在 22.1cm / 页高 29.7cm），头重脚轻，所以往下压一点。
+    blank(118)
 
-    p = c.add_paragraph()
-    para(p, before=6, after=0, line=1.3)
-    add_run(p, '设备健康智能体 · Counselor for Machines', size=12, color='A9C6EE')
+    el = grab('mark')
+    if el is not None:
+        # Word 没有 letter-spacing，只能按字符拆开排（封面原本就是这么处理的）。
+        p = c.add_paragraph()
+        para(p, size=10, after=0, line=1.0)
+        add_run(p, '   '.join(' '.join(w) for w in txt(el).split()),
+                size=10, color='7DE8F2', bold=True)
+
+    el = grab('badge')
+    if el is not None:
+        p = c.add_paragraph()
+        para(p, before=22, after=0, line=1.0)
+        add_run(p, txt(el), size=10, color='7DE8F2')
+
+    h1 = cov.find('h1') if cov is not None else None
+    if h1 is not None:
+        p = c.add_paragraph()
+        para(p, before=16, after=0, line=1.15)
+        add_run(p, txt(h1), size=40, color=WHITE, bold=True)
+
+    el = grab('en')
+    if el is not None:
+        p = c.add_paragraph()
+        para(p, before=6, after=0, line=1.3)
+        add_run(p, txt(el), size=12, color='A9C6EE')
 
     p = c.add_paragraph()
     para(p, before=16, after=0, line=1.0)
     para_border(p, {'bottom': (18, '7DE8F2')})
-    p.runs and None
     add_run(p, ' ', size=2, color=ACCENT_DK)
 
-    p = c.add_paragraph()
-    para(p, before=22, after=0, line=1.6)
-    add_run(p, '不联网、不调云端大模型，', size=13, color='DBE7F8')
-    p.add_run().add_break()
-    add_run(p, '在一台笔记本上完成矿山设备全生命周期运维的', size=13, color='DBE7F8')
-    p.add_run().add_break()
-    add_run(p, '本地 AI 工作台', size=13, color=WHITE, bold=True)
-    add_run(p, '。', size=13, color='DBE7F8')
+    el = grab('sub')
+    if el is not None:
+        p = c.add_paragraph()
+        para(p, before=22, after=0, line=1.6)
+        cover_runs(p, el, 13, 'DBE7F8')
 
-    p = c.add_paragraph()
-    para(p, before=26, after=0, line=1.75)
-    add_run(p, '当前版本　', size=10, color='BCD2EF')
-    add_run(p, f'v{VERSION}', size=10, color=WHITE, bold=True)
-    p.add_run().add_break()
-    add_run(p, '产品形态　', size=10, color='BCD2EF')
-    add_run(p, 'Windows 桌面版（Electron）· 单机离线', size=10, color=WHITE, bold=True)
-    p.add_run().add_break()
-    add_run(p, '核心理念　', size=10, color='BCD2EF')
-    add_run(p, '规则引擎出数字，本地大模型只说人话', size=10, color=WHITE, bold=True)
-    p.add_run().add_break()
-    add_run(p, '运行要求　', size=10, color='BCD2EF')
-    add_run(p, '无 GPU · 无服务器 · 无网络', size=10, color=WHITE, bold=True)
+    meta = grab('meta')
+    rows = findall_cls(meta, 'div', 'row') if meta is not None else []
+    if rows:
+        # 四行元信息排在同一段里、用硬断行分隔（与拆分前逐字对齐的排法一致）。
+        p = c.add_paragraph()
+        para(p, before=26, after=0, line=1.75)
+        for i, r in enumerate(rows):
+            if i:
+                p.add_run().add_break()
+            k = find_cls(r, 'span', 'k')
+            label = txt(k)
+            b = r.find('b')
+            value = txt(b) if b is not None else txt(r).replace(label, '', 1).strip()
+            # 版本号一律以 package.json 为准，HTML 里那份只作对账用。写死的代价很具体：
+            # 安装包叫 1.2.0、封面印着 1.1.0 —— 而封面正是要交给别人看的那一页。
+            if label == '当前版本':
+                if value != f'v{VERSION}':
+                    print(f'  注意：封面版本号 HTML 写的是 {value}，'
+                          f'package.json 是 v{VERSION}，按后者出。')
+                value = f'v{VERSION}'
+            add_run(p, label + '　', size=10, color='BCD2EF')
+            add_run(p, value, size=10, color=WHITE, bold=True)
 
-    p = c.add_paragraph()
-    para(p, before=30, after=0, line=1.7)
-    add_run(p, '开发者：孔德尚（石家庄铁道大学）', size=9, color='8FB0DC')
-    p.add_run().add_break()
-    add_run(p, '版权所有 © 2026 石家庄铁道大学 孔德尚，保留所有权利', size=9, color='8FB0DC')
-    p.add_run().add_break()
-    add_run(p, '2026 年 9 月', size=9, color='8FB0DC')
+    sig = find_cls(meta, 'div', 'sig') if meta is not None else None
+    if sig is not None:
+        p = c.add_paragraph()
+        para(p, before=30, after=0, line=1.7)
+        cover_runs(p, sig, 9, '8FB0DC')
 
 
-def build_footer(section):
+def build_footer(section, label):
     footer = section.footer
     footer.is_linked_to_previous = False
     p = footer.paragraphs[0]
@@ -882,7 +959,7 @@ def build_footer(section):
     # 左：文档名  右：页码
     tabs = pf.tab_stops
     tabs.add_tab_stop(Cm(16.6), WD_ALIGN_PARAGRAPH.RIGHT)
-    add_run(p, '矿山智工 · 产品说明书', size=8, color=MUTE)
+    add_run(p, label, size=8, color=MUTE)
     add_run(p, '\t', size=8, color=MUTE)
     r = p.add_run()
     style_run(r, size=8, color=MUTE)
@@ -907,9 +984,14 @@ def main():
     normal.font.size = Pt(10)
     normal.element.rPr.rFonts.set(qn('w:eastAsia'), FONT)
 
+    tree = LH.parse(str(SRC)).getroot()
+    body = tree.find('body')
+    cover_el = next((s for s in body.findall('section')
+                     if 'cover' in (s.get('class') or '').split()), None)
+
     # 第一节 = 封面（页边距 0）
     cover_sec = doc.sections[0]
-    build_cover(doc, cover_sec)
+    build_cover(doc, cover_sec, cover_el)
 
     # 第二节 = 正文（正常 A4 页边距）
     body_sec = doc.add_section(WD_SECTION.NEW_PAGE)
@@ -919,10 +1001,7 @@ def main():
     body_sec.left_margin = Cm(2.2)
     body_sec.right_margin = Cm(2.2)
     body_sec.footer_distance = Cm(1.1)
-    build_footer(body_sec)
-
-    tree = LH.parse(str(SRC)).getroot()
-    body = tree.find('body')
+    build_footer(body_sec, f'矿山智工 · {DOC_NAME}')
 
     # 视觉块：紧跟其后的那一块是「被引导句指着的图」。引导句若留在上一页、
     # 块被推到下一页，读起来就是一句话被腰斩——p04 顶上那个光秃秃的流程块
