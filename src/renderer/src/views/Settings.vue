@@ -297,6 +297,32 @@
         <el-button link type="primary" size="small" @click="copyDbPath">复制路径</el-button>
       </div>
     </el-card>
+
+    <!-- ===== 关于本软件（开发者署名与版权） =====
+         放在最后一张卡：它不是设置项，改不了任何东西，摆在"数据备份"之后
+         才不打断前面那几张真正能调的卡片。 -->
+    <el-card shadow="never" style="margin-top: 16px">
+      <template #header>
+        <div class="card-header">
+          <span><el-icon><InfoFilled /></el-icon> 关于本软件</span>
+          <el-tag size="small" type="info" effect="plain">开发者署名 · 版权声明</el-tag>
+        </div>
+      </template>
+
+      <div class="about-grid">
+        <div class="about-row"><span class="about-k">软件名称</span><span class="about-v">矿山智工 · 设备健康智能体</span></div>
+        <div class="about-row"><span class="about-k">当前版本</span><span class="about-v">v{{ appVersion }}</span></div>
+        <div class="about-row"><span class="about-k">开发者</span><span class="about-v">孔德尚</span></div>
+        <div class="about-row"><span class="about-k">所在单位</span><span class="about-v">石家庄铁道大学</span></div>
+        <div class="about-row"><span class="about-k">运行方式</span><span class="about-v">全离线 · 不联网、不调用任何云端大模型 API，数据不出本机</span></div>
+        <div class="about-row"><span class="about-k">许可</span><span class="about-v">专有许可 · 保留所有权利（全文见随包的 LICENSE）</span></div>
+      </div>
+
+      <div class="about-copy">
+        版权所有 © 2026 石家庄铁道大学 孔德尚　保留所有权利。<br>
+        未经著作权人事先书面许可，不得复制、修改、分发本软件或其任何部分，亦不得用于商业目的。
+      </div>
+    </el-card>
   </div>
 </template>
 
@@ -314,6 +340,17 @@ import {
   removeAccount, setIdleMinutes
 } from '../utils/appLock'
 import * as db from '../utils/database'
+
+/**
+ * 「关于」卡片里的版本号。与 App.vue 侧栏底部**同一个来源** —— vite define 注入的
+ * 构建期常量（vite.config.mjs 里取自 package.json 的 version）。
+ *
+ * 这里一个版本字面量都不许写。self-check 的字面量扫描只覆盖 App.vue，
+ * 但规矩是全局的：一旦哪一处手写死，改版本号时就会漏掉那一处，
+ * 于是出现"关于页写着 1.1.0、安装包名却是 1.2.0"—— 这种不一致
+ * 恰恰是答辩现场一眼能看见的。非构建环境退回 'dev'，不假装知道版本。
+ */
+const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev'
 
 const store = useAppStore()
 const saving = ref(false)
@@ -1183,5 +1220,42 @@ html[data-theme="dark"] .step-num { background: #1c6bd4; }
   padding: 2px 6px;
   font-size: 11px;
   word-break: break-all;
+}
+
+/* 「关于」卡片（开发者署名与版权）。
+   颜色一律走 tokens.css 已有的 --text-1/2/3 —— 那三档是照对比度定的
+   （白底 18.5 / 8.8 / 6.0:1），这里另发明一个色值就会让 audit:contrast
+   审 /settings 时红掉。字号取 13px（与页面其它正文同档），
+   版权那句略小一点、用 --text-3，读得清但不是主角。 */
+.about-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.about-row {
+  display: flex;
+  gap: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.about-k {
+  flex: none;
+  width: 76px;
+  color: var(--text-3);
+}
+
+.about-v {
+  color: var(--text-2);
+}
+
+.about-copy {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-2);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-3);
 }
 </style>

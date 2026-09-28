@@ -85,6 +85,11 @@
           重置演示数据
         </el-button>
         <div class="version">v{{ appVersion }}</div>
+        <!-- 开发者署名与版权。与 package.json 的 author / build.copyright、
+             根目录 LICENSE、index.html 的两条 meta 共五处保持同一口径。
+             刻意**不在这里写版本号字面量** —— self-check 扫 App.vue 里的
+             `v\d+\.\d+\.\d+`，写了就红；版本号只由上面那行绑定的 appVersion 提供。 -->
+        <div class="copyright">© 2026 石家庄铁道大学 · 孔德尚</div>
       </div>
     </el-aside>
 
@@ -820,6 +825,16 @@ html, body, #app {
   margin-top: 6px;
 }
 
+/* 开发者署名与版权。字号、颜色与 .version 同档 —— 这两行是同一组
+   "关于这份软件"的元信息，一个亮一个暗反而显得像两拨人写的。
+   颜色沿用 0.58：侧栏底 #072159 上实测约 5.9:1，过 AA（audit:contrast 会审）。 */
+.copyright {
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.58);
+  margin-top: 3px;
+  line-height: 1.5;
+}
+
 /* 当前身份（P4-3）。字号与 .offline-badge 同档，颜色比它更亮的 0.86：
    这行是"谁在操作、以谁的名义留痕"的答案，侧栏底色 #072159 上
    0.62 那档（storage-line）在此处偏暗，审计场景要一眼看清。 */
@@ -997,6 +1012,7 @@ html, body, #app {
   .nav-item .nav-badge,
   .nav-item .nav-pin,
   .aside-footer .version,
+  .aside-footer .copyright,
   .aside-footer .storage-line,
   .aside-footer .reset-btn,
   .aside-footer .offline-badge {
