@@ -16,9 +16,9 @@ on:
       - 'v*'
 
 jobs:
-  build-mac-arm64:
-    name: macOS ARM64 (Apple Silicon)
-    runs-on: macos-14
+  build-mac:
+    name: macOS DMG (x64 + ARM64)
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -50,68 +50,18 @@ jobs:
 
       - name: Build DMG (online)
         if: github.event_name == 'push' || github.event.inputs.build_type == 'online'
-        run: npx electron-builder --config electron-builder.online.json --mac --arm64
+        run: npx electron-builder --config electron-builder.online.json --mac --x64 --arm64
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build DMG (offline)
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.build_type == 'offline'
-        run: npx electron-builder --config electron-builder.offline.json --mac --arm64
+        run: npx electron-builder --config electron-builder.offline.json --mac --x64 --arm64
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: mac-arm64
-          path: release*/*.dmg
-
-  build-mac-x64:
-    name: macOS x64 (Intel)
-    runs-on: macos-13
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Convert icon to ICNS
-        run: |
-          mkdir -p build/icon.iconset
-          sips -s format png build/icon.ico --out build/icon_512.png
-          for size in 16 32 64 128 256 512; do
-            sips -z $size $size build/icon_512.png --out build/icon.iconset/icon_${size}x${size}.png
-            double=$((size * 2))
-            if [ $double -le 1024 ]; then
-              sips -z $double $double build/icon_512.png --out build/icon.iconset/icon_${size}x${size}@2x.png
-            fi
-          done
-          sips -z 1024 1024 build/icon_512.png --out build/icon.iconset/icon_512x512@2x.png
-          iconutil -c icns build/icon.iconset -o build/icon.icns
-          rm -rf build/icon.iconset build/icon_512.png
-
-      - name: Build Vue app
-        run: npm run build
-
-      - name: Build DMG (online)
-        if: github.event_name == 'push' || github.event.inputs.build_type == 'online'
-        run: npx electron-builder --config electron-builder.online.json --mac --x64
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build DMG (offline)
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.build_type == 'offline'
-        run: npx electron-builder --config electron-builder.offline.json --mac --x64
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: mac-x64
+          name: mac-dmg
           path: release*/*.dmg
