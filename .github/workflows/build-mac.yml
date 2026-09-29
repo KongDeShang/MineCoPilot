@@ -33,9 +33,7 @@ jobs:
       - name: Convert icon to ICNS
         run: |
           mkdir -p build/icon.iconset
-          # 从 ICO 提取 PNG（sips 支持 ICO 输入）
           sips -s format png build/icon.ico --out build/icon_512.png
-          # 生成各尺寸
           for size in 16 32 64 128 256 512; do
             sips -z $size $size build/icon_512.png --out build/icon.iconset/icon_${size}x${size}.png
             double=$((size * 2))
@@ -43,7 +41,6 @@ jobs:
               sips -z $double $double build/icon_512.png --out build/icon.iconset/icon_${size}x${size}@2x.png
             fi
           done
-          # 1024 版本
           sips -z 1024 1024 build/icon_512.png --out build/icon.iconset/icon_512x512@2x.png
           iconutil -c icns build/icon.iconset -o build/icon.icns
           rm -rf build/icon.iconset build/icon_512.png
@@ -67,7 +64,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mac-arm64
-          path: release/*.dmg
+          path: release*/*.dmg
 
   build-mac-x64:
     name: macOS x64 (Intel)
@@ -117,4 +114,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mac-x64
-          path: release/*.dmg
+          path: release*/*.dmg
