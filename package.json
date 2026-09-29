@@ -23,7 +23,9 @@
     "electron:build": "vite build && electron-builder --config electron-builder.offline.json",
     "electron:build:offline": "vite build && electron-builder --config electron-builder.offline.json",
     "electron:build:online": "vite build && electron-builder --config electron-builder.online.json",
-    "electron:build:dir": "vite build && electron-builder --dir"
+    "electron:build:dir": "vite build && electron-builder --dir",
+    "electron:build:mac": "vite build && electron-builder --config electron-builder.offline.json --mac",
+    "electron:build:mac:online": "vite build && electron-builder --config electron-builder.online.json --mac"
   },
   "keywords": [
     "mining",

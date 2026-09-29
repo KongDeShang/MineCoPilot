@@ -53,10 +53,25 @@
     "shortcutName": "矿山智工"
   },
   "mac": {
+    "icon": "build/icon.ico",
     "target": [
-      "dmg"
+      {
+        "target": "dmg",
+        "arch": ["x64", "arm64"]
+      }
     ],
-    "category": "public.app-category.business"
+    "category": "public.app-category.business",
+    "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
+    "identity": null,
+    "hardenedRuntime": false,
+    "gatekeeperAssess": false
+  },
+  "dmg": {
+    "backgroundColor": "#ffffff",
+    "contents": [
+      { "x": 130, "y": 220 },
+      { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+    ]
   },
   "linux": {
     "target": [
