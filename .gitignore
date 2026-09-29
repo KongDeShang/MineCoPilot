@@ -40,3 +40,4 @@ docs/产品说明.pdf
 # 视频制作临时工作区（含打包JS/bgm/调试截图等草稿，不入库）
 video-temp/
 docs/*.mp4
+release-mac/
